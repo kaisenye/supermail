@@ -1,0 +1,11 @@
+node_modules/
+out/
+dist/
+.env.local
+.env
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+.pnpm-store/
+src/ui/out/

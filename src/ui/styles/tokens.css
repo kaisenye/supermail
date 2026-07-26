@@ -1,0 +1,130 @@
+/*
+ * Supermail design tokens.
+ *
+ * Two surfaces only (bg, raised) and a 4-step text ramp. Restraint is the
+ * point: in a client you stare at for hours, every extra shade is noise.
+ * Colour appears only where it carries meaning — unread, selection, flags.
+ */
+
+:root {
+  --font-ui: 'Inter Tight', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Type scale: 11/12/13/15/19. Dense, optical, no fractional sizes. */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 15px;
+  --text-lg: 19px;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+
+  /* 4px base grid. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --row-height: 32px;
+  --sidebar-width: 208px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+
+  /* Motion: fast enough to feel instant, present enough to orient. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 90ms;
+  --duration-base: 150ms;
+}
+
+/* Light — warm-neutral paper, not clinical white. */
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #fcfcfb;
+  --bg-raised: #ffffff;
+  --bg-sunken: #f6f6f4;
+
+  --surface-hover: rgba(17, 17, 16, 0.035);
+  --surface-selected: rgba(17, 17, 16, 0.06);
+  --surface-active: rgba(60, 90, 200, 0.09);
+
+  --text-primary: #16161a;
+  --text-secondary: #55555f;
+  --text-tertiary: #86868f;
+  --text-quaternary: #a8a8b0;
+
+  --border: rgba(17, 17, 16, 0.08);
+  --border-strong: rgba(17, 17, 16, 0.14);
+
+  --accent: #3355dd;
+  --accent-fg: #ffffff;
+  --unread: #2244cc;
+  --flag: #d97706;
+
+  --shadow-sm: 0 1px 2px rgba(17, 17, 16, 0.05);
+  --shadow-md: 0 4px 16px -2px rgba(17, 17, 16, 0.1), 0 1px 3px rgba(17, 17, 16, 0.06);
+}
+
+/* Dark — near-black with a blue cast, never pure #000 (harsh on OLED). */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0d0d10;
+  --bg-raised: #141419;
+  --bg-sunken: #09090b;
+
+  --surface-hover: rgba(255, 255, 255, 0.04);
+  --surface-selected: rgba(255, 255, 255, 0.07);
+  --surface-active: rgba(120, 150, 255, 0.13);
+
+  --text-primary: #ececed;
+  --text-secondary: #a0a0aa;
+  --text-tertiary: #6e6e78;
+  --text-quaternary: #4e4e57;
+
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.12);
+
+  --accent: #6b8aff;
+  --accent-fg: #0d0d10;
+  --unread: #8aa4ff;
+  --flag: #f0a844;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px -2px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --bg: #0d0d10;
+    --bg-raised: #141419;
+    --bg-sunken: #09090b;
+
+    --surface-hover: rgba(255, 255, 255, 0.04);
+    --surface-selected: rgba(255, 255, 255, 0.07);
+    --surface-active: rgba(120, 150, 255, 0.13);
+
+    --text-primary: #ececed;
+    --text-secondary: #a0a0aa;
+    --text-tertiary: #6e6e78;
+    --text-quaternary: #4e4e57;
+
+    --border: rgba(255, 255, 255, 0.07);
+    --border-strong: rgba(255, 255, 255, 0.12);
+
+    --accent: #6b8aff;
+    --accent-fg: #0d0d10;
+    --unread: #8aa4ff;
+    --flag: #f0a844;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 16px -2px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+}
