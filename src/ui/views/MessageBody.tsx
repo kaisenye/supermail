@@ -1,0 +1,195 @@
+import { useEffect, useRef, useState } from 'react'
+import type { BodyResult } from '../../../electron/preload'
+
+interface Props {
+  messageId: number
+}
+
+/**
+ * Renders email HTML inside a sandboxed iframe. The HTML is already sanitised
+ * in the main process; the sandbox is the second layer, and srcdoc with no
+ * allow-same-origin means the frame cannot reach window.api or our storage.
+ */
+export function MessageBody({ messageId }: Props) {
+  const [body, setBody] = useState<BodyResult | null>(null)
+  const [showImages, setShowImages] = useState(false)
+  const [height, setHeight] = useState(120)
+  const frameRef = useRef<HTMLIFrameElement>(null)
+  const probeRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setBody(null)
+    setHeight(120)
+    window.api.getBody(messageId, showImages).then((r) => {
+      if (!cancelled) setBody(r)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [messageId, showImages])
+
+  /**
+   * The frame is fully opaque (no allow-scripts, no allow-same-origin), so
+   * neither side can measure across the boundary. Instead a hidden host-side
+   * probe lays out the same sanitised HTML at the same width and reports its
+   * height. The probe never loads remote images and runs no scripts, so it
+   * costs nothing in privilege.
+   */
+  useEffect(() => {
+    const probe = probeRef.current
+    if (!probe || !body?.ok) return
+
+    let raf = 0
+    const measure = (): void => {
+      const h = probe.scrollHeight
+      if (h > 0) setHeight(Math.min(20000, Math.max(40, h + 8)))
+    }
+
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(measure)
+    })
+    observer.observe(probe)
+    measure()
+
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(raf)
+    }
+  }, [body])
+
+  if (!body) return <div className="body-loading">Loading…</div>
+  if (!body.ok) return <div className="body-error">{body.error}</div>
+
+  const doc = buildDoc(body.html)
+  const links = extractLinks(body.html)
+
+  return (
+    <div className="message-body">
+      {body.blockedImages > 0 && !showImages && (
+        <div className="images-blocked">
+          <span>
+            {body.blockedImages} remote image{body.blockedImages === 1 ? '' : 's'} blocked
+          </span>
+          <button onClick={() => setShowImages(true)}>Load images</button>
+        </div>
+      )}
+      {/*
+        Hidden measuring probe. Content is the same main-process-sanitised
+        HTML; React's innerHTML never executes <script> tags, and the probe is
+        aria-hidden and visually removed so it is inert in every sense.
+      */}
+      <div
+        ref={probeRef}
+        className="body-probe"
+        aria-hidden="true"
+        dangerouslySetInnerHTML={{ __html: doc.probeHtml }}
+      />
+      <iframe
+        ref={frameRef}
+        className="body-frame"
+        style={{ height }}
+        /*
+         * Fully opaque sandbox: no allow-scripts (nothing executes) and no
+         * allow-same-origin (frame cannot reach window.api, our storage, or
+         * this document). Height is measured by a hidden host-side probe
+         * instead, so the frame needs no privileges at all.
+         */
+        sandbox=""
+        srcDoc={doc.srcDoc}
+        title="Message body"
+      />
+      {/* The frame is fully sandboxed, so its links cannot navigate. Surface
+          them here instead, opened via the host in the real browser. */}
+      {links.length > 0 && (
+        <details className="body-links">
+          <summary>
+            {links.length} link{links.length === 1 ? '' : 's'}
+          </summary>
+          <ul>
+            {links.map((href, i) => (
+              <li key={i}>
+                <button
+                  onClick={() => window.api.openExternal(href)}
+                  title={href}
+                >
+                  {href}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {body.attachments.length > 0 && (
+        <ul className="attachments">
+          {body.attachments.map((a) => (
+            <li key={a.id} className="attachment">
+              <span className="attachment-name">{a.filename ?? 'untitled'}</span>
+              <span className="attachment-size">{formatSize(a.size)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** Unique http(s) links, in document order. */
+function extractLinks(html: string): string[] {
+  const found = new Set<string>()
+  for (const m of html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/gi)) {
+    const href = m[1].replace(/&amp;/g, '&')
+    if (/^https?:\/\//i.test(href)) found.add(href)
+  }
+  return [...found].slice(0, 50)
+}
+
+function formatSize(bytes: number | null): string {
+  if (!bytes) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+/** Styles are inlined so the frame needs no network and inherits our theme. */
+function buildDoc(html: string): { srcDoc: string; probeHtml: string } {
+  const dark = document.documentElement.dataset.theme
+    ? document.documentElement.dataset.theme === 'dark'
+    : window.matchMedia('(prefers-color-scheme: dark)').matches
+
+  const fg = dark ? '#ececed' : '#16161a'
+  const muted = dark ? '#6e6e78' : '#86868f'
+  const link = dark ? '#8aa4ff' : '#2244cc'
+  const quote = dark ? 'rgba(255,255,255,0.12)' : 'rgba(17,17,16,0.14)'
+
+  const css = `
+    html,body { margin:0; padding:0; background:transparent; overflow:hidden; }
+    body {
+      font-family: 'Inter Tight', -apple-system, sans-serif;
+      font-size: 13.5px; line-height: 1.55; color: ${fg};
+      word-wrap: break-word; overflow-wrap: anywhere;
+    }
+    img { max-width: 100%; height: auto; }
+    a { color: ${link}; }
+    blockquote {
+      margin: 8px 0; padding-left: 12px;
+      border-left: 2px solid ${quote}; color: ${muted};
+    }
+    pre { white-space: pre-wrap; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+    table { max-width: 100%; }
+    p { margin: 0 0 10px; }`
+
+  const srcDoc = `<!doctype html>
+<html><head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; img-src https: http: data: cid:; style-src 'unsafe-inline'">
+<style>${css}</style>
+  <!-- No script here: the sandbox withholds allow-scripts on purpose.
+       A hidden host-side probe measures height from outside. -->
+</head><body>${html}</body></html>`
+
+  // The probe reuses the frame's HTML and CSS so its layout — and therefore
+  // its height — matches. Blocked images keep data-blocked-src, so it makes
+  // no network requests of its own.
+  return { srcDoc, probeHtml: `<style>${css}</style>${html}` }
+}
