@@ -4,7 +4,9 @@ import { processors } from '../pipeline/index.js'
 import { runPipeline } from '../pipeline/pipeline.js'
 import { getDb } from '../store/db.js'
 import {
+  deleteFolder,
   listFolders,
+  oldestSyncedUid,
   resetFolder,
   setLastUid,
   upsertFolder
@@ -16,6 +18,8 @@ import {
   mailboxStatus,
   type MailboxStatus
 } from './imap.js'
+import { reconcileFolder } from './reconcile.js'
+import type { RawMessage } from '../pipeline/types.js'
 
 export interface SyncOptions {
   /** Cap per folder on the initial pass. */
@@ -23,6 +27,8 @@ export interface SyncOptions {
   /** Skip messages older than this. */
   sinceDays?: number
   onProgress?: (p: SyncProgress) => void
+  /** Message ids with an unflushed local flag write; reconcile leaves them alone. */
+  pendingFlagIds?: Set<number>
 }
 
 export interface SyncProgress {
@@ -36,10 +42,14 @@ export interface SyncProgress {
 export interface SyncResult {
   folders: number
   messages: number
+  /** Flags corrected from the server (read/unread/star changed elsewhere). */
+  reconciled: number
   errors: { folder: string; message: string }[]
 }
 
-const DEFAULTS = { maxPerFolder: 2000, sinceDays: 90 }
+// Matches the widest window Exmail will expose over IMAP (its account-level
+// retention setting), so the cutoff never discards mail the server offers.
+const DEFAULTS = { maxPerFolder: 20000, sinceDays: 760 }
 
 export async function syncAccount(
   accountId: number,
@@ -51,7 +61,8 @@ export async function syncAccount(
   const cutoff = Date.now() - sinceDays * 86_400_000
   const progress = opts.onProgress ?? (() => {})
 
-  const result: SyncResult = { folders: 0, messages: 0, errors: [] }
+  const pendingFlagIds = opts.pendingFlagIds ?? new Set<number>()
+  const result: SyncResult = { folders: 0, messages: 0, reconciled: 0, errors: [] }
   const client: ImapFlow = createClient(config)
 
   progress({ phase: 'connect' })
@@ -63,8 +74,14 @@ export async function syncAccount(
     for (const b of boxes) {
       // \NoSelect entries are containers, not mailboxes.
       if (!b.selectable) continue
+      if (isIgnoredFolder(b.path)) continue
       upsertFolder({ account_id: accountId, name: b.name, path: b.path, uidvalidity: null })
       result.folders++
+    }
+
+    // Clear out folders a previous sync stored before they were ignored.
+    for (const f of listFolders(accountId)) {
+      if (isIgnoredFolder(f.path)) deleteFolder(f.id)
     }
 
     // INBOX first so the primary view is usable before the rest finishes.
@@ -92,9 +109,27 @@ export async function syncAccount(
         // Skipping an unchanged folder avoids the SELECT round-trip, which
         // dominates sync wall-clock.
         const pre = statuses.get(folder.id) ?? (await mailboxStatus(client, folder.path))
-        const unchanged =
+        const noNewMail =
           folder.uidvalidity === pre.uidValidity && pre.uidNext <= folder.last_uid + 1
-        if (unchanged) {
+
+        // UIDNEXT only moves when mail ARRIVES, so it cannot tell us a message
+        // was read, starred or deleted elsewhere — that needs a flags FETCH.
+        // STATUS is far cheaper, so use it to decide when one is worth doing.
+        const localCount = countLocal(folder.id)
+        const localUnseen = countLocalUnseen(folder.id)
+        const drifted = pre.unseen !== localUnseen || pre.exists !== localCount
+        // Evaluate the timer unconditionally: it records when it last ran, and
+        // short-circuiting past it would let that stamp go stale.
+        const periodic = dueForFullReconcile(folder.id)
+        if (drifted || periodic) {
+          const rec = await reconcileFolder(client, folder.path, folder.id, {
+            skipIds: pendingFlagIds,
+            dropVanished: pre.exists < localCount
+          })
+          result.reconciled += rec.updated + rec.vanished
+        }
+
+        if (noNewMail) {
           progress({ phase: 'folder', folder: folder.path, synced: 0 })
           continue
         }
@@ -144,8 +179,123 @@ export async function syncAccount(
   }
 }
 
+/**
+ * Exmail's "other folders" tree (其他文件夹/...) is unused here, and syncing it
+ * costs a STATUS round-trip per folder on every pass.
+ */
+const IGNORED_PREFIXES = ['其他文件夹']
+
+export function isIgnoredFolder(path: string): boolean {
+  return IGNORED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))
+}
+
+/** Stars and \Answered do not show up in STATUS, so sweep occasionally anyway. */
+const FULL_RECONCILE_MS = 10 * 60_000
+const lastReconcile = new Map<number, number>()
+
+function dueForFullReconcile(folderId: number): boolean {
+  const now = Date.now()
+  const prev = lastReconcile.get(folderId) ?? 0
+  if (now - prev < FULL_RECONCILE_MS) return false
+  lastReconcile.set(folderId, now)
+  return true
+}
+
+/** Local unseen count, mirroring the server's STATUS UNSEEN for comparison. */
+function countLocalUnseen(folderId: number): number {
+  return (
+    getDb()
+      .prepare(
+        `SELECT count(*) c FROM messages m
+         WHERE folder_id = ? AND uid IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM json_each(COALESCE(m.flags, '[]'))
+             WHERE lower(json_each.value) = '\\seen'
+           )`
+      )
+      .get(folderId) as { c: number }
+  ).c
+}
+
+/** Local row count for a folder — a drop vs the server's EXISTS means deletions. */
+function countLocal(folderId: number): number {
+  return (
+    getDb()
+      .prepare(
+        'SELECT count(*) c FROM messages WHERE folder_id = ? AND uid IS NOT NULL'
+      )
+      .get(folderId) as { c: number }
+  ).c
+}
+
 function maxUid(messages: { uid: number | null }[]): number {
   return messages.reduce((m, x) => Math.max(m, x.uid ?? 0), 0)
+}
+
+export interface BackfillResult {
+  messages: number
+  /** False once the oldest uid in the folder is already local. */
+  more: boolean
+}
+
+/**
+ * Fetches the page of mail immediately *older* than what is already synced.
+ * The forward pass only ever asks for `uid > last_uid`, so without this the
+ * initial 90-day/2000-message window is a permanent floor.
+ */
+export async function backfillFolder(
+  accountId: number,
+  config: AccountConfig,
+  folder: { id: number; path: string },
+  limit = 200
+): Promise<BackfillResult> {
+  const oldest = oldestSyncedUid(folder.id)
+  // Nothing synced yet: the forward pass owns the first page, not this.
+  if (oldest === null || oldest <= 1) return { messages: 0, more: false }
+
+  const client: ImapFlow = createClient(config)
+  await client.connect()
+  try {
+    const lock = await client.getMailboxLock(folder.path)
+    try {
+      const raw: RawMessage[] = []
+      for await (const msg of client.fetch(
+        `1:${oldest - 1}`,
+        { uid: true, envelope: true, flags: true },
+        { uid: true }
+      )) {
+        if (msg.uid >= oldest) continue
+        raw.push({
+          accountId,
+          folderId: folder.id,
+          uid: msg.uid,
+          envelope: {
+            messageId: msg.envelope?.messageId ?? null,
+            inReplyTo: msg.envelope?.inReplyTo ?? null,
+            references: null,
+            from: msg.envelope?.from?.[0]
+              ? { address: msg.envelope.from[0].address, name: msg.envelope.from[0].name }
+              : null,
+            to: msg.envelope?.to?.map((a) => ({ address: a.address, name: a.name })) ?? [],
+            cc: msg.envelope?.cc?.map((a) => ({ address: a.address, name: a.name })) ?? [],
+            subject: msg.envelope?.subject ?? null,
+            date: msg.envelope?.date ?? null
+          },
+          flags: msg.flags ? [...msg.flags] : []
+        })
+      }
+      // Newest of the older block first, so a page walks steadily backwards.
+      raw.sort((a, b) => (b.uid ?? 0) - (a.uid ?? 0))
+      const page = raw.slice(0, limit)
+      // Backfill is explicit user intent, so the sinceDays cutoff must not apply.
+      const messages = await store(page, 0)
+      return { messages, more: raw.length > page.length }
+    } finally {
+      lock.release()
+    }
+  } finally {
+    await client.logout().catch(() => {})
+  }
 }
 
 async function store(

@@ -1,26 +1,37 @@
-import type { ImapFlow } from 'imapflow'
 import type { AccountConfig } from '../accounts/config.js'
 import { getMessageLocation } from '../store/repo.js'
-import { createClient, storeFlag } from './imap.js'
+import { storeFlag } from './imap.js'
+import { getPool } from './pool.js'
 
 /**
  * Background flag write-back. The UI mutates SQLite first (instant), then
- * enqueues the IMAP write here. A single connection is reused and closed after
- * an idle period so repeated stars don't each pay a TLS handshake.
+ * enqueues the IMAP write here, which runs on a pooled connection so a star
+ * never pays a TLS handshake.
  */
 interface Job {
   messageId: number
   flag: string
   add: boolean
+  attempt?: number
 }
 
-const IDLE_CLOSE_MS = 30_000
+const MAX_ATTEMPTS = 4
+const RETRY_BASE_MS = 1_000
+
+/** A NO/BAD reply means the server rejected the command — retrying can't help. */
+function isPermanent(err: unknown): boolean {
+  const status = (err as { responseStatus?: string } | null)?.responseStatus
+  return status === 'NO' || status === 'BAD'
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
+}
 
 export class FlagWriter {
   private queue: Job[] = []
-  private client: ImapFlow | null = null
   private running = false
-  private idleTimer: ReturnType<typeof setTimeout> | null = null
+  private inFlight: number | null = null
 
   constructor(private config: AccountConfig) {}
 
@@ -29,42 +40,55 @@ export class FlagWriter {
     void this.drain()
   }
 
-  private async ensureClient(): Promise<ImapFlow> {
-    if (this.client?.usable) return this.client
-    const client = createClient(this.config)
-    await client.connect()
-    this.client = client
-    return client
+  /**
+   * Message ids with a local flag change not yet on the server. Reconcile must
+   * skip these or it would overwrite the user's change with stale server state.
+   */
+  pendingIds(): Set<number> {
+    const ids = new Set(this.queue.map((j) => j.messageId))
+    if (this.inFlight !== null) ids.add(this.inFlight)
+    return ids
   }
 
   private async drain(): Promise<void> {
     if (this.running) return
     this.running = true
-    if (this.idleTimer) clearTimeout(this.idleTimer)
 
     try {
       while (this.queue.length) {
         const job = this.queue.shift()!
+        // Shifted off the queue but not yet written — still pending for reconcile.
+        this.inFlight = job.messageId
         const loc = getMessageLocation(job.messageId)
-        if (!loc) continue
+        if (!loc) {
+          this.inFlight = null
+          continue
+        }
         try {
-          const client = await this.ensureClient()
-          await storeFlag(client, loc.path, loc.uid, job.flag, job.add)
-        } catch {
-          // Local state already reflects the change; a failed write-back is
-          // reconciled on the next full sync. Drop rather than block the queue.
+          await getPool(this.config).withConnection((client) =>
+            storeFlag(client, loc.path, loc.uid, job.flag, job.add)
+          )
+        } catch (err) {
+          const attempt = (job.attempt ?? 0) + 1
+          if (isPermanent(err) || attempt >= MAX_ATTEMPTS) {
+            // Incremental sync never re-reads this uid, so the server stays
+            // wrong while SQLite claims success. Surface it.
+            console.error(
+              `[flagWriter] gave up ${job.add ? '+' : '-'}${job.flag} on ${loc.path}:${loc.uid} after ${attempt} attempt(s):`,
+              err
+            )
+            continue
+          }
+          // Re-queue at the tail so a failing job never blocks the rest.
+          this.queue.push({ ...job, attempt })
+          await delay(RETRY_BASE_MS * 2 ** (attempt - 1))
+        } finally {
+          this.inFlight = null
         }
       }
     } finally {
       this.running = false
-      // Close the connection if nothing new arrived while draining.
-      this.idleTimer = setTimeout(() => void this.close(), IDLE_CLOSE_MS)
     }
   }
 
-  async close(): Promise<void> {
-    const c = this.client
-    this.client = null
-    if (c) await c.logout().catch(() => {})
-  }
 }
