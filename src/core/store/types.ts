@@ -29,11 +29,15 @@ export interface Message {
   from_name: string | null
   to_addrs: string | null
   cc_addrs: string | null
+  bcc_addrs: string | null
   subject: string | null
   date: number | null
   snippet: string | null
   body_text: string | null
   body_html: string | null
+  // Drafts only: kept so reopening one does not lose its thread or files.
+  references_header: string | null
+  draft_attachments: string | null
   flags: string | null
   has_attachments: number
   body_fetched: number

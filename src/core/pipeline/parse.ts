@@ -80,13 +80,20 @@ export const parseProcessor: Processor = {
       // Prefer real text; fall back to stripped html so html-only mail still previews.
       draft.snippet = toSnippet(p.text ?? (p.html ? stripHtml(p.html) : null))
 
-      const atts = (p.attachments ?? []).filter((a) => a.contentDisposition !== 'inline')
-      draft.has_attachments = atts.length > 0 ? 1 : 0
-      ctx.attachments = atts.map((a) => ({
+      // Inline parts are kept too — an <img src="cid:..."> in the body needs
+      // its bytes — but only non-inline ones count as "has attachments", so
+      // the paperclip still means a real file rather than a signature logo.
+      const all = p.attachments ?? []
+      const visible = all.filter((a) => a.contentDisposition !== 'inline')
+      draft.has_attachments = visible.length > 0 ? 1 : 0
+      ctx.attachments = all.map((a) => ({
         filename: a.filename ?? null,
         mime: a.contentType ?? null,
         size: a.size ?? null,
-        part_id: null
+        // Content-ID is what the body's cid: reference resolves against.
+        part_id: a.cid ? String(a.cid) : null,
+        inline: a.contentDisposition === 'inline' || Boolean(a.cid) ? 1 : 0,
+        content: a.content
       }))
       return
     }

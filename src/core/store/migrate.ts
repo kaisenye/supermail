@@ -29,7 +29,59 @@ CREATE TABLE IF NOT EXISTS outbox (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_outbox_due ON outbox (status, send_at);
-`)
+`),
+  // v3: outbound attachments, stored as a JSON array of picked file paths
+  (db) => db.exec('ALTER TABLE outbox ADD COLUMN attachments TEXT'),
+  // v4: fields a draft must keep so reopening one does not silently send
+  // without its bcc, thread references, or attachments
+  (db) =>
+    db.exec(`
+ALTER TABLE messages ADD COLUMN bcc_addrs TEXT;
+ALTER TABLE messages ADD COLUMN references_header TEXT;
+ALTER TABLE messages ADD COLUMN draft_attachments TEXT;
+`),
+  // v5: user preferences (signature, theme) as simple key/value
+  (db) =>
+    db.exec(`
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
+`),
+  // v6: trigram index for typo-tolerant search. Separate from messages_fts
+  // because a trigram tokenizer cannot serve normal word queries well — the
+  // two indexes answer different questions.
+  (db) =>
+    db.exec(`
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_trgm USING fts5(
+  subject, from_name, from_addr, body_text,
+  content='messages', content_rowid='id',
+  tokenize='trigram'
+);
+
+INSERT INTO messages_trgm (rowid, subject, from_name, from_addr, body_text)
+  SELECT id, subject, from_name, from_addr, body_text FROM messages;
+
+CREATE TRIGGER IF NOT EXISTS messages_trgm_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_trgm (rowid, subject, from_name, from_addr, body_text)
+  VALUES (new.id, new.subject, new.from_name, new.from_addr, new.body_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_trgm_ad AFTER DELETE ON messages BEGIN
+  INSERT INTO messages_trgm (messages_trgm, rowid, subject, from_name, from_addr, body_text)
+  VALUES ('delete', old.id, old.subject, old.from_name, old.from_addr, old.body_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_trgm_au AFTER UPDATE ON messages BEGIN
+  INSERT INTO messages_trgm (messages_trgm, rowid, subject, from_name, from_addr, body_text)
+  VALUES ('delete', old.id, old.subject, old.from_name, old.from_addr, old.body_text);
+  INSERT INTO messages_trgm (rowid, subject, from_name, from_addr, body_text)
+  VALUES (new.id, new.subject, new.from_name, new.from_addr, new.body_text);
+END;
+`),
+  // v7: inline (cid:) parts are now stored so the body can render them.
+  // Existing rows predate this; a re-fetch of those bodies fills them in.
+  (db) => db.exec('ALTER TABLE attachments ADD COLUMN inline INTEGER DEFAULT 0')
 ]
 
 export function migrate(db: Database): number {

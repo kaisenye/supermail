@@ -9,6 +9,12 @@ export interface AccountConfig {
   imapPort: number
   smtpHost: string
   smtpPort: number
+  /**
+   * True when the SMTP server files outgoing mail into Sent itself, so an
+   * explicit IMAP APPEND would leave a second copy. Exmail does this — it
+   * even answers the APPEND with "Mail has saved by smtp!".
+   */
+  smtpSavesSent: boolean
 }
 
 /** RFC 5322 From value: `"Name" <addr>` or bare addr. */
@@ -93,6 +99,15 @@ export function loadAccountConfig(envPath: string): AccountConfig {
     imapHost: envGet(env, 'SUPERMAIL_IMAP_HOST') || DEFAULTS.imapHost,
     imapPort: port('SUPERMAIL_IMAP_PORT', DEFAULTS.imapPort),
     smtpHost: envGet(env, 'SUPERMAIL_SMTP_HOST') || DEFAULTS.smtpHost,
-    smtpPort: port('SUPERMAIL_SMTP_PORT', DEFAULTS.smtpPort)
+    smtpPort: port('SUPERMAIL_SMTP_PORT', DEFAULTS.smtpPort),
+    // Exmail/QQ file sent mail during SMTP. Default on for those hosts, and
+    // overridable for anything else.
+    smtpSavesSent: (() => {
+      const raw = envGet(env, 'SUPERMAIL_SMTP_SAVES_SENT')?.trim().toLowerCase()
+      if (raw === 'true' || raw === '1') return true
+      if (raw === 'false' || raw === '0') return false
+      const host = (envGet(env, 'SUPERMAIL_SMTP_HOST') || DEFAULTS.smtpHost).toLowerCase()
+      return /\.qq\.com$/.test(host)
+    })()
   }
 }
