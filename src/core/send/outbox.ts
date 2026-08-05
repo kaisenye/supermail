@@ -14,6 +14,7 @@ export interface OutboxRow {
   body_html: string | null
   in_reply_to: string | null
   references_header: string | null
+  attachments: string | null
   send_at: number
   status: OutboxStatus
   error: string | null
@@ -31,6 +32,7 @@ export interface EnqueueOutboxInput {
   body_html?: string | null
   in_reply_to?: string | null
   references_header?: string | null
+  attachments?: string | null
   send_at: number
 }
 
@@ -42,11 +44,11 @@ export function enqueueOutbox(input: EnqueueOutboxInput): OutboxRow {
       `INSERT INTO outbox (
          account_id, draft_message_id, to_addrs, cc_addrs, bcc_addrs,
          subject, body_text, body_html, in_reply_to, references_header,
-         send_at, status, created_at
+         attachments, send_at, status, created_at
        ) VALUES (
          @account_id, @draft_message_id, @to_addrs, @cc_addrs, @bcc_addrs,
          @subject, @body_text, @body_html, @in_reply_to, @references_header,
-         @send_at, 'pending', @created_at
+         @attachments, @send_at, 'pending', @created_at
        )`
     )
     .run({
@@ -60,6 +62,7 @@ export function enqueueOutbox(input: EnqueueOutboxInput): OutboxRow {
       body_html: input.body_html ?? null,
       in_reply_to: input.in_reply_to ?? null,
       references_header: input.references_header ?? null,
+      attachments: input.attachments ?? null,
       send_at: input.send_at,
       created_at
     })

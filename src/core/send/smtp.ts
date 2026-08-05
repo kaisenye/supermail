@@ -1,6 +1,19 @@
 import nodemailer from 'nodemailer'
 import { formatFromHeader, type AccountConfig } from '../accounts/config.js'
 
+export interface OutboundAttachment {
+  path: string
+  filename: string
+  contentType: string
+}
+
+export interface OutboundInline {
+  contentId: string
+  filename: string
+  contentType: string
+  content: Buffer
+}
+
 export interface OutboundMail {
   to: string
   cc?: string
@@ -11,6 +24,8 @@ export interface OutboundMail {
   inReplyTo?: string | null
   references?: string | null
   messageId?: string
+  attachments?: OutboundAttachment[]
+  inline?: OutboundInline[]
 }
 
 export async function sendSmtp(
@@ -34,7 +49,24 @@ export async function sendSmtp(
     html: mail.html || undefined,
     inReplyTo: mail.inReplyTo || undefined,
     references: mail.references || undefined,
-    messageId: mail.messageId
+    messageId: mail.messageId,
+    // nodemailer takes inline images in the same array; a `cid` is what makes
+    // it emit multipart/related instead of a plain attachment.
+    attachments: mail.attachments?.length || mail.inline?.length
+      ? [
+          ...(mail.attachments ?? []).map((a) => ({
+            path: a.path,
+            filename: a.filename,
+            contentType: a.contentType
+          })),
+          ...(mail.inline ?? []).map((i) => ({
+            cid: i.contentId,
+            filename: i.filename,
+            contentType: i.contentType,
+            content: i.content
+          }))
+        ]
+      : undefined
   })
 
   await transport.close()
