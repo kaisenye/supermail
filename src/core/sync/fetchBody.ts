@@ -3,7 +3,8 @@ import { processors } from '../pipeline/index.js'
 import { runPipeline } from '../pipeline/pipeline.js'
 import { getMessage, getMessageLocation } from '../store/repo.js'
 import type { Message } from '../store/types.js'
-import { createClient, fetchSource } from './imap.js'
+import { fetchSource } from './imap.js'
+import { getPool } from './pool.js'
 
 /**
  * Lazily fetches one message body. Returns immediately from cache when the
@@ -18,11 +19,11 @@ export async function ensureBody(
   if (!loc) return getMessage(messageId)
   if (loc.body_fetched === 1) return getMessage(messageId)
 
-  const client = createClient(config)
-  await client.connect()
-  try {
+  // Pooled: this used to open a connection per message, so opening an
+  // unfetched message cost a full ~5s cold round trip.
+  await getPool(config).withConnection(async (client) => {
     const source = await fetchSource(client, loc.path, loc.uid)
-    if (!source) return getMessage(messageId)
+    if (!source) return
 
     // folderId must match the stored row: the upsert keys on
     // (account_id, folder_id, uid), so a null here would insert a draft
@@ -31,9 +32,7 @@ export async function ensureBody(
       { accountId, folderId: loc.folder_id, uid: loc.uid, source },
       processors
     )
-  } finally {
-    await client.logout().catch(() => {})
-  }
+  })
 
   return getMessage(messageId)
 }

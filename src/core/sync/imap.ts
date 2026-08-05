@@ -42,6 +42,8 @@ export interface MailboxStatus {
   uidValidity: number
   uidNext: number
   exists: number
+  /** Cheap signal that a read/unread happened elsewhere; UIDNEXT cannot show it. */
+  unseen: number
 }
 
 /**
@@ -55,13 +57,43 @@ export async function mailboxStatus(
   const s = await client.status(path, {
     uidValidity: true,
     uidNext: true,
-    messages: true
+    messages: true,
+    unseen: true
   })
   return {
     uidValidity: Number(s.uidValidity),
     uidNext: Number(s.uidNext),
-    exists: s.messages ?? 0
+    exists: s.messages ?? 0,
+    unseen: s.unseen ?? 0
   }
+}
+
+/**
+ * Normalises a message-id to `<...>`. mailparser does this on the body pass,
+ * so the envelope pass must too or the same message threads two ways.
+ */
+function ensureMessageIdFormat(value: string): string | null {
+  const v = value.trim()
+  if (!v) return null
+  return `${v.startsWith('<') ? '' : '<'}${v}${v.endsWith('>') ? '' : '>'}`
+}
+
+/**
+ * RFC 5322 References is whitespace/CRLF separated <msgid> tokens. Split the
+ * same way mailparser does so both sync passes yield an identical array.
+ */
+function parseReferences(headers: Buffer | undefined): string[] | null {
+  if (!headers) return null
+  // Unfold continuation lines (CRLF + WSP) before matching the field body.
+  const m = /^references:\s*([\s\S]*?)$/im.exec(
+    headers.toString('utf8').replace(/\r?\n[ \t]+/g, ' ')
+  )
+  if (!m) return null
+  const refs = m[1]
+    .split(/\s+/)
+    .map(ensureMessageIdFormat)
+    .filter((r): r is string => r !== null)
+  return refs.length ? refs : null
 }
 
 /**
@@ -81,7 +113,10 @@ export async function fetchEnvelopes(
     const status: MailboxStatus = {
       uidValidity: Number(mb.uidValidity),
       uidNext: Number(mb.uidNext),
-      exists: mb.exists
+      exists: mb.exists,
+      // SELECT reports unseen as a first-index, not a count; callers that need
+      // the count use mailboxStatus(), so leave it at 0 here rather than lie.
+      unseen: 0
     }
 
     const messages: RawMessage[] = []
@@ -92,7 +127,9 @@ export async function fetchEnvelopes(
     const range = `${opts.sinceUid + 1}:*`
     for await (const msg of client.fetch(
       range,
-      { uid: true, envelope: true, flags: true },
+      // ENVELOPE carries message-id/in-reply-to but not references (RFC 3501),
+      // so pull that one header line too — threading needs it on this pass.
+      { uid: true, envelope: true, flags: true, headers: ['references'] },
       { uid: true }
     )) {
       // `n:*` always returns at least one message even when none match.
@@ -102,9 +139,13 @@ export async function fetchEnvelopes(
         folderId: opts.folderId,
         uid: msg.uid,
         envelope: {
-          messageId: msg.envelope?.messageId ?? null,
-          inReplyTo: msg.envelope?.inReplyTo ?? null,
-          references: null,
+          messageId: msg.envelope?.messageId
+            ? ensureMessageIdFormat(msg.envelope.messageId)
+            : null,
+          inReplyTo: msg.envelope?.inReplyTo
+            ? ensureMessageIdFormat(msg.envelope.inReplyTo)
+            : null,
+          references: parseReferences(msg.headers),
           from: msg.envelope?.from?.[0]
             ? { address: msg.envelope.from[0].address, name: msg.envelope.from[0].name }
             : null,
@@ -123,6 +164,29 @@ export async function fetchEnvelopes(
   } finally {
     lock.release()
   }
+}
+
+/**
+ * UID -> flags for a whole mailbox. No envelopes or bodies, so this stays a
+ * few KB even on large folders — it's the only way to see a read/unread or
+ * star made in another client, since those never move UIDNEXT.
+ */
+export async function fetchFlags(
+  client: ImapFlow,
+  path: string
+): Promise<Map<number, string[]>> {
+  const out = new Map<number, string[]>()
+  const lock = await client.getMailboxLock(path)
+  try {
+    const mb = client.mailbox
+    if (!mb || typeof mb === 'boolean' || mb.exists === 0) return out
+    for await (const msg of client.fetch('1:*', { uid: true, flags: true }, { uid: true })) {
+      out.set(msg.uid, msg.flags ? [...msg.flags] : [])
+    }
+  } finally {
+    lock.release()
+  }
+  return out
 }
 
 /** Add or remove one IMAP flag on a message by UID. */
