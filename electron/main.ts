@@ -1,16 +1,20 @@
 import { app, BrowserWindow, nativeTheme } from 'electron'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
-import { registerIpc } from './ipc.js'
+import { flushPendingMoves, registerIpc } from './ipc.js'
 import { initDb } from '../src/core/store/db.js'
+import { initAttachmentStore } from '../src/core/store/attachments.js'
 import { bootstrapAccount } from '../src/core/accounts/index.js'
 import { startOutboxWorker } from '../src/core/send/flush.js'
+import { startIdleWatcher, stopIdleWatcher } from '../src/core/sync/idle.js'
+import { closePool, getPool } from '../src/core/sync/pool.js'
 import { getBootState, setBootState } from './state.js'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 function boot(): void {
   initDb(join(app.getPath('userData'), 'supermail.db'))
+  initAttachmentStore(app.getPath('userData'))
   try {
     // dev: repo root (cwd). packaged: userData, since the bundle is read-only.
     const envPath = app.isPackaged
@@ -36,7 +40,9 @@ function createWindow(): void {
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0d0d10' : '#fcfcfb',
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
-      sandbox: false
+      sandbox: false,
+      // Throttling stalls rAF while occluded, which stalls canvas rendering.
+      backgroundThrottling: false
     }
   })
 
@@ -52,15 +58,37 @@ function createWindow(): void {
 app.whenReady().then(() => {
   boot()
   registerIpc()
-  startOutboxWorker(() => {
-    const s = getBootState()
-    return s.ok ? s.config : null
-  })
+  startOutboxWorker(
+    () => {
+      const s = getBootState()
+      return s.ok ? s.config : null
+    },
+    undefined,
+    (f) => {
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('send:failed', f)
+    }
+  )
+  // Tell the renderer to run its normal sync, so IDLE reuses the 'sync:run' guard.
+  const s = getBootState()
+  if (s.ok) {
+    // Pay the ~2.7s handshake now, while nothing is waiting on it.
+    void getPool(s.config).warm()
+    startIdleWatcher(s.config, () => {
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('mail:new')
+    })
+  }
   createWindow()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('before-quit', () => {
+  stopIdleWatcher()
+  // SQLite already shows these moved; don't strand them mid-undo-window.
+  flushPendingMoves()
+  void closePool()
 })
 
 app.on('window-all-closed', () => {
