@@ -6,7 +6,6 @@ interface Props {
   onMarkRead: () => void
   onMarkUnread: () => void
   onStar: () => void
-  onArchive: () => void
   onTrash: () => void
 }
 
@@ -19,7 +18,6 @@ export function ActionBar({
   onMarkRead,
   onMarkUnread,
   onStar,
-  onArchive,
   onTrash
 }: Props) {
   return (
@@ -49,9 +47,6 @@ export function ActionBar({
         </button>
         <button type="button" onClick={onStar} title="Star (s)">
           Star
-        </button>
-        <button type="button" onClick={onArchive} title="Archive (e)">
-          Archive
         </button>
         <button type="button" onClick={onTrash} title="Trash (#)">
           Trash

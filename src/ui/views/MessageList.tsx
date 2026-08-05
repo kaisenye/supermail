@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { MessageListRow } from '../../core/store/types'
 import { formatDate, isFlagged, isUnread, senderLabel } from '../format'
 
@@ -12,6 +13,13 @@ interface Props {
   onSelect: (i: number) => void
   onToggleCheck: (id: number, index: number, shiftKey: boolean) => void
   onOpen?: (i: number) => void
+  page?: number
+  pageSize?: number
+  totalRows?: number
+  loadingMore?: boolean
+  onPage?: (page: number) => void
+  emptyTitle?: string
+  emptySub?: string
 }
 
 export function MessageList({
@@ -20,7 +28,14 @@ export function MessageList({
   checkedIds,
   onSelect,
   onToggleCheck,
-  onOpen
+  onOpen,
+  page = 0,
+  pageSize = 50,
+  totalRows = 0,
+  loadingMore,
+  onPage,
+  emptyTitle = 'No messages',
+  emptySub
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const checked = new Set(checkedIds)
@@ -36,19 +51,60 @@ export function MessageList({
     if (rows.length) virtualizer.scrollToIndex(selectedIndex, { align: 'auto' })
   }, [selectedIndex, rows.length, virtualizer])
 
+  const items = virtualizer.getVirtualItems()
+
+  // A new page replaces the rows, so start it at the top rather than wherever
+  // the previous page happened to be scrolled.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 })
+  }, [page])
+
+  const pager = onPage ? (
+    <div className="pager">
+      <button
+        type="button"
+        disabled={page === 0 || loadingMore}
+        aria-label="Previous page"
+        title="Previous page"
+        onClick={() => onPage(page - 1)}
+      >
+        <ChevronLeft size={14} strokeWidth={2} />
+      </button>
+      {/* Keep the same text while loading: swapping in "Loading…" resizes the
+          pill, and a centred pill then visibly jumps on every page change. */}
+      <span className="pager-status" data-loading={!!loadingMore}>
+        {totalRows
+          ? `${page * pageSize + 1}–${Math.min((page + 1) * pageSize, totalRows)} of ${totalRows}`
+          : `Page ${page + 1}`}
+      </span>
+      <button
+        type="button"
+        disabled={loadingMore || (page + 1) * pageSize >= totalRows}
+        aria-label="Next page"
+        title="Next page"
+        onClick={() => onPage(page + 1)}
+      >
+        <ChevronRight size={14} strokeWidth={2} />
+      </button>
+    </div>
+  ) : null
+
   if (!rows.length) {
     return (
-      <div className="list-scroll">
-        <div className="empty">
-          <span>No messages</span>
+      <>
+        <div className="list-scroll">
+          <div className="empty">
+            <span className="empty-title">{emptyTitle}</span>
+            {emptySub && <span className="empty-sub">{emptySub}</span>}
+          </div>
         </div>
-      </div>
+        {pager}
+      </>
     )
   }
 
-  const items = virtualizer.getVirtualItems()
-
   return (
+    <>
     <div className="list-scroll" ref={scrollRef}>
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
         <div
@@ -113,5 +169,7 @@ export function MessageList({
         </div>
       </div>
     </div>
+    {pager}
+    </>
   )
 }

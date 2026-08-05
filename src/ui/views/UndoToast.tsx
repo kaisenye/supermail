@@ -1,34 +1,36 @@
 import { useEffect, useState } from 'react'
-import type { UndoToast as UndoToastState } from '../store'
 
 interface Props {
-  toast: UndoToastState
-  onUndo: (outboxId: number) => void
+  /** Countdown target; the toast dismisses itself when it passes. */
+  expiresAt: number
+  /** Leading text, e.g. `Sending “Re: hi”` or `Trashed 3 messages`. */
+  label: string
+  onUndo: () => void
   onDismiss: () => void
 }
 
-export function UndoToast({ toast, onUndo, onDismiss }: Props) {
-  const [left, setLeft] = useState(() => Math.max(0, toast.expiresAt - Date.now()))
+export function UndoToast({ expiresAt, label, onUndo, onDismiss }: Props) {
+  const [left, setLeft] = useState(() => Math.max(0, expiresAt - Date.now()))
 
   useEffect(() => {
     const tick = (): void => {
-      const ms = Math.max(0, toast.expiresAt - Date.now())
+      const ms = Math.max(0, expiresAt - Date.now())
       setLeft(ms)
       if (ms <= 0) onDismiss()
     }
     tick()
     const id = setInterval(tick, 200)
     return () => clearInterval(id)
-  }, [toast.expiresAt, onDismiss])
+  }, [expiresAt, onDismiss])
 
   const secs = Math.ceil(left / 1000)
 
   return (
     <div className="undo-toast" role="status">
       <span>
-        Sending{toast.subject ? ` “${toast.subject}”` : ''} in {secs}s
+        {label} · {secs}s
       </span>
-      <button type="button" onClick={() => onUndo(toast.outboxId)}>
+      <button type="button" onClick={onUndo}>
         Undo
       </button>
     </div>

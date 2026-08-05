@@ -3,9 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <title>Supermail</title>
+    <!--
+      Sandboxed srcdoc frames INHERIT this policy — a child CSP can only
+      further restrict it, never re-grant. Attachment previews use data:, and
+      remote mail images are https:, so both need granting here or they
+      silently never paint. Remote images stay blocked by default in the
+      sanitiser itself; this only permits them once the user opts in.
+      Scripts and network stay locked to 'self'.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; object-src data:; frame-src 'self' data:"
     />
   </head>
   <body>
