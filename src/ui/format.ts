@@ -28,6 +28,25 @@ export function senderLabel(name: string | null, addr: string | null): string {
   return addr.split('@')[0] || addr
 }
 
+/**
+ * Snippets built from a message's plain-text part never passed through the
+ * HTML stripper, so entities like &nbsp; survive as literal text. Decode at
+ * render time — that also repairs rows already in the database.
+ */
+export function decodeEntities(s: string | null): string {
+  if (!s) return ''
+  return s
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_m, d: string) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, h: string) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export function parseFlags(flags: string | null): string[] {
   if (!flags) return []
   try {

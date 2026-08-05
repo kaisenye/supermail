@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { BodyResult } from '../../../electron/preload'
+import { AttachmentList } from './AttachmentList'
 
 interface Props {
   messageId: number
@@ -13,6 +14,7 @@ interface Props {
 export function MessageBody({ messageId }: Props) {
   const [body, setBody] = useState<BodyResult | null>(null)
   const [showImages, setShowImages] = useState(false)
+  const [showQuotes, setShowQuotes] = useState(false)
   const [height, setHeight] = useState(120)
   const frameRef = useRef<HTMLIFrameElement>(null)
   const probeRef = useRef<HTMLDivElement>(null)
@@ -57,13 +59,14 @@ export function MessageBody({ messageId }: Props) {
       observer.disconnect()
       cancelAnimationFrame(raf)
     }
-  }, [body])
+  }, [body, showQuotes])
 
   if (!body) return <div className="body-loading">Loading…</div>
   if (!body.ok) return <div className="body-error">{body.error}</div>
 
-  const doc = buildDoc(body.html)
+  const doc = buildDoc(body.html, showQuotes)
   const links = extractLinks(body.html)
+  const hasQuotes = /\sdata-quoted\b/.test(body.html)
 
   return (
     <div className="message-body">
@@ -73,6 +76,13 @@ export function MessageBody({ messageId }: Props) {
             {body.blockedImages} remote image{body.blockedImages === 1 ? '' : 's'} blocked
           </span>
           <button onClick={() => setShowImages(true)}>Load images</button>
+        </div>
+      )}
+      {hasQuotes && (
+        <div className="quotes-toggle">
+          <button onClick={() => setShowQuotes((v) => !v)}>
+            {showQuotes ? 'Hide trimmed content' : 'Show trimmed content'}
+          </button>
         </div>
       )}
       {/*
@@ -121,16 +131,7 @@ export function MessageBody({ messageId }: Props) {
           </ul>
         </details>
       )}
-      {body.attachments.length > 0 && (
-        <ul className="attachments">
-          {body.attachments.map((a) => (
-            <li key={a.id} className="attachment">
-              <span className="attachment-name">{a.filename ?? 'untitled'}</span>
-              <span className="attachment-size">{formatSize(a.size)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {body.attachments.length > 0 && <AttachmentList attachments={body.attachments} />}
     </div>
   )
 }
@@ -145,15 +146,11 @@ function extractLinks(html: string): string[] {
   return [...found].slice(0, 50)
 }
 
-function formatSize(bytes: number | null): string {
-  if (!bytes) return ''
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
 /** Styles are inlined so the frame needs no network and inherits our theme. */
-function buildDoc(html: string): { srcDoc: string; probeHtml: string } {
+function buildDoc(
+  html: string,
+  showQuotes: boolean
+): { srcDoc: string; probeHtml: string } {
   const dark = document.documentElement.dataset.theme
     ? document.documentElement.dataset.theme === 'dark'
     : window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -178,7 +175,12 @@ function buildDoc(html: string): { srcDoc: string; probeHtml: string } {
     }
     pre { white-space: pre-wrap; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
     table { max-width: 100%; }
-    p { margin: 0 0 10px; }`
+    p { margin: 0 0 10px; }
+    [data-quoted] { display: none; }
+    .show-quotes [data-quoted] { display: revert; }`
+
+  // The frame cannot script, so collapsing is a CSS class swapped from here.
+  const cls = showQuotes ? ' class="show-quotes"' : ''
 
   const srcDoc = `<!doctype html>
 <html><head>
@@ -186,10 +188,13 @@ function buildDoc(html: string): { srcDoc: string; probeHtml: string } {
 <style>${css}</style>
   <!-- No script here: the sandbox withholds allow-scripts on purpose.
        A hidden host-side probe measures height from outside. -->
-</head><body>${html}</body></html>`
+</head><body${cls}>${html}</body></html>`
 
   // The probe reuses the frame's HTML and CSS so its layout — and therefore
   // its height — matches. Blocked images keep data-blocked-src, so it makes
   // no network requests of its own.
-  return { srcDoc, probeHtml: `<style>${css}</style>${html}` }
+  return {
+    srcDoc,
+    probeHtml: `<style>${css}</style><div${cls}>${html}</div>`
+  }
 }
