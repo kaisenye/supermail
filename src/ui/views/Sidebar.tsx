@@ -1,3 +1,4 @@
+import { Settings as SettingsIcon } from 'lucide-react'
 import type { Folder } from '../../core/store/types'
 import { folderLabel } from '../format'
 import { folderIcon } from '../folderIcons'
@@ -7,6 +8,8 @@ interface Props {
   folders: Folder[]
   activeFolderId: number | null
   onSelect: (id: number) => void
+  onSettings: () => void
+  unread?: Record<number, number>
 }
 
 /** Special-use folders first, in the order a human expects them. */
@@ -17,7 +20,14 @@ function rank(path: string): number {
   return i === -1 ? ORDER.length : i
 }
 
-export function Sidebar({ email, folders, activeFolderId, onSelect }: Props) {
+export function Sidebar({
+  email,
+  folders,
+  activeFolderId,
+  onSelect,
+  onSettings,
+  unread
+}: Props) {
   const sorted = [...folders].sort(
     (a, b) => rank(a.path) - rank(b.path) || a.path.localeCompare(b.path)
   )
@@ -30,6 +40,7 @@ export function Sidebar({ email, folders, activeFolderId, onSelect }: Props) {
       <ul className="folder-list">
         {sorted.map((f) => {
           const Icon = folderIcon(f.path)
+          const count = unread?.[f.id] ?? 0
           return (
             <li key={f.id}>
               <button
@@ -43,11 +54,26 @@ export function Sidebar({ email, folders, activeFolderId, onSelect }: Props) {
               >
                 <Icon className="folder-icon" size={15} strokeWidth={1.75} />
                 <span className="folder-name">{folderLabel(f.path, f.name)}</span>
+                {count > 0 && <span className="folder-count">{count}</span>}
               </button>
             </li>
           )
         })}
       </ul>
+
+      <div className="sidebar-footer">
+        <button
+          className="folder-item"
+          title="Settings (,)"
+          onClick={(e) => {
+            e.currentTarget.blur()
+            onSettings()
+          }}
+        >
+          <SettingsIcon className="folder-icon" size={15} strokeWidth={1.75} />
+          <span className="folder-name">Settings</span>
+        </button>
+      </div>
     </nav>
   )
 }
