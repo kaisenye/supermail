@@ -39,6 +39,16 @@ button {
   cursor: pointer;
 }
 
+/* The whole button is the target, glyph included — an icon that swallowed the
+   click made the hit area feel smaller than the button looks. */
+button * {
+  cursor: inherit;
+}
+
+button > svg {
+  pointer-events: none;
+}
+
 :focus:not(:focus-visible) {
   outline: none;
 }
@@ -102,7 +112,7 @@ button {
   padding: var(--space-2) var(--space-3) var(--space-3);
   font-size: var(--text-sm);
   color: var(--text-tertiary);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
@@ -115,6 +125,13 @@ button {
   padding: 0 var(--space-2);
   overflow-y: auto;
   flex: 1;
+}
+
+/* Pinned below the scrolling folder list, not part of it. */
+.sidebar-footer {
+  flex-shrink: 0;
+  padding: var(--space-2);
+  border-top: 1px solid var(--border);
 }
 
 .folder-item {
@@ -139,6 +156,7 @@ button {
   background: var(--surface-selected);
   color: var(--text-primary);
   font-weight: 500;
+  transition: background var(--duration-fast) var(--ease-out);
 }
 
 /* Clicking a folder shouldn't leave a ring behind — this is a keyboard-first
@@ -170,7 +188,7 @@ button {
 }
 
 .folder-count {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
   color: var(--text-quaternary);
   font-variant-numeric: tabular-nums;
@@ -183,6 +201,8 @@ button {
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
+  /* Anchors the floating pager. */
+  position: relative;
 }
 
 .list-header {
@@ -204,7 +224,7 @@ button {
 }
 
 .list-meta {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
   color: var(--text-quaternary);
   font-variant-numeric: tabular-nums;
@@ -304,6 +324,9 @@ button {
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
   color: var(--text-secondary);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 .action-bar-btns button:hover {
@@ -331,6 +354,9 @@ button {
   cursor: default;
   position: relative;
   contain: layout style;
+  /* Background only: the list is virtualised, so anything that triggers
+     layout would cost far more than the polish is worth. */
+  transition: background var(--duration-fast) var(--ease-out);
 }
 
 .row-check {
@@ -359,7 +385,7 @@ button {
 }
 
 /* Selection bar: transform-only so scrolling stays on the compositor. */
-.row[data-selected='true']::before {
+.row::before {
   content: '';
   position: absolute;
   left: 0;
@@ -367,6 +393,16 @@ button {
   bottom: 0;
   width: 2px;
   background: var(--accent);
+  transform: scaleY(0);
+  opacity: 0;
+  transition:
+    transform var(--duration-base) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
+}
+
+.row[data-selected='true']::before {
+  transform: scaleY(1);
+  opacity: 1;
 }
 
 .row-unread-dot {
@@ -375,10 +411,16 @@ button {
   border-radius: 50%;
   flex-shrink: 0;
   background: var(--unread);
+  transition:
+    opacity var(--duration-base) var(--ease-out),
+    transform var(--duration-base) var(--ease-out);
 }
 
 .row-unread-dot[data-read='true'] {
-  background: transparent;
+  /* Shrink + fade rather than blanking the colour, so marking read reads as
+     the dot leaving instead of a hard cut. */
+  opacity: 0;
+  transform: scale(0.4);
 }
 
 .row-sender {
@@ -435,7 +477,7 @@ button {
 }
 
 .row-date {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
   color: var(--text-quaternary);
   font-variant-numeric: tabular-nums;
@@ -471,8 +513,11 @@ button {
 
 .back-button {
   -webkit-app-region: no-drag;
-  width: 22px;
-  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
   border-radius: var(--radius-sm);
   color: var(--text-tertiary);
   font-size: var(--text-md);
@@ -499,10 +544,73 @@ button {
 }
 
 .thread-count {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
   color: var(--text-quaternary);
   flex-shrink: 0;
+}
+
+.thread-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  /* Sits inside the draggable header, so the buttons must opt back out. */
+  -webkit-app-region: no-drag;
+}
+
+.thread-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.thread-actions button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.thread-actions button[data-on='true'] {
+  color: var(--accent);
+}
+
+.thread-reply-bar {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-4) 0 var(--space-5);
+}
+
+.thread-reply-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.thread-reply-bar button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.thread-reply-hint {
+  /* UI font, not mono: JetBrains Mono has no glyph for ⇧ and renders tofu. */
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  color: var(--text-quaternary);
 }
 
 .thread-scroll {
@@ -536,8 +644,9 @@ button {
   flex-shrink: 0;
 }
 
-.message-addr {
-  font-family: var(--font-mono);
+.message-addr,
+.message-preview {
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
   color: var(--text-quaternary);
   flex: 1;
@@ -547,8 +656,12 @@ button {
   white-space: nowrap;
 }
 
+.message-preview {
+  color: var(--text-tertiary);
+}
+
 .message-date {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
   color: var(--text-quaternary);
   flex-shrink: 0;
@@ -625,9 +738,29 @@ button {
   font-size: var(--text-sm);
   font-weight: 500;
   margin-left: auto;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 .images-blocked button:hover {
+  text-decoration: underline;
+}
+
+.quotes-toggle {
+  margin-bottom: var(--space-3);
+}
+
+.quotes-toggle button {
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.quotes-toggle button:hover {
   text-decoration: underline;
 }
 
@@ -656,7 +789,7 @@ button {
 }
 
 .body-links button {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
   color: var(--accent);
   text-align: left;
@@ -665,6 +798,9 @@ button {
   white-space: nowrap;
   max-width: 100%;
   display: block;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 .body-links button:hover {
@@ -690,6 +826,7 @@ button {
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
   max-width: 260px;
+  transition: background var(--duration-fast) var(--ease-out);
 }
 
 .attachment-name {
@@ -700,7 +837,7 @@ button {
 }
 
 .attachment-size {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
   color: var(--text-quaternary);
   flex-shrink: 0;
@@ -752,6 +889,9 @@ button {
   line-height: 1;
   padding: 2px 4px;
   border-radius: var(--radius-sm);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 .sync-error-banner button:hover {
@@ -787,29 +927,30 @@ button {
 }
 
 /* Sync bar: a hairline that only appears while working. */
-.sync-bar {
-  height: 1px;
-  background: var(--border);
-  position: relative;
-  overflow: hidden;
-  flex-shrink: 0;
+/* Sync should be felt, not watched — a small ring, no full-width motion. */
+.sync-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: var(--space-2);
+  vertical-align: -1px;
+  border: 1.5px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: sync-spin 0.7s linear infinite;
 }
 
-.sync-bar[data-active='true']::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--accent);
-  transform-origin: left;
-  animation: indeterminate 1.4s var(--ease-out) infinite;
-}
-
-@keyframes indeterminate {
-  0% {
-    transform: translateX(-100%) scaleX(0.4);
+@keyframes sync-spin {
+  to {
+    transform: rotate(360deg);
   }
-  100% {
-    transform: translateX(250%) scaleX(0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-dot {
+    animation: none;
+    border-top-color: var(--border-strong);
+    opacity: 0.6;
   }
 }
 
@@ -874,6 +1015,7 @@ button {
   text-align: left;
   padding: var(--space-2) var(--space-4);
   min-height: 36px;
+  transition: background var(--duration-fast) var(--ease-out);
 }
 
 .palette-row[data-selected='true'] {
@@ -902,7 +1044,7 @@ button {
 }
 
 .palette-row-hint {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
   color: var(--text-quaternary);
   white-space: nowrap;
@@ -968,7 +1110,8 @@ button {
 }
 
 .compose-hint {
-  font-family: var(--font-mono);
+  /* ⌘↵ has no mono glyph either. */
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
   opacity: 0.75;
 }
@@ -998,6 +1141,9 @@ button {
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
   color: var(--text-secondary);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 .compose-schedule-menu button:hover {
@@ -1040,6 +1186,65 @@ button {
   color: var(--text-tertiary);
 }
 
+/* ---- recipient autocomplete ---- */
+
+.recipient-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.recipient-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1);
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  animation: palette-rise var(--duration-fast) var(--ease-out);
+}
+
+.recipient-menu button {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.recipient-menu button[data-active='true'] {
+  background: var(--surface-active);
+}
+
+/* Outranks `.compose-field span`, which greys the field labels and would
+   otherwise capture these spans too. */
+.recipient-menu .recipient-name {
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recipient-menu .recipient-addr {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .compose-field input {
   border: none;
   background: transparent;
@@ -1056,7 +1261,10 @@ button {
   border: none;
   resize: none;
   padding: var(--space-4);
-  font: inherit;
+  /* Not `font: inherit` — quoted replies carry the sender's own <font> tags
+     and inline families (Outlook loves Times), which would otherwise become
+     the font you type in. */
+  font-family: var(--font-ui);
   font-size: var(--text-base);
   line-height: var(--leading-normal);
   color: var(--text-primary);
@@ -1093,6 +1301,9 @@ button {
   color: var(--accent);
   font-weight: 600;
   font-size: var(--text-sm);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 .undo-toast button:hover {
@@ -1137,5 +1348,475 @@ button {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---- compose editor (WYSIWYG) ---- */
+
+.compose-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.compose-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.compose-tool:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.compose-toolbar-sep {
+  width: 1px;
+  height: 14px;
+  margin: 0 var(--space-2);
+  background: var(--border-strong);
+}
+
+/* contenteditable: scrolls itself, and fakes ::placeholder when empty. */
+div.compose-body {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+div.compose-body[data-empty='true']::before {
+  content: attr(data-placeholder);
+  color: var(--text-quaternary);
+  pointer-events: none;
+}
+
+/* Strip the sender's typography from quoted text so the editor stays uniform.
+   The original markup is still sent verbatim — this is display only. */
+.compose-body font,
+.compose-body [style*='font-family'],
+.compose-body [face] {
+  font-family: var(--font-ui) !important;
+}
+
+.compose-body blockquote {
+  margin: 0 0 0 var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.compose-body a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.compose-body ul,
+.compose-body ol {
+  padding-left: var(--space-5);
+}
+
+.compose-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.compose-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.compose-chip button {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.compose-chip button:hover {
+  color: var(--text-primary);
+}
+
+/* ---- attachment preview ---- */
+
+.attachment-open {
+  color: var(--text-secondary);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-open:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.attachment-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.attachment-actions button {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.attachment-actions button:hover {
+  color: var(--text-primary);
+}
+
+.preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(17, 17, 16, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  animation: palette-fade var(--duration-base) var(--ease-out);
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  width: min(920px, 100%);
+  height: min(760px, 100%);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  animation: palette-rise var(--duration-base) var(--ease-out);
+}
+
+.preview-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.preview-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+}
+
+.preview-head button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  min-height: 26px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  flex-shrink: 0;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.preview-head button:hover {
+  color: var(--text-primary);
+}
+
+.preview-stage {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3);
+}
+
+.preview-frame {
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+  border: none;
+  display: block;
+  background: transparent;
+  /* Without this the frame paints an opaque white canvas in dark mode. */
+  color-scheme: normal;
+}
+
+/* ---- settings ---- */
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: min(680px, 100%);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  animation: palette-rise var(--duration-base) var(--ease-out);
+}
+
+.settings-body {
+  overflow: auto;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+.settings-section {
+  margin-bottom: var(--space-5);
+}
+
+.settings-section h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-note {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+.settings-themes {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.settings-themes button {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.settings-themes button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.settings-themes button[data-on='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.settings-signature {
+  min-height: 96px;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  outline: none;
+  overflow-wrap: anywhere;
+}
+
+.settings-signature:focus {
+  border-color: var(--border-strong);
+}
+
+.settings-signature a {
+  color: var(--accent);
+}
+
+.link-prompt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+
+.link-prompt input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  outline: none;
+}
+
+.link-prompt input:focus {
+  border-color: var(--accent);
+}
+
+.link-prompt button {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.link-prompt button[type='submit'] {
+  color: var(--accent);
+}
+
+.link-prompt button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.settings-saved {
+  font-size: var(--text-sm);
+  color: var(--text-quaternary);
+  opacity: 0;
+  transition: opacity var(--duration-base) var(--ease-out);
+}
+
+.settings-saved[data-on='true'] {
+  opacity: 1;
+}
+
+.settings-error {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--flag);
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-3);
+}
+
+.pdf-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.pdf-page {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+.preview-note {
+  padding: var(--space-4);
+  font-size: var(--text-base);
+  color: var(--text-tertiary);
+}
+
+.preview-error {
+  color: var(--flag);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* Floating pill over the list rather than a full-width footer, so it costs no
+   vertical space and stays reachable while the page scrolls. */
+.pager {
+  position: absolute;
+  bottom: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.pager button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.pager button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.pager button:disabled {
+  color: var(--text-quaternary);
+  cursor: default;
+}
+
+.pager-status {
+  font-variant-numeric: tabular-nums;
+  padding: 0 var(--space-1);
+  white-space: nowrap;
+  /* Sized for the widest label the counter can reach, because the pill is
+     centre-anchored: any width change shifts it sideways on every page. */
+  min-width: 16ch;
+  text-align: center;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.pager-status[data-loading='true'] {
+  opacity: 0.45;
+}
+
+
+/* Accessibility backstop: every animation above is decorative, so honour a
+   reduced-motion preference globally rather than per-rule. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
