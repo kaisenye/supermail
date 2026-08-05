@@ -7,7 +7,7 @@ import type {
   UpsertMessageInput
 } from './types.js'
 
-const LIST_COLS =
+export const LIST_COLS =
   'id, thread_id, from_addr, from_name, subject, date, snippet, flags, has_attachments'
 
 // ---- accounts ----
@@ -48,10 +48,37 @@ export function upsertFolder(f: {
     .get(f.account_id, f.path) as Folder
 }
 
+/**
+ * Drops folders we no longer sync. Cascades to their messages, so only call
+ * this for folders that are genuinely unwanted, never for a transient miss.
+ */
+export function deleteFolder(folderId: number): void {
+  getDb().prepare('DELETE FROM folders WHERE id = ?').run(folderId)
+}
+
 export function listFolders(accountId: number): Folder[] {
   return getDb()
     .prepare('SELECT * FROM folders WHERE account_id = ? ORDER BY path')
     .all(accountId) as Folder[]
+}
+
+/**
+ * Unread per folder in one pass. json_each parses the flags array, so a folder
+ * name or another flag containing "seen" can never be mistaken for \Seen.
+ */
+export function unreadCounts(accountId: number): Record<number, number> {
+  const rows = getDb()
+    .prepare(
+      `SELECT folder_id, count(*) c FROM messages m
+       WHERE account_id = ? AND folder_id IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM json_each(COALESCE(m.flags, '[]'))
+           WHERE lower(json_each.value) = '\\seen'
+         )
+       GROUP BY folder_id`
+    )
+    .all(accountId) as { folder_id: number; c: number }[]
+  return Object.fromEntries(rows.map((r) => [r.folder_id, r.c]))
 }
 
 export function setLastUid(folderId: number, uid: number): void {
@@ -188,7 +215,14 @@ export function moveMessage(id: number, toFolderId: number): void {
     .run(toFolderId, id)
 }
 
-/** Soft-remove from current folder view after archive/trash (local delete). */
+/** Undo an optimistic move: put the row back where it was, uid included. */
+export function restoreMessage(id: number, folderId: number, uid: number): void {
+  getDb()
+    .prepare('UPDATE messages SET folder_id = ?, uid = ? WHERE id = ?')
+    .run(folderId, uid, id)
+}
+
+/** Soft-remove from the current folder view after trashing (local delete). */
 export function deleteMessageLocal(id: number): void {
   getDb().prepare('DELETE FROM messages WHERE id = ?').run(id)
 }
@@ -216,6 +250,133 @@ export function listInbox(
        WHERE folder_id = ? ORDER BY date DESC LIMIT ? OFFSET ?`
     )
     .all(folderId, limit, offset) as MessageListRow[]
+}
+
+/**
+ * Local drafts (folder_id IS NULL) merged with the server Drafts folder.
+ * A draft saved locally and later APPENDed to the server exists twice; the
+ * local row wins because it is the one compose can still edit.
+ */
+export interface Contact {
+  address: string
+  name: string | null
+}
+
+/**
+ * Address-book autocomplete mined from existing mail — no separate contacts
+ * table to keep in sync. Recipients outrank senders because someone you write
+ * to is a likelier target than someone who merely mailed you.
+ */
+export function searchContacts(
+  accountId: number,
+  query: string,
+  limit = 8
+): Contact[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return []
+  const like = `%${q.replace(/[%_]/g, (c) => `\\${c}`)}%`
+
+  return getDb()
+    .prepare(
+      `WITH people AS (
+         SELECT lower(from_addr) addr, from_name nm, 1 w
+           FROM messages
+          WHERE account_id = @acct AND from_addr IS NOT NULL AND from_addr <> ''
+         UNION ALL
+         SELECT lower(json_extract(v.value, '$.address')),
+                json_extract(v.value, '$.name'), 3
+           FROM messages m, json_each(m.to_addrs) v
+          WHERE m.account_id = @acct AND json_valid(m.to_addrs)
+            AND json_extract(v.value, '$.address') IS NOT NULL
+         UNION ALL
+         SELECT lower(json_extract(v.value, '$.address')),
+                json_extract(v.value, '$.name'), 2
+           FROM messages m, json_each(m.cc_addrs) v
+          WHERE m.account_id = @acct AND json_valid(m.cc_addrs)
+            AND json_extract(v.value, '$.address') IS NOT NULL
+       )
+       SELECT addr AS address,
+              nullif(max(coalesce(nm, '')), '') AS name,
+              sum(w) AS score
+         FROM people
+        WHERE addr <> @self
+          AND (addr LIKE @like ESCAPE '\\' OR lower(coalesce(nm, '')) LIKE @like ESCAPE '\\')
+        GROUP BY addr
+        -- Prefix matches first: typing "bur" should surface burban@ above
+        -- someone whose address merely contains it.
+        ORDER BY (addr LIKE @prefix ESCAPE '\\') DESC, score DESC, addr
+        LIMIT @limit`
+    )
+    .all({
+      acct: accountId,
+      self: (accountEmail(accountId) ?? '').toLowerCase(),
+      like,
+      prefix: `${q.replace(/[%_]/g, (c) => `\\${c}`)}%`,
+      limit
+    }) as Contact[]
+}
+
+function accountEmail(accountId: number): string | null {
+  const row = getDb()
+    .prepare('SELECT email FROM accounts WHERE id = ?')
+    .get(accountId) as { email: string } | undefined
+  return row?.email ?? null
+}
+
+/** Row count for a folder — drives the page indicator, so it must match listInbox. */
+export function countInbox(folderId: number): number {
+  return (
+    getDb()
+      .prepare('SELECT count(*) c FROM messages WHERE folder_id = ?')
+      .get(folderId) as { c: number }
+  ).c
+}
+
+/** Mirrors listDrafts' WHERE exactly, including the server-twin suppression. */
+export function countDrafts(accountId: number, serverFolderId: number | null): number {
+  return (
+    getDb()
+      .prepare(
+        `SELECT count(*) c FROM messages
+         WHERE account_id = ? AND (folder_id IS NULL OR folder_id = ?)
+           AND (folder_id IS NULL OR message_id IS NULL OR message_id NOT IN (
+             SELECT message_id FROM messages
+             WHERE account_id = ? AND folder_id IS NULL AND message_id IS NOT NULL
+           ))`
+      )
+      .get(accountId, serverFolderId, accountId) as { c: number }
+  ).c
+}
+
+export function listDrafts(
+  accountId: number,
+  serverFolderId: number | null,
+  limit = 100,
+  offset = 0
+): MessageListRow[] {
+  return getDb()
+    .prepare(
+      `SELECT ${LIST_COLS} FROM messages
+       WHERE account_id = ? AND (folder_id IS NULL OR folder_id = ?)
+         AND (folder_id IS NULL OR message_id IS NULL OR message_id NOT IN (
+           SELECT message_id FROM messages
+           WHERE account_id = ? AND folder_id IS NULL AND message_id IS NOT NULL
+         ))
+       ORDER BY date DESC LIMIT ? OFFSET ?`
+    )
+    .all(accountId, serverFolderId, accountId, limit, offset) as MessageListRow[]
+}
+
+/**
+ * Lowest synced uid in a folder — the anchor for backfilling older mail.
+ * Derived rather than stored so no migration is needed; local-only rows
+ * (drafts, optimistically moved messages) have a NULL uid and are excluded.
+ */
+export function oldestSyncedUid(folderId: number): number | null {
+  const row = getDb()
+    .prepare('SELECT min(uid) u FROM messages WHERE folder_id = ? AND uid IS NOT NULL')
+    .get(folderId) as { u: number | null }
+  return row.u
 }
 
 export function getThread(threadId: string): Message[] {
@@ -268,23 +429,79 @@ export function listAttachments(messageId: number): {
   size: number | null
 }[] {
   return getDb()
-    .prepare('SELECT id, filename, mime, size FROM attachments WHERE message_id = ?')
+    // Inline parts belong in the body, not the attachment strip.
+    .prepare(
+      `SELECT id, filename, mime, size FROM attachments
+       WHERE message_id = ? AND COALESCE(inline, 0) = 0`
+    )
     .all(messageId) as { id: number; filename: string | null; mime: string | null; size: number | null }[]
 }
 
-export function searchMessages(query: string, limit = 100): MessageListRow[] {
-  const q = toFtsQuery(query)
-  if (!q) return []
+// ---- settings ----
+
+export function getSettings(): Record<string, string> {
+  const rows = getDb().prepare('SELECT key, value FROM settings').all() as {
+    key: string
+    value: string | null
+  }[]
+  return Object.fromEntries(rows.map((r) => [r.key, r.value ?? '']))
+}
+
+export function setSetting(key: string, value: string): void {
+  getDb()
+    .prepare(
+      `INSERT INTO settings (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    )
+    .run(key, value)
+}
+
+/** Stored uid -> {id, flags} for a folder, so a sync can diff against the server. */
+export function listFlagState(
+  folderId: number
+): { id: number; uid: number; flags: string | null }[] {
   return getDb()
     .prepare(
-      `SELECT ${LIST_COLS.split(', ')
-        .map((c) => `m.${c}`)
-        .join(', ')}
-       FROM messages_fts f JOIN messages m ON m.id = f.rowid
-       WHERE messages_fts MATCH ? ORDER BY rank LIMIT ?`
+      `SELECT id, uid, flags FROM messages
+       WHERE folder_id = ? AND uid IS NOT NULL`
     )
-    .all(q, limit) as MessageListRow[]
+    .all(folderId) as { id: number; uid: number; flags: string | null }[]
 }
+
+/** Inline (cid:) parts for a message, so the body can resolve its images. */
+export function listInlineParts(messageId: number): {
+  part_id: string | null
+  mime: string | null
+  storage_path: string | null
+}[] {
+  return getDb()
+    .prepare(
+      `SELECT part_id, mime, storage_path FROM attachments
+       WHERE message_id = ? AND COALESCE(inline, 0) = 1
+         AND part_id IS NOT NULL AND storage_path IS NOT NULL`
+    )
+    .all(messageId) as {
+    part_id: string | null
+    mime: string | null
+    storage_path: string | null
+  }[]
+}
+
+/** Single attachment row — the preview/save handlers need its mime. */
+export function getAttachment(id: number): {
+  id: number
+  filename: string | null
+  mime: string | null
+  size: number | null
+} | undefined {
+  return getDb()
+    .prepare('SELECT id, filename, mime, size FROM attachments WHERE id = ?')
+    .get(id) as
+    | { id: number; filename: string | null; mime: string | null; size: number | null }
+    | undefined
+}
+
+export { searchMessages } from './search.js'
 
 // ---- drafts (folder_id IS NULL) ----
 
@@ -292,10 +509,14 @@ export interface DraftInput {
   account_id: number
   to_addrs: string
   cc_addrs?: string | null
+  bcc_addrs?: string | null
   subject?: string | null
   body_text?: string | null
   body_html?: string | null
   in_reply_to?: string | null
+  references_header?: string | null
+  /** JSON array of picked files, so reopening a draft keeps its attachments. */
+  draft_attachments?: string | null
   from_addr: string
   from_name?: string | null
 }
@@ -307,12 +528,14 @@ export function createDraft(input: DraftInput): number {
     .prepare(
       `INSERT INTO messages (
          account_id, folder_id, uid, message_id, thread_id, in_reply_to,
-         from_addr, from_name, to_addrs, cc_addrs, subject, date, snippet,
-         body_text, body_html, flags, has_attachments, body_fetched
+         from_addr, from_name, to_addrs, cc_addrs, bcc_addrs, subject, date,
+         snippet, body_text, body_html, references_header, draft_attachments,
+         flags, has_attachments, body_fetched
        ) VALUES (
          @account_id, NULL, NULL, NULL, NULL, @in_reply_to,
-         @from_addr, @from_name, @to_addrs, @cc_addrs, @subject, @date, @snippet,
-         @body_text, @body_html, '[]', 0, 1
+         @from_addr, @from_name, @to_addrs, @cc_addrs, @bcc_addrs, @subject,
+         @date, @snippet, @body_text, @body_html, @references_header,
+         @draft_attachments, '[]', 0, 1
        )`
     )
     .run({
@@ -322,11 +545,14 @@ export function createDraft(input: DraftInput): number {
       from_name: input.from_name ?? null,
       to_addrs: input.to_addrs,
       cc_addrs: input.cc_addrs ?? null,
+      bcc_addrs: input.bcc_addrs ?? null,
       subject: input.subject ?? null,
       date: now,
       snippet,
       body_text: input.body_text ?? null,
-      body_html: input.body_html ?? null
+      body_html: input.body_html ?? null,
+      references_header: input.references_header ?? null,
+      draft_attachments: input.draft_attachments ?? null
     })
   return Number(info.lastInsertRowid)
 }
@@ -336,52 +562,52 @@ export function updateDraft(
   patch: {
     to_addrs: string
     cc_addrs?: string | null
+    bcc_addrs?: string | null
     subject?: string | null
     body_text?: string | null
     body_html?: string | null
     in_reply_to?: string | null
+    references_header?: string | null
+    draft_attachments?: string | null
   }
 ): void {
   const cur = getMessage(id)
   if (!cur || cur.folder_id != null) return
   const body_text = patch.body_text ?? null
   const snippet = (body_text ?? '').replace(/\s+/g, ' ').trim().slice(0, 160)
+  // Named params: a positional list here is how a field silently goes missing.
   getDb()
     .prepare(
       `UPDATE messages SET
-         to_addrs = ?,
-         cc_addrs = ?,
-         subject = ?,
-         body_text = ?,
-         body_html = ?,
-         in_reply_to = ?,
-         snippet = ?,
-         date = ?
-       WHERE id = ? AND folder_id IS NULL`
+         to_addrs = @to_addrs,
+         cc_addrs = @cc_addrs,
+         bcc_addrs = @bcc_addrs,
+         subject = @subject,
+         body_text = @body_text,
+         body_html = @body_html,
+         in_reply_to = @in_reply_to,
+         references_header = @references_header,
+         draft_attachments = @draft_attachments,
+         snippet = @snippet,
+         date = @date
+       WHERE id = @id AND folder_id IS NULL`
     )
-    .run(
-      patch.to_addrs,
-      patch.cc_addrs ?? null,
-      patch.subject ?? null,
+    .run({
+      to_addrs: patch.to_addrs,
+      cc_addrs: patch.cc_addrs ?? null,
+      bcc_addrs: patch.bcc_addrs ?? null,
+      subject: patch.subject ?? null,
       body_text,
-      patch.body_html ?? null,
-      patch.in_reply_to ?? null,
+      body_html: patch.body_html ?? null,
+      in_reply_to: patch.in_reply_to ?? null,
+      references_header: patch.references_header ?? null,
+      draft_attachments: patch.draft_attachments ?? null,
       snippet,
-      Date.now(),
+      date: Date.now(),
       id
-    )
+    })
 }
 
 export function deleteDraft(id: number): void {
   getDb().prepare('DELETE FROM messages WHERE id = ? AND folder_id IS NULL').run(id)
-}
-
-/**
- * FTS5 treats punctuation as syntax, so raw user input throws on typing
- * things like "re:" or "a@b.com". Quote each token and prefix-match the last.
- */
-function toFtsQuery(input: string): string {
-  const tokens = input.match(/[\p{L}\p{N}]+/gu)
-  if (!tokens?.length) return ''
-  return tokens.map((t, i) => `"${t}"${i === tokens.length - 1 ? '*' : ''}`).join(' ')
 }

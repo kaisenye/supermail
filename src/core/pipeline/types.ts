@@ -34,6 +34,10 @@ export interface MsgCtx {
     mime: string | null
     size: number | null
     part_id: string | null
+    /** 1 when the body references it via cid:, so the list can hide it. */
+    inline?: number
+    /** Raw bytes, written to disk by the pipeline. Absent on envelope-only passes. */
+    content?: Buffer
   }[]
 }
 

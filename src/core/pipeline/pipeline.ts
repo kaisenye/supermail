@@ -1,3 +1,4 @@
+import { clearMessageAttachments, writeAttachment } from '../store/attachments.js'
 import { getDb } from '../store/db.js'
 import { upsertMessage } from '../store/repo.js'
 import type { MsgCtx, Processor, RawMessage } from './types.js'
@@ -54,13 +55,25 @@ export async function runPipeline(
     const msgId = upsertMessage(ctx.draft)
     if (ctx.attachments.length) {
       db.prepare('DELETE FROM attachments WHERE message_id = ?').run(msgId)
-      const ins = db.prepare(
-        `INSERT INTO attachments (message_id, filename, mime, size, part_id)
-         VALUES (?, ?, ?, ?, ?)`
-      )
-      for (const a of ctx.attachments) {
-        ins.run(msgId, a.filename, a.mime, a.size, a.part_id)
+      try {
+        clearMessageAttachments(msgId)
+      } catch {
+        // Store not initialized (e.g. tests): rows still persist, bytes are skipped below.
       }
+      const ins = db.prepare(
+        `INSERT INTO attachments (message_id, filename, mime, size, part_id, storage_path, inline)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      ctx.attachments.forEach((a, i) => {
+        // A failed write costs the bytes, never the message row.
+        let path: string | null = null
+        try {
+          if (a.content) path = writeAttachment(msgId, i, a.filename, a.content)
+        } catch (e) {
+          errors.push({ processor: 'attachments', message: (e as Error).message })
+        }
+        ins.run(msgId, a.filename, a.mime, a.size, a.part_id, path, a.inline ?? 0)
+      })
     }
     return msgId
   })()
