@@ -9,16 +9,21 @@ import {
   oldestSyncedUid,
   resetFolder,
   setLastUid,
-  upsertFolder
+  upsertFolder,
+  getSettings,
+  setSetting
 } from '../store/repo.js'
 import {
   createClient,
   fetchEnvelopes,
   listMailboxes,
   mailboxStatus,
+  ensureMessageIdFormat,
+  parseReferences,
   type MailboxStatus
 } from './imap.js'
 import { reconcileFolder } from './reconcile.js'
+import { rethreadAccount, type RethreadResult } from './rethread.js'
 import type { RawMessage } from '../pipeline/types.js'
 
 export interface SyncOptions {
@@ -185,6 +190,42 @@ export async function syncAccount(
  */
 const IGNORED_PREFIXES = ['其他文件夹']
 
+/**
+ * One-shot marker for the threading repair. Keyed per account so adding a new
+ * one does not re-scan an account already fixed.
+ */
+function rethreadKey(accountId: number): string {
+  return `account.${accountId}.rethreaded.v1`
+}
+
+export function rethreadDone(accountId: number): boolean {
+  return getSettings()[rethreadKey(accountId)] === '1'
+}
+
+/**
+ * One-time threading repair for mail synced before References was fetched.
+ *
+ * Deliberately outside syncAccount: it re-reads every header in the mailbox
+ * (~5 min for 2k messages) and must not hold up the first paint. Runs on its
+ * own connection, and only marks itself done after a clean pass.
+ */
+export async function repairThreading(
+  accountId: number,
+  config: AccountConfig
+): Promise<RethreadResult & { skipped: boolean }> {
+  if (rethreadDone(accountId)) return { scanned: 0, updated: 0, skipped: true }
+  const client = createClient(config)
+  await client.connect()
+  try {
+    const folders = listFolders(accountId).map((f) => ({ id: f.id, path: f.path }))
+    const r = await rethreadAccount(client, accountId, folders)
+    setSetting(rethreadKey(accountId), '1')
+    return { ...r, skipped: false }
+  } finally {
+    await client.logout().catch(() => {})
+  }
+}
+
 export function isIgnoredFolder(path: string): boolean {
   return IGNORED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))
 }
@@ -261,7 +302,9 @@ export async function backfillFolder(
       const raw: RawMessage[] = []
       for await (const msg of client.fetch(
         `1:${oldest - 1}`,
-        { uid: true, envelope: true, flags: true },
+        // Same header pull as the incremental path: ENVELOPE has no References
+        // (RFC 3501), and without it backfilled mail cannot be threaded.
+        { uid: true, envelope: true, flags: true, headers: ['references'] },
         { uid: true }
       )) {
         if (msg.uid >= oldest) continue
@@ -270,9 +313,13 @@ export async function backfillFolder(
           folderId: folder.id,
           uid: msg.uid,
           envelope: {
-            messageId: msg.envelope?.messageId ?? null,
-            inReplyTo: msg.envelope?.inReplyTo ?? null,
-            references: null,
+            messageId: msg.envelope?.messageId
+              ? ensureMessageIdFormat(msg.envelope.messageId)
+              : null,
+            inReplyTo: msg.envelope?.inReplyTo
+              ? ensureMessageIdFormat(msg.envelope.inReplyTo)
+              : null,
+            references: parseReferences(msg.headers),
             from: msg.envelope?.from?.[0]
               ? { address: msg.envelope.from[0].address, name: msg.envelope.from[0].name }
               : null,
