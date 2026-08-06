@@ -396,7 +396,7 @@ export function oldestSyncedUid(folderId: number): number | null {
 export function getThread(accountId: number, threadId: string): Message[] {
   return getDb()
     .prepare(
-      'SELECT * FROM messages WHERE account_id = ? AND thread_id = ? ORDER BY date ASC'
+      'SELECT * FROM messages WHERE account_id = ? AND thread_id = ? ORDER BY date DESC'
     )
     .all(accountId, threadId) as Message[]
 }
