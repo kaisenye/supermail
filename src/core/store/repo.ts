@@ -29,6 +29,11 @@ export function listAccounts(): Account[] {
   return getDb().prepare('SELECT * FROM accounts ORDER BY id').all() as Account[]
 }
 
+/** Folders and messages go with it via ON DELETE CASCADE. */
+export function deleteAccount(accountId: number): void {
+  getDb().prepare('DELETE FROM accounts WHERE id = ?').run(accountId)
+}
+
 // ---- folders ----
 
 export function upsertFolder(f: {
@@ -384,10 +389,16 @@ export function oldestSyncedUid(folderId: number): number | null {
   return row.u
 }
 
-export function getThread(threadId: string): Message[] {
+/**
+ * Account-scoped: thread_id derives from Message-ID/References, so two accounts
+ * on the same mailing list produce identical ids and would otherwise interleave.
+ */
+export function getThread(accountId: number, threadId: string): Message[] {
   return getDb()
-    .prepare('SELECT * FROM messages WHERE thread_id = ? ORDER BY date ASC')
-    .all(threadId) as Message[]
+    .prepare(
+      'SELECT * FROM messages WHERE account_id = ? AND thread_id = ? ORDER BY date ASC'
+    )
+    .all(accountId, threadId) as Message[]
 }
 
 /** Folder path for a message — needed to SELECT the right mailbox on fetch. */

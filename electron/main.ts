@@ -4,28 +4,49 @@ import { fileURLToPath } from 'url'
 import { flushPendingMoves, registerIpc } from './ipc.js'
 import { initDb } from '../src/core/store/db.js'
 import { initAttachmentStore } from '../src/core/store/attachments.js'
-import { bootstrapAccount } from '../src/core/accounts/index.js'
+import { loadStoredAccounts, migrateEnvAccount } from '../src/core/accounts/manage.js'
+import { initVault } from '../src/core/accounts/vault.js'
+import { getSettings } from '../src/core/store/repo.js'
 import { startOutboxWorker } from '../src/core/send/flush.js'
-import { startIdleWatcher, stopIdleWatcher } from '../src/core/sync/idle.js'
-import { closePool, getPool } from '../src/core/sync/pool.js'
-import { getBootState, setBootState } from './state.js'
+import { stopIdleWatcher } from '../src/core/sync/idle.js'
+import { closePool } from '../src/core/sync/pool.js'
+import { startAccountWorkers } from './workers.js'
+import { addAccount, getAccount, listAccounts, setBootError } from './state.js'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
+
+/** dev: repo root (cwd). packaged: userData, since the bundle is read-only. */
+function envLocalPath(): string {
+  return app.isPackaged
+    ? join(app.getPath('userData'), '.env.local')
+    : join(process.cwd(), '.env.local')
+}
 
 function boot(): void {
   initDb(join(app.getPath('userData'), 'supermail.db'))
   initAttachmentStore(app.getPath('userData'))
+  initVault(app.getPath('userData'))
+
+  // Lift a legacy .env.local credential into the keychain once. Runs before
+  // the load below so the migrated account appears in the same pass.
   try {
-    // dev: repo root (cwd). packaged: userData, since the bundle is read-only.
-    const envPath = app.isPackaged
-      ? join(app.getPath('userData'), '.env.local')
-      : join(process.cwd(), '.env.local')
-    const { account, config } = bootstrapAccount(envPath)
-    setBootState({ ok: true, accountId: account.id, email: account.email, config })
+    migrateEnvAccount(envLocalPath())
   } catch (e) {
-    // No creds yet is a normal first-run state, not a crash.
-    setBootState({ ok: false, error: (e as Error).message })
+    console.error('[boot] .env.local migration failed:', e)
   }
+
+  const stored = loadStoredAccounts((id) => displayNameFor(id))
+  for (const { account, config } of stored) {
+    addAccount({ accountId: account.id, email: account.email, config })
+  }
+  // No accounts is a normal first-run state, not a crash — the renderer shows
+  // onboarding rather than an error.
+  if (!stored.length) setBootError('no account connected')
+}
+
+/** Per-account display name for the From: header. */
+function displayNameFor(accountId: number): string | null {
+  return getSettings()[`account.${accountId}.name`] ?? null
 }
 
 function createWindow(): void {
@@ -59,24 +80,15 @@ app.whenReady().then(() => {
   boot()
   registerIpc()
   startOutboxWorker(
-    () => {
-      const s = getBootState()
-      return s.ok ? s.config : null
-    },
+    (accountId) => getAccount(accountId)?.config ?? null,
     undefined,
     (f) => {
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send('send:failed', f)
     }
   )
-  // Tell the renderer to run its normal sync, so IDLE reuses the 'sync:run' guard.
-  const s = getBootState()
-  if (s.ok) {
-    // Pay the ~2.7s handshake now, while nothing is waiting on it.
-    void getPool(s.config).warm()
-    startIdleWatcher(s.config, () => {
-      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('mail:new')
-    })
-  }
+  // Every account gets its own warmed pool and parked IDLE connection, so mail
+  // pushes for all of them rather than only whichever is on screen.
+  for (const a of listAccounts()) startAccountWorkers(a.config)
   createWindow()
 
   app.on('activate', () => {
@@ -85,6 +97,7 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', () => {
+  // No argument: stops every account's watcher and pool.
   stopIdleWatcher()
   // SQLite already shows these moved; don't strand them mid-undo-window.
   flushPendingMoves()

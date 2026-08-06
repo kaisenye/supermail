@@ -154,7 +154,7 @@ function bestTokenDistance(term: string, text: string): number {
  * index (cheap, indexed) and are then re-ranked by real edit distance so that
  * "meting" prefers "meeting" over "marching".
  */
-function fuzzySearch(terms: string[], limit: number): MessageListRow[] {
+function fuzzySearch(accountId: number, terms: string[], limit: number): MessageListRow[] {
   const grams = terms.flatMap(trigrams)
   if (!grams.length) return []
 
@@ -168,11 +168,11 @@ function fuzzySearch(terms: string[], limit: number): MessageListRow[] {
       `SELECT ${select}, COALESCE(m.subject,'') || ' ' || COALESCE(m.from_name,'') ||
               ' ' || COALESCE(m.from_addr,'') AS haystack
          FROM messages_trgm t JOIN messages m ON m.id = t.rowid
-        WHERE messages_trgm MATCH ?
+        WHERE messages_trgm MATCH ? AND m.account_id = ?
         ORDER BY rank
         LIMIT ?`
     )
-    .all(match, limit * 6) as (MessageListRow & { haystack: string })[]
+    .all(match, accountId, limit * 6) as (MessageListRow & { haystack: string })[]
 
   const MAX_EDITS = 2
   return rows
@@ -189,7 +189,11 @@ function fuzzySearch(terms: string[], limit: number): MessageListRow[] {
     })
 }
 
-export function searchMessages(query: string, limit = 100): MessageListRow[] {
+export function searchMessages(
+  accountId: number,
+  query: string,
+  limit = 100
+): MessageListRow[] {
   const { terms, predicates } = parseQuery(query)
   const fts = toFtsQuery(terms.join(' '))
   if (!fts && !predicates.length) return []
@@ -210,6 +214,10 @@ export function searchMessages(query: string, limit = 100): MessageListRow[] {
     params.push(fts)
   }
   for (const p of predicates) params.push(...p.params)
+  // Appended last so it binds after every predicate param, whose order the
+  // clauses above already fixed.
+  where.push('m.account_id = ?')
+  params.push(accountId)
   params.push(limit)
 
   const rows = getDb()
@@ -223,5 +231,5 @@ export function searchMessages(query: string, limit = 100): MessageListRow[] {
   // Only fall back on a plain term query: with operators in play an empty
   // result is usually a real answer ("no unread from bob"), not a typo.
   if (rows.length || predicates.length || !terms.length) return rows
-  return fuzzySearch(terms, limit)
+  return fuzzySearch(accountId, terms, limit)
 }
