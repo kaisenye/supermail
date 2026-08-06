@@ -39,10 +39,41 @@ export type AttachmentData =
   | { ok: true; base64: string; mime: string; filename: string }
   | { ok: false; error: string }
 
+export interface AccountSummary {
+  accountId: number
+  email: string
+  name: string | null
+  active: boolean
+}
+
 export interface BootStatus {
   ok: boolean
   email?: string
   error?: string
+  accounts: AccountSummary[]
+  activeAccountId: number | null
+}
+
+export interface ProviderPreset {
+  id: string
+  label: string
+  imapHost: string
+  imapPort: number
+  smtpHost: string
+  smtpPort: number
+  smtpSavesSent: boolean
+  passwordHint?: string
+}
+
+export interface NewAccountInput {
+  email: string
+  pass: string
+  name: string | null
+  imapHost: string
+  imapPort: number
+  smtpHost: string
+  smtpPort: number
+  smtpSavesSent?: boolean
 }
 
 export type SyncRunResult =
@@ -75,6 +106,27 @@ export interface QueueSendPayload extends DraftPayload {
 
 const api = {
   bootStatus: (): Promise<BootStatus> => ipcRenderer.invoke('boot:status'),
+  /** Fires once after the one-time threading repair merges split conversations. */
+  onThreadingRepaired: (fn: (p: { updated: number }) => void): (() => void) => {
+    const h = (_e: unknown, p: { updated: number }): void => fn(p)
+    ipcRenderer.on('threading:repaired', h)
+    return () => ipcRenderer.removeListener('threading:repaired', h)
+  },
+  accountPresets: (): Promise<ProviderPreset[]> => ipcRenderer.invoke('account:presets'),
+  accountPreset: (email: string): Promise<ProviderPreset> =>
+    ipcRenderer.invoke('account:preset', email),
+  accountTest: (
+    input: NewAccountInput
+  ): Promise<{ ok: boolean; stage?: string; message?: string; mailboxes?: number }> =>
+    ipcRenderer.invoke('account:test', input),
+  accountAdd: (
+    input: NewAccountInput
+  ): Promise<{ ok: boolean; accountId?: number; email?: string; error?: string }> =>
+    ipcRenderer.invoke('account:add', input),
+  accountSetActive: (accountId: number): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('account:setActive', accountId),
+  accountRemove: (accountId: number): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('account:remove', accountId),
   listFolders: (): Promise<Folder[]> => ipcRenderer.invoke('folders:list'),
   listMessages: (folderId: number, limit?: number, offset?: number): Promise<MessageListRow[]> =>
     ipcRenderer.invoke('messages:list', folderId, limit, offset),

@@ -2,14 +2,31 @@ import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { basename, extname } from 'path'
 import { copyFileSync, readFileSync, statSync } from 'fs'
 import { attachmentPath, signatureLogoPath } from '../src/core/store/attachments.js'
-import { backfillFolder, syncAccount } from '../src/core/sync/syncEngine.js'
+import {
+  backfillFolder,
+  repairThreading,
+  rethreadDone,
+  syncAccount
+} from '../src/core/sync/syncEngine.js'
 import { ensureBody } from '../src/core/sync/fetchBody.js'
 import { syncBodies } from '../src/core/sync/bodySync.js'
 import { FlagWriter } from '../src/core/sync/flagWriter.js'
 import { MoveWriter } from '../src/core/sync/moveWriter.js'
+import type { AccountConfig } from '../src/core/accounts/config.js'
+import { listPresets, presetFor } from '../src/core/accounts/presets.js'
+import { verifyAccount } from '../src/core/accounts/verify.js'
+import {
+  forgetAccount,
+  saveAccount,
+  toConfig,
+  type NewAccountInput
+} from '../src/core/accounts/manage.js'
+import { startAccountWorkers, stopAccountWorkers } from './workers.js'
 import {
   addFlag,
   countDrafts,
+  deleteAccount,
+  listAccounts as storedAccounts,
   countInbox,
   createDraft,
   searchContacts,
@@ -41,7 +58,14 @@ import {
   enqueueOutbox,
   listPendingOutbox
 } from '../src/core/send/outbox.js'
-import { getBootState, getBootStatus } from './state.js'
+import {
+  addAccount as addAccountToState,
+  getAccount,
+  getBootState,
+  getBootStatus,
+  removeAccount as removeAccountFromState,
+  setActiveAccount
+} from './state.js'
 
 /** A signature rides on every message, so a big logo is a per-send tax. */
 const MAX_LOGO_BYTES = 512 * 1024
@@ -61,14 +85,35 @@ function logoMime(ext: string): string {
 export const UNDO_SEND_MS = 3_000
 export const UNDO_MOVE_MS = 3_000
 
-let syncing = false
-let bodySyncing = false
-let backfilling = false
-let flagWriter: FlagWriter | null = null
-let moveWriter: MoveWriter | null = null
+// All keyed by accountId — a shared flag would let one account's in-flight
+// sync suppress another's, and a shared writer would target the wrong server.
+const syncing = new Set<number>()
+const bodySyncing = new Set<number>()
+const backfilling = new Set<number>()
+const flagWriters = new Map<number, FlagWriter>()
+const moveWriters = new Map<number, MoveWriter>()
+
+function flagWriterFor(accountId: number, config: AccountConfig): FlagWriter {
+  let w = flagWriters.get(accountId)
+  if (!w) {
+    w = new FlagWriter(config)
+    flagWriters.set(accountId, w)
+  }
+  return w
+}
+
+function moveWriterFor(accountId: number, config: AccountConfig): MoveWriter {
+  let w = moveWriters.get(accountId)
+  if (!w) {
+    w = new MoveWriter(config)
+    moveWriters.set(accountId, w)
+  }
+  return w
+}
 
 interface PendingMove {
   id: number
+  accountId: number
   fromFolderId: number
   fromPath: string
   uid: number
@@ -87,11 +132,16 @@ function commitMove(batchId: number): void {
   if (!batch) return
   clearTimeout(batch.timer)
   pendingMoves.delete(batchId)
-  const s = getBootState()
-  if (!s.ok) return
-  if (!moveWriter) moveWriter = new MoveWriter(s.config)
+  // Resolve the account from the job, not from whichever is active now: the
+  // user may have switched during the undo window.
   for (const j of batch.jobs) {
-    moveWriter.enqueue({ fromPath: j.fromPath, uid: j.uid, toPath: j.toPath })
+    const acct = getAccount(j.accountId)
+    if (!acct) continue
+    moveWriterFor(acct.accountId, acct.config).enqueue({
+      fromPath: j.fromPath,
+      uid: j.uid,
+      toPath: j.toPath
+    })
   }
 }
 
@@ -187,14 +237,61 @@ interface QueueSendPayload extends DraftPayload {
 export function registerIpc(): void {
   ipcMain.handle('boot:status', () => getBootStatus())
 
+  ipcMain.handle('account:presets', () => listPresets())
+
+  // Prefill from the address alone, so most users never open Advanced.
+  ipcMain.handle('account:preset', (_e, email: string) => presetFor(email))
+
+  // Dials the real servers before anything is saved: a typo surfaces here
+  // instead of as mail that silently fails to send days later.
+  ipcMain.handle('account:test', async (_e, input: NewAccountInput) => {
+    try {
+      return await verifyAccount(toConfig(input))
+    } catch (e) {
+      return { ok: false as const, message: (e as Error).message }
+    }
+  })
+
+  ipcMain.handle('account:add', async (_e, input: NewAccountInput) => {
+    const config = toConfig(input)
+    // Verify before persisting, so a failed add leaves nothing behind.
+    const check = await verifyAccount(config)
+    if (!check.ok) return { ok: false as const, error: check.message ?? 'connection failed' }
+    try {
+      const { account } = saveAccount(input)
+      if (config.name) setSetting(`account.${account.id}.name`, config.name)
+      addAccountToState({ accountId: account.id, email: account.email, config })
+      setActiveAccount(account.id)
+      startAccountWorkers(config)
+      return { ok: true as const, accountId: account.id, email: account.email }
+    } catch (e) {
+      return { ok: false as const, error: (e as Error).message }
+    }
+  })
+
+  ipcMain.handle('account:setActive', (_e, accountId: number) => {
+    return { ok: setActiveAccount(accountId) }
+  })
+
+  ipcMain.handle('account:remove', (_e, accountId: number) => {
+    const live = getAccount(accountId)
+    const row = storedAccounts().find((a) => a.id === accountId)
+    if (!row) return { ok: false as const, error: 'no such account' }
+    if (live) stopAccountWorkers(live.email)
+    forgetAccount(row)
+    // ON DELETE CASCADE clears folders and messages with the row.
+    deleteAccount(accountId)
+    removeAccountFromState(accountId)
+    return { ok: true as const }
+  })
+
   // Optimistic star: mutate SQLite now, push the IMAP write to the background.
   ipcMain.handle('message:toggleFlag', (_e, id: number, flag: string) => {
     const s = getBootState()
     if (!s.ok) return { ok: false as const, error: s.error }
     const next = toggleFlag(id, flag)
     const nowHas = next.some((f) => f.toLowerCase() === flag.toLowerCase())
-    if (!flagWriter) flagWriter = new FlagWriter(s.config)
-    flagWriter.enqueue({ messageId: id, flag, add: nowHas })
+    flagWriterFor(s.accountId, s.config).enqueue({ messageId: id, flag, add: nowHas })
     return { ok: true as const, flags: next }
   })
 
@@ -204,12 +301,12 @@ export function registerIpc(): void {
     (_e, ids: number[], flag: string, add: boolean) => {
       const s = getBootState()
       if (!s.ok) return { ok: false as const, error: s.error }
-      if (!flagWriter) flagWriter = new FlagWriter(s.config)
+      const writer = flagWriterFor(s.accountId, s.config)
       const updated: { id: number; flags: string[] }[] = []
       for (const id of ids) {
         const next = add ? addFlag(id, flag) : removeFlag(id, flag)
         if (!next) continue
-        flagWriter.enqueue({ messageId: id, flag, add })
+        writer.enqueue({ messageId: id, flag, add })
         updated.push({ id, flags: next })
       }
       return { ok: true as const, updated }
@@ -233,7 +330,14 @@ export function registerIpc(): void {
         const loc = getMessageLocation(id)
         if (!loc) continue
         if (loc.path === toPath) continue
-        jobs.push({ id, fromFolderId: loc.folder_id, fromPath: loc.path, uid: loc.uid, toPath })
+        jobs.push({
+          id,
+          accountId: s.accountId,
+          fromFolderId: loc.folder_id,
+          fromPath: loc.path,
+          uid: loc.uid,
+          toPath
+        })
         moveMessage(id, dest.id)
       }
       if (!jobs.length) return { ok: true as const, batchId: 0, moved: [], toPath }
@@ -375,23 +479,27 @@ export function registerIpc(): void {
     if (!s.ok) return { ok: false as const, error: s.error }
     const folder = listFolders(s.accountId).find((f) => f.id === folderId)
     if (!folder) return { ok: false as const, error: 'unknown folder' }
-    if (backfilling) return { ok: false as const, error: 'already loading' }
-    backfilling = true
+    if (backfilling.has(s.accountId)) return { ok: false as const, error: 'already loading' }
+    backfilling.add(s.accountId)
     try {
       const r = await backfillFolder(s.accountId, s.config, folder, limit)
       return { ok: true as const, ...r }
     } catch (e) {
       return { ok: false as const, error: (e as Error).message }
     } finally {
-      backfilling = false
+      backfilling.delete(s.accountId)
     }
   })
 
-  ipcMain.handle('messages:search', (_e, query: string, limit = 100) =>
-    searchMessages(query, limit)
-  )
+  ipcMain.handle('messages:search', (_e, query: string, limit = 100) => {
+    const s = getBootState()
+    return s.ok ? searchMessages(s.accountId, query, limit) : []
+  })
 
-  ipcMain.handle('thread:get', (_e, threadId: string) => getThread(threadId))
+  ipcMain.handle('thread:get', (_e, threadId: string) => {
+    const s = getBootState()
+    return s.ok ? getThread(s.accountId, threadId) : []
+  })
 
   // Mark every message in a thread \Seen. Optimistic: SQLite first, IMAP in the
   // background. Returns the ids whose read-state actually changed so the list
@@ -399,13 +507,13 @@ export function registerIpc(): void {
   ipcMain.handle('thread:markRead', (_e, threadId: string) => {
     const s = getBootState()
     if (!s.ok) return { ok: false as const, error: s.error }
-    if (!flagWriter) flagWriter = new FlagWriter(s.config)
+    const writer = flagWriterFor(s.accountId, s.config)
     const changed: number[] = []
-    for (const m of getThread(threadId)) {
+    for (const m of getThread(s.accountId, threadId)) {
       const next = addFlag(m.id, '\\Seen')
       if (next) {
         changed.push(m.id)
-        flagWriter.enqueue({ messageId: m.id, flag: '\\Seen', add: true })
+        writer.enqueue({ messageId: m.id, flag: '\\Seen', add: true })
       }
     }
     return { ok: true as const, changed }
@@ -544,9 +652,9 @@ export function registerIpc(): void {
   ipcMain.handle('bodySync:run', async () => {
     const s = getBootState()
     if (!s.ok) return { ok: false as const, error: s.error }
-    if (bodySyncing) return { ok: false as const, error: 'already running' }
+    if (bodySyncing.has(s.accountId)) return { ok: false as const, error: 'already running' }
 
-    bodySyncing = true
+    bodySyncing.add(s.accountId)
     try {
       const result = await syncBodies(s.accountId, s.config, {
         onProgress: (p) => {
@@ -558,7 +666,7 @@ export function registerIpc(): void {
     } catch (e) {
       return { ok: false as const, error: (e as Error).message }
     } finally {
-      bodySyncing = false
+      bodySyncing.delete(s.accountId)
     }
   })
 
@@ -618,24 +726,35 @@ export function registerIpc(): void {
     const s = getBootState()
     if (!s.ok) return { ok: false, error: s.error }
     // Overlap is normal (timer + focus + boot) — skip quietly, not an error.
-    if (syncing) {
+    if (syncing.has(s.accountId)) {
       return { ok: true, folders: 0, messages: 0, reconciled: 0, errors: [], skipped: true }
     }
 
-    syncing = true
+    syncing.add(s.accountId)
     try {
       const result = await syncAccount(s.accountId, s.config, {
         // Server state must not clobber a local flag change still in the queue.
-        pendingFlagIds: flagWriter?.pendingIds(),
+        pendingFlagIds: flagWriters.get(s.accountId)?.pendingIds(),
         onProgress: (p) => {
           for (const w of BrowserWindow.getAllWindows()) w.webContents.send('sync:progress', p)
         }
       })
+      // One-time threading repair, in the background: it re-reads every header
+      // in the mailbox and must not delay the list the user is waiting on.
+      if (!rethreadDone(s.accountId)) {
+        void repairThreading(s.accountId, s.config)
+          .then((r) => {
+            if (r.skipped || !r.updated) return
+            for (const w of BrowserWindow.getAllWindows())
+              w.webContents.send('threading:repaired', { updated: r.updated })
+          })
+          .catch((e) => console.error('[rethread] failed:', e))
+      }
       return { ok: true, ...result, skipped: false }
     } catch (e) {
       return { ok: false, error: (e as Error).message }
     } finally {
-      syncing = false
+      syncing.delete(s.accountId)
     }
   })
 }

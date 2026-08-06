@@ -93,18 +93,23 @@ export class IdleWatcher {
   }
 }
 
-let watcher: IdleWatcher | null = null
+// One parked IDLE connection per account: a shared watcher would leave every
+// account but the first with no push at all.
+const watchers = new Map<string, IdleWatcher>()
 
-export function startIdleWatcher(
-  config: AccountConfig,
-  onNewMail: () => void
-): void {
-  if (watcher) return
-  watcher = new IdleWatcher(config, onNewMail)
-  watcher.start()
+export function startIdleWatcher(config: AccountConfig, onNewMail: () => void): void {
+  const key = config.email.toLowerCase()
+  if (watchers.has(key)) return
+  const w = new IdleWatcher(config, onNewMail)
+  watchers.set(key, w)
+  w.start()
 }
 
-export function stopIdleWatcher(): void {
-  watcher?.stop()
-  watcher = null
+/** Stops one account's watcher, or every watcher when called with no argument. */
+export function stopIdleWatcher(email?: string): void {
+  const keys = email ? [email.toLowerCase()] : [...watchers.keys()]
+  for (const k of keys) {
+    watchers.get(k)?.stop()
+    watchers.delete(k)
+  }
 }

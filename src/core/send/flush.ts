@@ -193,7 +193,7 @@ export interface SendFailure {
 }
 
 export async function flushDueOutbox(
-  config: AccountConfig,
+  configFor: (accountId: number) => AccountConfig | null,
   onFailure?: (f: SendFailure) => void
 ): Promise<number> {
   const due = listDueOutbox()
@@ -202,6 +202,10 @@ export async function flushDueOutbox(
     // Re-read in case cancelled between list and flush.
     const current = getOutbox(row.id)
     if (!current || current.status !== 'pending') continue
+    // Each row sends through its own account: a shared config would deliver
+    // account B's mail from account A's address.
+    const config = configFor(current.account_id)
+    if (!config) continue
     const res = await flushOutboxRow(config, current)
     if (res.ok) sent++
     // A failed send is otherwise invisible: the compose window is already gone.
@@ -221,7 +225,7 @@ let workerTimer: ReturnType<typeof setInterval> | null = null
 // Must stay under the compose send delay, or a "send now" waits on the poll
 // rather than on its own undo window.
 export function startOutboxWorker(
-  getConfig: () => AccountConfig | null,
+  configFor: (accountId: number) => AccountConfig | null,
   intervalMs = 1_000,
   onFailure?: (f: SendFailure) => void
 ): void {
@@ -231,10 +235,8 @@ export function startOutboxWorker(
   let running = false
   workerTimer = setInterval(() => {
     if (running) return
-    const config = getConfig()
-    if (!config) return
     running = true
-    void flushDueOutbox(config, onFailure).finally(() => {
+    void flushDueOutbox(configFor, onFailure).finally(() => {
       running = false
     })
   }, intervalMs)
