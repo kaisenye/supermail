@@ -10,7 +10,7 @@ export interface MailboxInfo {
 }
 
 export function createClient(config: AccountConfig): ImapFlow {
-  return new ImapFlow({
+  const client = new ImapFlow({
     host: config.imapHost,
     port: config.imapPort,
     secure: true,
@@ -20,6 +20,12 @@ export function createClient(config: AccountConfig): ImapFlow {
     greetingTimeout: 30_000,
     socketTimeout: 120_000
   })
+  // ImapFlow is an EventEmitter, so an unhandled 'error' — a socket timeout on
+  // a long sync, most often — would take down the whole main process. The
+  // awaited call rejects on its own; this only stops the crash. Callers that
+  // need to react (pool eviction, IDLE reconnect) add their own listener.
+  client.on('error', () => {})
+  return client
 }
 
 /** \NoSelect entries are containers (e.g. 其他文件夹) — selecting them errors. */
@@ -72,7 +78,7 @@ export async function mailboxStatus(
  * Normalises a message-id to `<...>`. mailparser does this on the body pass,
  * so the envelope pass must too or the same message threads two ways.
  */
-function ensureMessageIdFormat(value: string): string | null {
+export function ensureMessageIdFormat(value: string): string | null {
   const v = value.trim()
   if (!v) return null
   return `${v.startsWith('<') ? '' : '<'}${v}${v.endsWith('>') ? '' : '>'}`
@@ -82,7 +88,7 @@ function ensureMessageIdFormat(value: string): string | null {
  * RFC 5322 References is whitespace/CRLF separated <msgid> tokens. Split the
  * same way mailparser does so both sync passes yield an identical array.
  */
-function parseReferences(headers: Buffer | undefined): string[] | null {
+export function parseReferences(headers: Buffer | undefined): string[] | null {
   if (!headers) return null
   // Unfold continuation lines (CRLF + WSP) before matching the field body.
   const m = /^references:\s*([\s\S]*?)$/im.exec(

@@ -76,6 +76,10 @@ export class ImapPool {
     if (this.entries.length < MAX_CONNECTIONS) {
       const client = createClient(this.config)
       const entry: Entry = { client, busy: true }
+      // ImapFlow is an EventEmitter: an unhandled 'error' — a socket timeout on
+      // an idle pooled connection, most often — would crash the main process.
+      // imapflow only self-recovers these while IDLE, which pooled ones never are.
+      client.on('error', () => this.discard(entry))
       this.entries.push(entry)
       try {
         await client.connect()
@@ -90,17 +94,43 @@ export class ImapPool {
     return new Promise<Entry>((resolve) => this.waiters.push(resolve))
   }
 
+  /**
+   * Retires a connection the moment it fails. An in-flight lease keeps its
+   * entry until release() so withConnection's own cleanup still runs.
+   */
+  private discard(entry: Entry): void {
+    if (entry.busy) return // release() will retire it once the lease ends
+    this.entries = this.entries.filter((e) => e !== entry)
+    void entry.client.logout().catch(() => {})
+    if (!this.closed) this.pumpWaiters()
+  }
+
   private release(entry: Entry): void {
-    if (this.closed || !entry.client.usable) {
-      entry.busy = false
+    entry.busy = false
+    if (this.closed) return
+    // Retiring a dead connection frees a slot, but the queued waiter is only
+    // parked on a promise — without this it would wait forever for a lease
+    // that can no longer be handed over.
+    if (!entry.client.usable) {
+      this.entries = this.entries.filter((e) => e !== entry)
+      this.pumpWaiters()
       return
     }
     const next = this.waiters.shift()
     if (next) {
+      entry.busy = true
       next(entry)
-      return
     }
-    entry.busy = false
+  }
+
+  /** Lets one parked waiter re-enter acquire() now that a slot is free. */
+  private pumpWaiters(): void {
+    const next = this.waiters.shift()
+    if (!next) return
+    void this.acquire().then(next, () => {
+      // Reconnect failed; hand the slot to whoever is behind them.
+      this.pumpWaiters()
+    })
   }
 
   /** NOOP keeps the server from reaping connections we are holding open. */
@@ -137,15 +167,28 @@ export class ImapPool {
   }
 }
 
-let pool: ImapPool | null = null
+// Keyed by email: a single shared pool would hand out connections
+// authenticated as whichever account happened to create it first.
+const pools = new Map<string, ImapPool>()
 
 export function getPool(config: AccountConfig): ImapPool {
-  if (!pool) pool = new ImapPool(config)
-  return pool
+  const key = config.email.toLowerCase()
+  let p = pools.get(key)
+  if (!p) {
+    p = new ImapPool(config)
+    pools.set(key, p)
+  }
+  return p
 }
 
-export async function closePool(): Promise<void> {
-  const p = pool
-  pool = null
-  if (p) await p.close()
+/** Closes one account's pool, or every pool when called with no argument. */
+export async function closePool(email?: string): Promise<void> {
+  const keys = email ? [email.toLowerCase()] : [...pools.keys()]
+  const doomed: ImapPool[] = []
+  for (const k of keys) {
+    const p = pools.get(k)
+    if (p) doomed.push(p)
+    pools.delete(k)
+  }
+  await Promise.all(doomed.map((p) => p.close()))
 }
