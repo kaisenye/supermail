@@ -1820,3 +1820,432 @@ div.compose-body[data-empty='true']::before {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---- onboarding ---------------------------------------------------------
+ * First-run and add-account. Deliberately the same restraint as the rest of
+ * the app: one panel, one accent, no welcome-screen flourish.
+ */
+
+.onboard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--space-6);
+  background: var(--bg);
+  overflow-y: auto;
+}
+
+/* Safari needs the child to own the margin for a scrollable flex centre. */
+.onboard > * {
+  margin: auto;
+}
+
+.onboard-panel {
+  width: 100%;
+  max-width: 380px;
+  animation: onboard-rise var(--duration-base) var(--ease-out) both;
+}
+
+@keyframes onboard-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.onboard-welcome {
+  text-align: center;
+  padding-bottom: var(--space-6);
+}
+
+/* Three bars: a mail list reduced to its essentials. */
+.onboard-mark {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 26px;
+  margin: 0 auto var(--space-5);
+}
+
+.onboard-mark span {
+  height: 3px;
+  border-radius: 1.5px;
+  background: var(--text-quaternary);
+  animation: onboard-mark-in var(--duration-base) var(--ease-out) both;
+}
+
+.onboard-mark span:first-child {
+  background: var(--accent);
+}
+.onboard-mark span:nth-child(2) {
+  width: 78%;
+  animation-delay: 40ms;
+}
+.onboard-mark span:last-child {
+  width: 52%;
+  animation-delay: 80ms;
+}
+
+@keyframes onboard-mark-in {
+  from {
+    opacity: 0;
+    transform: translateX(-3px);
+  }
+}
+
+.onboard-welcome h1 {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--space-2);
+}
+
+.onboard-lede {
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-5);
+}
+
+.onboard-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.onboard-head h2 {
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+.onboard-provider {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  animation: fade-in var(--duration-fast) var(--ease-out);
+}
+
+.onboard-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.onboard-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1;
+}
+
+.onboard-field > span {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.onboard-field > span em {
+  font-style: normal;
+  color: var(--text-quaternary);
+}
+
+.onboard-field input {
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px var(--space-2);
+  width: 100%;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.onboard-field input::placeholder {
+  color: var(--text-quaternary);
+}
+
+.onboard-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--surface-active);
+}
+
+.onboard-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.onboard-port {
+  flex: 0 0 72px;
+}
+
+.onboard-hint {
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--text-tertiary);
+  margin: calc(var(--space-1) * -1) 0 0;
+}
+
+.onboard-disclose {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: var(--space-3) 0 0;
+  margin-top: var(--space-1);
+  cursor: pointer;
+  text-align: left;
+}
+
+.onboard-disclose:hover {
+  color: var(--text-primary);
+}
+
+.onboard-disclose-note {
+  font-size: var(--text-xs);
+  color: var(--text-quaternary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+
+.onboard-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  animation: onboard-rise var(--duration-fast) var(--ease-out) both;
+}
+
+.onboard-error {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  background: var(--bg-sunken);
+  border-left: 2px solid var(--flag);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  margin: 0;
+  animation: onboard-rise var(--duration-fast) var(--ease-out) both;
+}
+
+.onboard-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.onboard-primary,
+.onboard-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  padding: 8px var(--space-4);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
+}
+
+.onboard-primary {
+  flex: 1;
+  color: var(--accent-fg);
+  background: var(--accent);
+  border: 1px solid transparent;
+}
+
+.onboard-primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.onboard-primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.onboard-secondary {
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.onboard-secondary:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.onboard-spin {
+  animation: sync-spin 700ms linear infinite;
+}
+
+.onboard-privacy {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--text-quaternary);
+  margin: var(--space-2) 0 0;
+}
+
+.onboard-privacy svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboard-panel,
+  .onboard-mark span,
+  .onboard-advanced,
+  .onboard-error {
+    animation: none;
+  }
+  .onboard-spin {
+    animation-duration: 2s;
+  }
+}
+
+/* ---- account switcher ---------------------------------------------------
+ * Appears only with 2+ accounts; a single-account sidebar keeps the plain
+ * label it always had.
+ */
+
+.sidebar-account-wrap {
+  position: relative;
+}
+
+/* .sidebar-account is a <button> here, so undo the UA button styling and
+   inherit the label's look exactly. */
+button.sidebar-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+button.sidebar-account:hover {
+  color: var(--text-secondary);
+}
+
+button.sidebar-account svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.sidebar-account-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu {
+  position: absolute;
+  top: calc(100% - var(--space-1));
+  left: var(--space-2);
+  right: var(--space-2);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  animation: onboard-rise var(--duration-fast) var(--ease-out) both;
+}
+
+.account-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.account-menu-item:hover {
+  background: var(--surface-hover);
+}
+
+.account-menu-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.account-menu-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: var(--leading-tight);
+}
+
+.account-menu-email,
+.account-menu-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu-name {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.account-menu-add {
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+}
+
+.account-menu-add .account-menu-check {
+  color: var(--text-tertiary);
+}
+
+/* Adding an account reuses the onboarding form over the running app. */
+.onboard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(3px);
+  animation: fade-in var(--duration-fast) var(--ease-out);
+}

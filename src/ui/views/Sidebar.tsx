@@ -1,10 +1,16 @@
 import { Settings as SettingsIcon } from 'lucide-react'
+import type { AccountSummary } from '../../../electron/preload'
+import { AccountSwitcher } from './AccountSwitcher'
 import type { Folder } from '../../core/store/types'
 import { folderLabel } from '../format'
 import { folderIcon } from '../folderIcons'
 
 interface Props {
   email: string | null
+  accounts: AccountSummary[]
+  activeAccountId: number | null
+  onSwitchAccount: (accountId: number) => void
+  onAddAccount: () => void
   folders: Folder[]
   activeFolderId: number | null
   onSelect: (id: number) => void
@@ -22,6 +28,10 @@ function rank(path: string): number {
 
 export function Sidebar({
   email,
+  accounts,
+  activeAccountId,
+  onSwitchAccount,
+  onAddAccount,
   folders,
   activeFolderId,
   onSelect,
@@ -34,9 +44,18 @@ export function Sidebar({
 
   return (
     <nav className="sidebar">
-      <div className="sidebar-account" title={email ?? undefined}>
-        {email}
-      </div>
+      {accounts.length > 1 ? (
+        <AccountSwitcher
+          accounts={accounts}
+          activeAccountId={activeAccountId}
+          onSwitch={onSwitchAccount}
+          onAdd={onAddAccount}
+        />
+      ) : (
+        <div className="sidebar-account" title={email ?? undefined}>
+          {email}
+        </div>
+      )}
       <ul className="folder-list">
         {sorted.map((f) => {
           const Icon = folderIcon(f.path)
