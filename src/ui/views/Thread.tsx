@@ -43,9 +43,8 @@ export function Thread({
       if (cancelled) return
       setMessages(m)
       // Open the message that was selected, or the newest if it's not here.
-      const target = m.some((x) => x.id === focusMessageId)
-        ? focusMessageId
-        : m[m.length - 1]?.id
+      // Newest is first: the thread is ordered date DESC.
+      const target = m.some((x) => x.id === focusMessageId) ? focusMessageId : m[0]?.id
       if (target) setExpanded(new Set([target]))
     })
     return () => {
