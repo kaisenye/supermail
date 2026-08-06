@@ -81,7 +81,18 @@ END;
 `),
   // v7: inline (cid:) parts are now stored so the body can render them.
   // Existing rows predate this; a re-fetch of those bodies fills them in.
-  (db) => db.exec('ALTER TABLE attachments ADD COLUMN inline INTEGER DEFAULT 0')
+  (db) => db.exec('ALTER TABLE attachments ADD COLUMN inline INTEGER DEFAULT 0'),
+  // v8: `<>` is not a message id — Zimbra emits an empty leading reference, and
+  // taking references[0] blindly made it the thread id for unrelated mail.
+  // Null it out so those rows fall back to their own id (a thread of one) until
+  // the rethread pass gives them the real root.
+  (db) =>
+    db.exec(
+      `UPDATE messages SET thread_id = message_id
+        WHERE thread_id IN ('<>', '<', '>', '');
+       UPDATE messages SET in_reply_to = NULL
+        WHERE in_reply_to IN ('<>', '<', '>', '');`
+    )
 ]
 
 export function migrate(db: Database): number {

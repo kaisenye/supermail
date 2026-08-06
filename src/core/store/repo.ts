@@ -140,7 +140,12 @@ export function upsertMessage(m: UpsertMessageInput): number {
          -- whenever the body pass produced it
          snippet      = COALESCE(excluded.snippet, messages.snippet),
          has_attachments = MAX(excluded.has_attachments, messages.has_attachments),
-         entities     = COALESCE(excluded.entities, messages.entities)
+         entities     = COALESCE(excluded.entities, messages.entities),
+         -- Only the body pass sees References/In-Reply-To: IMAP's ENVELOPE has
+         -- no References field, so a message synced envelope-first threads on
+         -- its own id until this corrects it.
+         thread_id    = COALESCE(excluded.thread_id, messages.thread_id),
+         in_reply_to  = COALESCE(excluded.in_reply_to, messages.in_reply_to)
        RETURNING id`
     )
     .get(row) as { id: number }
