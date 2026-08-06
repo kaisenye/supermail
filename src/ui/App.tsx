@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ScheduledSend } from '../../electron/preload'
+import type { AccountSummary, ScheduledSend } from '../../electron/preload'
 import type { MessageListRow } from '../core/store/types'
 import { emptyCompose, useStore, type ComposeAttachment } from './store'
 import { useHotkeys, type Binding, type Mode } from './hooks/useHotkeys'
@@ -12,10 +12,14 @@ import { CommandPalette, type PaletteAction } from './views/CommandPalette'
 import { Compose } from './views/Compose'
 import { UndoToast } from './views/UndoToast'
 import { Settings } from './views/Settings'
+import { Onboarding } from './views/Onboarding'
 import { folderLabel, isFlagged, isUnread } from './format'
 import { buildForwardBody, buildReplyBody } from './quote'
 import { applyTheme, isTheme, type Theme } from './theme'
 import './styles/app.css'
+
+/** Sentinel from main: no account connected yet, as opposed to a real fault. */
+const NO_ACCOUNT = 'no account connected'
 
 const PAGE_SIZE = 50
 /** Must not exceed main's UNDO_MOVE_MS, or the toast outlives the undo. */
@@ -100,6 +104,18 @@ export default function App() {
   const isDraftsFolder = useCallback((folderId: number): boolean => {
     const f = useStore.getState().folders.find((x) => x.id === folderId)
     return f?.path === 'Drafts'
+  }, [])
+
+  const [accounts, setAccounts] = useState<AccountSummary[]>([])
+  const [activeAccountId, setActiveAccountId] = useState<number | null>(null)
+  const [addingAccount, setAddingAccount] = useState(false)
+  /**
+   * Reload rather than refetch: folders, rows, counts, unread and any open
+   * thread all belong to the old account, and a reload cannot leave one stale.
+   */
+  const switchAccount = useCallback(async (accountId: number) => {
+    const res = await window.api.accountSetActive(accountId)
+    if (res.ok) window.location.reload()
   }, [])
 
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -224,6 +240,12 @@ export default function App() {
     // IDLE push is the fast path; the timer stays as the fallback for when the
     // connection drops or the server never pushes.
     const offNewMail = window.api.onNewMail(() => void backgroundSync())
+    // The repair rewrites thread ids under the current list, so reload rather
+    // than leave rows pointing at conversations that just merged.
+    const offRethread = window.api.onThreadingRepaired(() => {
+      const id = useStore.getState().activeFolderId
+      if (id) void loadRows(id, true)
+    })
     // The compose window is long gone by the time a send fails, so this banner
     // is the only thing standing between a failure and silence.
     const offSendFailed = window.api.onSendFailed((f) => {
@@ -232,12 +254,13 @@ export default function App() {
       )
     })
     return () => {
+      offRethread()
       clearInterval(timer)
       window.removeEventListener('focus', onFocus)
       offNewMail()
       offSendFailed()
     }
-  }, [backgroundSync, setSyncError])
+  }, [backgroundSync, loadRows, setSyncError])
 
   useEffect(() => {
     let cancelled = false
@@ -263,6 +286,8 @@ export default function App() {
       const status = await window.api.bootStatus()
       if (cancelled) return
       setBoot(status.email ?? null, status.ok ? null : (status.error ?? 'unknown error'))
+      setAccounts(status.accounts ?? [])
+      setActiveAccountId(status.activeAccountId ?? null)
       if (!status.ok) return
 
       const cached = await window.api.listFolders()
@@ -832,6 +857,17 @@ export default function App() {
     [setUndoToast]
   )
 
+  // No account is the normal first-run state; anything else is a real fault
+  // and still deserves the raw message.
+  if (bootError === NO_ACCOUNT) {
+    return (
+      <>
+        <div className="titlebar-drag" />
+        <Onboarding onConnected={() => window.location.reload()} />
+      </>
+    )
+  }
+
   if (bootError) {
     return (
       <div className="app" style={{ gridTemplateColumns: '1fr' }}>
@@ -857,6 +893,10 @@ export default function App() {
       <div className="titlebar-drag" />
       <Sidebar
         email={email}
+        accounts={accounts}
+        activeAccountId={activeAccountId}
+        onSwitchAccount={switchAccount}
+        onAddAccount={() => setAddingAccount(true)}
         folders={folders}
         activeFolderId={activeFolderId}
         onSelect={onFolder}
@@ -970,6 +1010,15 @@ export default function App() {
           onTheme={onTheme}
           onClose={() => setSettingsOpen(false)}
         />
+      )}
+      {addingAccount && (
+        <div className="onboard-overlay">
+          <Onboarding
+            mode="add"
+            onCancel={() => setAddingAccount(false)}
+            onConnected={() => window.location.reload()}
+          />
+        </div>
       )}
       {undoToast ? (
         <UndoToast

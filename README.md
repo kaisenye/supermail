@@ -50,6 +50,7 @@ Built for power users and small teams who want Superhuman-like speed without sur
 - Envelope sync → background body backfill
 - IMAP IDLE push: new mail, flag changes and deletions land in ~1–2s
 - Two-way flag reconcile — read/star/delete done in webmail syncs back
+- Union-find threading that survives servers which strip or truncate `References`
 - Virtualized list, 50-per-page pagination, thread view with collapsed previews
 - Sandboxed HTML bodies, inline `cid:` images, quoted-text collapsing
 - Attachments: download, open, and inline preview (image / PDF / video / audio / CSV / text)
@@ -70,6 +71,7 @@ Built for power users and small teams who want Superhuman-like speed without sur
 - Paint from SQLite first; the network is always a background refresh
 
 **Safety**
+- Passwords stored in the OS keychain, never in SQLite and never over IPC
 - Received HTML sanitized in the main process
 - Opaque iframe + CSP in the renderer; remote images blocked until you opt in
 - Outbound HTML sanitized on paste *and* on send
@@ -85,12 +87,15 @@ Built for power users and small teams who want Superhuman-like speed without sur
 git clone https://github.com/kaisenye/supermail.git
 cd supermail
 pnpm install
-cp .env.example .env.local
-# edit .env.local — email, app password, display name
 pnpm dev
 ```
 
-### `.env.local`
+On first run the app walks you through connecting an account: enter an address
+and it fills in the server settings for known providers, checks IMAP and SMTP
+before saving anything, and stores the password in your OS keychain.
+
+<details>
+<summary><code>.env.local</code> (optional — pre-seed instead of the setup screen)</summary>
 
 ```bash
 SUPERMAIL_EMAIL=you@yourdomain.com
@@ -106,7 +111,10 @@ SUPERMAIL_NAME=Your Full Name
 
 > Exmail rejects your normal login password. Use an **app-specific password** from the admin console.
 
-Legacy `ROMO_*` env keys are still accepted.
+Legacy `ROMO_*` env keys are still accepted. An existing `.env.local` is migrated
+into the keychain on first launch; the file is left in place.
+
+</details>
 
 ```bash
 pnpm typecheck   # strict TypeScript
@@ -187,8 +195,8 @@ Agent notes for contributors: see [`CLAUDE.md`](./CLAUDE.md).
 - [x] Attachment download, open, and inline preview
 - [x] IMAP IDLE push + connection pooling
 - [x] Settings: signature, logo, theme
-- [ ] Secure credential store (keytar)
-- [ ] Multi-account
+- [x] Secure credential store (OS keychain via `safeStorage`)
+- [x] Multi-account
 - [ ] Snooze / split inbox
 - [ ] AI triage (summaries, labels) — Stage 2 pipeline
 
