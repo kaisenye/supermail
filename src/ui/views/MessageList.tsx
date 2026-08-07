@@ -157,7 +157,7 @@ export function MessageList({
                 <span className="row-unread-dot" data-read={!unread} />
                 <span className="row-sender">
                   {showRecipient
-                    ? recipientLabel(r.to_addrs)
+                    ? recipientLabel(r.to_addrs, senderLabel(r.from_name, r.from_addr))
                     : senderLabel(r.from_name, r.from_addr)}
                 </span>
                 <span className="row-subject">{r.subject || '(no subject)'}</span>
