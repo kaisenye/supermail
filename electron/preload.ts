@@ -243,6 +243,12 @@ const api = {
     ipcRenderer.on('mail:new', h)
     return () => ipcRenderer.off('mail:new', h)
   },
+  /** A just-sent message landed in the local Sent folder. */
+  onSentStored: (cb: () => void): (() => void) => {
+    const h = (): void => cb()
+    ipcRenderer.on('mail:sent-stored', h)
+    return () => ipcRenderer.off('mail:sent-stored', h)
+  },
   onSyncProgress: (cb: (p: SyncProgress) => void): (() => void) => {
     const h = (_e: unknown, p: SyncProgress): void => cb(p)
     ipcRenderer.on('sync:progress', h)

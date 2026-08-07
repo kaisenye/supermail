@@ -10,7 +10,7 @@ import { getSettings } from '../src/core/store/repo.js'
 import { startOutboxWorker } from '../src/core/send/flush.js'
 import { stopIdleWatcher } from '../src/core/sync/idle.js'
 import { closePool } from '../src/core/sync/pool.js'
-import { startAccountWorkers } from './workers.js'
+import { refreshSentFolder, startAccountWorkers } from './workers.js'
 import { addAccount, getAccount, listAccounts, setBootError } from './state.js'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -84,6 +84,10 @@ app.whenReady().then(() => {
     undefined,
     (f) => {
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send('send:failed', f)
+    },
+    (accountId) => {
+      const acct = getAccount(accountId)
+      if (acct) void refreshSentFolder(accountId, acct.config)
     }
   )
   // Every account gets its own warmed pool and parked IDLE connection, so mail

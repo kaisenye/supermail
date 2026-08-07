@@ -240,6 +240,13 @@ export default function App() {
     // IDLE push is the fast path; the timer stays as the fallback for when the
     // connection drops or the server never pushes.
     const offNewMail = window.api.onNewMail(() => void backgroundSync())
+    // Sent gets no IDLE push (the watcher holds INBOX), so the main process
+    // tells us when the just-sent copy has landed locally.
+    const offSentStored = window.api.onSentStored(() => {
+      const id = useStore.getState().activeFolderId
+      if (id) void loadRows(id, true)
+      else void refreshUnread()
+    })
     // The repair rewrites thread ids under the current list, so reload rather
     // than leave rows pointing at conversations that just merged.
     const offRethread = window.api.onThreadingRepaired(() => {
@@ -255,12 +262,13 @@ export default function App() {
     })
     return () => {
       offRethread()
+      offSentStored()
       clearInterval(timer)
       window.removeEventListener('focus', onFocus)
       offNewMail()
       offSendFailed()
     }
-  }, [backgroundSync, loadRows, setSyncError])
+  }, [backgroundSync, loadRows, refreshUnread, setSyncError])
 
   useEffect(() => {
     let cancelled = false

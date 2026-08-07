@@ -194,7 +194,8 @@ export interface SendFailure {
 
 export async function flushDueOutbox(
   configFor: (accountId: number) => AccountConfig | null,
-  onFailure?: (f: SendFailure) => void
+  onFailure?: (f: SendFailure) => void,
+  onSent?: (accountId: number) => void
 ): Promise<number> {
   const due = listDueOutbox()
   let sent = 0
@@ -207,7 +208,12 @@ export async function flushDueOutbox(
     const config = configFor(current.account_id)
     if (!config) continue
     const res = await flushOutboxRow(config, current)
-    if (res.ok) sent++
+    if (res.ok) {
+      sent++
+      // The server files the copy into Sent asynchronously and IDLE only
+      // watches INBOX, so nothing else would notice it for up to a minute.
+      onSent?.(current.account_id)
+    }
     // A failed send is otherwise invisible: the compose window is already gone.
     else
       onFailure?.({
@@ -227,7 +233,8 @@ let workerTimer: ReturnType<typeof setInterval> | null = null
 export function startOutboxWorker(
   configFor: (accountId: number) => AccountConfig | null,
   intervalMs = 1_000,
-  onFailure?: (f: SendFailure) => void
+  onFailure?: (f: SendFailure) => void,
+  onSent?: (accountId: number) => void
 ): void {
   if (workerTimer) return
   // A flush takes seconds (SMTP + Sent APPEND) but the tick is 1s, so without
@@ -236,7 +243,7 @@ export function startOutboxWorker(
   workerTimer = setInterval(() => {
     if (running) return
     running = true
-    void flushDueOutbox(configFor, onFailure).finally(() => {
+    void flushDueOutbox(configFor, onFailure, onSent).finally(() => {
       running = false
     })
   }, intervalMs)
