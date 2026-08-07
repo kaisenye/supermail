@@ -258,6 +258,14 @@ function countLocalUnseen(folderId: number): number {
   ).c
 }
 
+/** Null before the first sync has recorded one. */
+function folderUidValidity(folderId: number): number | null {
+  const row = getDb()
+    .prepare('SELECT uidvalidity FROM folders WHERE id = ?')
+    .get(folderId) as { uidvalidity: number | null } | undefined
+  return row?.uidvalidity ?? null
+}
+
 /** Local row count for a folder — a drop vs the server's EXISTS means deletions. */
 function countLocal(folderId: number): number {
   return (
@@ -356,5 +364,36 @@ async function store(
     const r = await runPipeline(raw, processors)
     if (r.id !== null) n++
   }
+  return n
+}
+
+/**
+ * Pulls new mail from one folder over an already-open connection.
+ *
+ * Used right after a send: IDLE only watches INBOX, so a message the server
+ * files into Sent produces no push and would otherwise wait for the 60s
+ * background poll. Reusing a pooled connection skips the ~2.8s login, leaving
+ * roughly a SELECT plus a small FETCH.
+ */
+export async function refreshFolderNow(
+  client: ImapFlow,
+  accountId: number,
+  folder: { id: number; path: string; last_uid: number },
+  opts: { sinceDays?: number } = {}
+): Promise<number> {
+  const cutoff = Date.now() - (opts.sinceDays ?? DEFAULTS.sinceDays) * 86_400_000
+  const { status, messages } = await fetchEnvelopes(client, folder.path, {
+    sinceUid: folder.last_uid,
+    limit: 50,
+    accountId,
+    folderId: folder.id
+  })
+  // A renumbered mailbox needs resetFolder + a full re-fetch; that is the full
+  // sync's job. Bail rather than store UIDs against a stale uidvalidity.
+  const known = folderUidValidity(folder.id)
+  if (known !== null && known !== status.uidValidity) return 0
+  if (!messages.length) return 0
+  const n = await store(messages, cutoff)
+  setLastUid(folder.id, maxUid(messages))
   return n
 }
