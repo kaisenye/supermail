@@ -32,13 +32,20 @@ export function senderLabel(name: string | null, addr: string | null): string {
  * Who a message went to, for folders where the sender is always you.
  * Extra recipients collapse to "+N" so the column stays one line.
  */
-export function recipientLabel(toAddrs: string | null): string {
+export function recipientLabel(
+  toAddrs: string | null | undefined,
+  fallback: string
+): string {
+  // undefined means the column was never selected — an older main process, not
+  // a message without recipients. Fall back to the sender rather than claim
+  // there is no recipient.
+  if (toAddrs === undefined) return fallback
   if (!toAddrs) return '(no recipient)'
   let list: { address?: string | null; name?: string | null }[]
   try {
     list = JSON.parse(toAddrs)
   } catch {
-    return '(no recipient)'
+    return fallback
   }
   if (!Array.isArray(list) || !list.length) return '(no recipient)'
   const first = senderLabel(list[0]?.name ?? null, list[0]?.address ?? null)
