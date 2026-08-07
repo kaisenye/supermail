@@ -29,6 +29,23 @@ export function senderLabel(name: string | null, addr: string | null): string {
 }
 
 /**
+ * Who a message went to, for folders where the sender is always you.
+ * Extra recipients collapse to "+N" so the column stays one line.
+ */
+export function recipientLabel(toAddrs: string | null): string {
+  if (!toAddrs) return '(no recipient)'
+  let list: { address?: string | null; name?: string | null }[]
+  try {
+    list = JSON.parse(toAddrs)
+  } catch {
+    return '(no recipient)'
+  }
+  if (!Array.isArray(list) || !list.length) return '(no recipient)'
+  const first = senderLabel(list[0]?.name ?? null, list[0]?.address ?? null)
+  return list.length > 1 ? `${first} +${list.length - 1}` : first
+}
+
+/**
  * Snippets built from a message's plain-text part never passed through the
  * HTML stripper, so entities like &nbsp; survive as literal text. Decode at
  * render time — that also repairs rows already in the database.

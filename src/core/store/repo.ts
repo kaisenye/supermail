@@ -8,7 +8,7 @@ import type {
 } from './types.js'
 
 export const LIST_COLS =
-  'id, thread_id, from_addr, from_name, subject, date, snippet, flags, has_attachments'
+  'id, thread_id, from_addr, from_name, to_addrs, subject, date, snippet, flags, has_attachments'
 
 // ---- accounts ----
 

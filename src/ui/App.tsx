@@ -21,6 +21,9 @@ import './styles/app.css'
 /** Sentinel from main: no account connected yet, as opposed to a real fault. */
 const NO_ACCOUNT = 'no account connected'
 
+/** Folders holding your own mail, where "from" is always you. */
+const OUTGOING_PATHS = ['Sent Messages', 'Sent', 'INBOX.Sent', 'Drafts']
+
 const PAGE_SIZE = 50
 /** Must not exceed main's UNDO_MOVE_MS, or the toast outlives the undo. */
 const UNDO_MOVE_MS = 3_000
@@ -105,6 +108,11 @@ export default function App() {
     const f = useStore.getState().folders.find((x) => x.id === folderId)
     return f?.path === 'Drafts'
   }, [])
+
+  const showRecipient = useMemo(() => {
+    const f = folders.find((x) => x.id === activeFolderId)
+    return f ? OUTGOING_PATHS.includes(f.path) : false
+  }, [folders, activeFolderId])
 
   const [accounts, setAccounts] = useState<AccountSummary[]>([])
   const [activeAccountId, setActiveAccountId] = useState<number | null>(null)
@@ -979,6 +987,7 @@ export default function App() {
               /* Rendered even when empty: swapping it out for an empty-state
                  div would unmount the pager and make it flash on every page. */
               <MessageList
+                showRecipient={showRecipient}
                 emptyTitle={syncError ? 'Could not load mail' : 'No messages'}
                 emptySub={
                   syncError

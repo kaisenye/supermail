@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { MessageListRow } from '../../core/store/types'
-import { formatDate, isFlagged, isUnread, senderLabel } from '../format'
+import { formatDate, isFlagged, isUnread, recipientLabel, senderLabel } from '../format'
 
 const ROW_HEIGHT = 32
 
@@ -20,6 +20,8 @@ interface Props {
   onPage?: (page: number) => void
   emptyTitle?: string
   emptySub?: string
+  /** Sent/Drafts: the sender is always the user, so show the recipient. */
+  showRecipient?: boolean
 }
 
 export function MessageList({
@@ -35,7 +37,8 @@ export function MessageList({
   loadingMore,
   onPage,
   emptyTitle = 'No messages',
-  emptySub
+  emptySub,
+  showRecipient = false
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const checked = new Set(checkedIds)
@@ -152,7 +155,11 @@ export function MessageList({
                   />
                 </label>
                 <span className="row-unread-dot" data-read={!unread} />
-                <span className="row-sender">{senderLabel(r.from_name, r.from_addr)}</span>
+                <span className="row-sender">
+                  {showRecipient
+                    ? recipientLabel(r.to_addrs)
+                    : senderLabel(r.from_name, r.from_addr)}
+                </span>
                 <span className="row-subject">{r.subject || '(no subject)'}</span>
                 <span className="row-snippet">{r.snippet}</span>
                 <span className="row-trailing">
