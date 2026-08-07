@@ -55,6 +55,7 @@ export type MessageListRow = Pick<
   | 'thread_id'
   | 'from_addr'
   | 'from_name'
+  | 'to_addrs'
   | 'subject'
   | 'date'
   | 'snippet'
