@@ -577,6 +577,13 @@ export default function App() {
    * open thread's own message and then leave the thread — there is nothing
    * left to read once it is trashed.
    */
+  /**
+   * Triage from inside a thread, then open the next one.
+   *
+   * Auto-advance is the point: working an inbox down means acting and moving
+   * on, not bouncing back to the list between every message. Falls back to the
+   * list only at the end, where there is nothing left to advance to.
+   */
   const triageFromThread = useCallback(
     async () => {
       const ot = useStore.getState().openThread
@@ -586,8 +593,17 @@ export default function App() {
       clearChecked()
       closeThread()
       await triageSelected()
+
+      // The triaged row is gone, so the same index now holds the next message.
+      // Reuse openRow so drafts and read-marking behave as they do elsewhere.
+      const after = useStore.getState()
+      const nextIndex = idx >= 0 ? Math.min(idx, after.rows.length - 1) : after.selectedIndex
+      if (after.rows[nextIndex]) {
+        setSelectedIndex(nextIndex)
+        openRow(nextIndex)
+      }
     },
-    [setSelectedIndex, clearChecked, closeThread, triageSelected]
+    [setSelectedIndex, clearChecked, closeThread, triageSelected, openRow]
   )
 
   const starFromThread = useCallback(async () => {
@@ -787,7 +803,19 @@ export default function App() {
       { key: 'R', modes: ['thread'], handler: () => void startReply(true) },
       { key: 'f', modes: ['thread'], handler: () => void startForward() },
       { key: 'Backspace', modes: ['thread'], handler: () => void triageFromThread() },
-      { key: 's', modes: ['thread'], handler: () => void starFromThread() }
+      { key: 's', modes: ['thread'], handler: () => void starFromThread() },
+      {
+        key: 'h',
+        modes: ['list', 'thread'],
+        handler: () => {
+          // A key cannot open a menu usefully, so take the common choice:
+          // tomorrow at 08:00. The menu remains for anything else.
+          const d = new Date()
+          d.setDate(d.getDate() + 1)
+          d.setHours(8, 0, 0, 0)
+          void snoozeSelected(d.getTime())
+        }
+      }
     ],
     [
       moveSelection,
