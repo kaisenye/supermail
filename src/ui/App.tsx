@@ -923,6 +923,7 @@ export default function App() {
         onSelect={onFolder}
         onSettings={() => setSettingsOpen(true)}
         onShortcuts={() => setShortcutsOpen(true)}
+        onCompose={startCompose}
         unread={unread}
       />
       <main className="main">
