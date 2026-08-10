@@ -1,3 +1,4 @@
+import { SnoozeMenu } from './SnoozeMenu'
 interface Props {
   count: number
   allSelected: boolean
@@ -7,6 +8,7 @@ interface Props {
   onMarkUnread: () => void
   onStar: () => void
   onTrash: () => void
+  onSnooze: (wakeAt: number) => void
 }
 
 /** Always shows actions — applies to checked rows, or the focused row if none. */
@@ -18,6 +20,7 @@ export function ActionBar({
   onMarkRead,
   onMarkUnread,
   onStar,
+  onSnooze,
   onTrash
 }: Props) {
   return (
@@ -48,6 +51,7 @@ export function ActionBar({
         <button type="button" onClick={onStar} title="Star (s)">
           Star
         </button>
+        <SnoozeMenu onSnooze={onSnooze} />
         <button type="button" onClick={onTrash} title="Trash (#)">
           Trash
         </button>

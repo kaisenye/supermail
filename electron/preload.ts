@@ -243,6 +243,14 @@ const api = {
     ipcRenderer.on('mail:new', h)
     return () => ipcRenderer.off('mail:new', h)
   },
+  snooze: (ids: number[], wakeAt: number): Promise<{ ok: boolean; moved?: number[]; error?: string }> =>
+    ipcRenderer.invoke('messages:snooze', ids, wakeAt),
+  /** Snoozed mail returned to its folder. */
+  onSnoozeWoke: (cb: () => void): (() => void) => {
+    const h = (): void => cb()
+    ipcRenderer.on('snooze:woke', h)
+    return () => ipcRenderer.off('snooze:woke', h)
+  },
   /** A just-sent message landed in the local Sent folder. */
   onSentStored: (cb: () => void): (() => void) => {
     const h = (): void => cb()

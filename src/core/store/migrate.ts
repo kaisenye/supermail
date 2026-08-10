@@ -92,6 +92,14 @@ END;
         WHERE thread_id IN ('<>', '<', '>', '');
        UPDATE messages SET in_reply_to = NULL
         WHERE in_reply_to IN ('<>', '<', '>', '');`
+    ),
+  // v9: snooze. wake_at is the local source of truth — the server has no
+  // concept of it, so the row remembers where to return the message to.
+  (db) =>
+    db.exec(
+      `ALTER TABLE messages ADD COLUMN wake_at INTEGER;
+       ALTER TABLE messages ADD COLUMN snooze_from TEXT;
+       CREATE INDEX idx_messages_wake ON messages (wake_at) WHERE wake_at IS NOT NULL;`
     )
 ]
 

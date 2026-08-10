@@ -253,6 +253,12 @@ export default function App() {
     const offNewMail = window.api.onNewMail(() => void backgroundSync())
     // Sent gets no IDLE push (the watcher holds INBOX), so the main process
     // tells us when the just-sent copy has landed locally.
+    // Snoozed mail returning is a folder change like any other.
+    const offWoke = window.api.onSnoozeWoke?.(() => {
+      const id = useStore.getState().activeFolderId
+      if (id) void loadRows(id, true)
+      else void refreshUnread()
+    })
     const offSentStored = window.api.onSentStored(() => {
       const id = useStore.getState().activeFolderId
       if (id) void loadRows(id, true)
@@ -274,6 +280,7 @@ export default function App() {
     return () => {
       offRethread()
       offSentStored()
+      offWoke?.()
       clearInterval(timer)
       window.removeEventListener('focus', onFocus)
       offNewMail()
@@ -486,6 +493,27 @@ export default function App() {
     const anyUnread = targets.some((id) => isUnread(rowsById.get(id)?.flags ?? null))
     await applyFlags('\\Seen', anyUnread)
   }, [applyFlags])
+
+  const snoozeSelected = useCallback(
+    async (wakeAt: number) => {
+      const ids = targetIds()
+      if (!ids.length) return
+      if (typeof window.api.snooze !== 'function') {
+        setSyncError('App needs restart — snooze API not loaded')
+        return
+      }
+      const res = await window.api.snooze(ids, wakeAt)
+      if (!res.ok) {
+        setSyncError(res.error ?? 'Could not snooze')
+        return
+      }
+      // Optimistic: the rows have left this folder on the server too.
+      removeRows(res.moved ?? ids)
+      clearChecked()
+      void refreshUnread()
+    },
+    [targetIds, removeRows, clearChecked, refreshUnread, setSyncError]
+  )
 
   const moveSelected = useCallback(
     async () => {
@@ -993,6 +1021,7 @@ export default function App() {
                 onMarkUnread={() => void applyFlags('\\Seen', false)}
                 onStar={() => void starSelected()}
                 onTrash={() => void moveSelected()}
+                onSnooze={(wakeAt) => void snoozeSelected(wakeAt)}
               />
             )}
             {rows.length === 0 && !hasSyncedOnce ? (
