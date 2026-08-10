@@ -69,7 +69,7 @@ export function Sidebar({
           onCompose()
         }}
       >
-        <PenSquare size={14} strokeWidth={2} />
+        <PenSquare size={12} strokeWidth={2} />
         Compose
       </button>
       <ul className="folder-list">
