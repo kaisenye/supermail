@@ -1,7 +1,7 @@
 import { app, BrowserWindow, nativeTheme } from 'electron'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
-import { flushPendingMoves, registerIpc } from './ipc.js'
+import { flushPendingMoves, registerIpc, runSyncFor } from './ipc.js'
 import { initDb } from '../src/core/store/db.js'
 import { initAttachmentStore } from '../src/core/store/attachments.js'
 import {
@@ -91,12 +91,45 @@ app.whenReady().then(() => {
   // Every account gets its own warmed pool and parked IDLE connection, so mail
   // pushes for all of them rather than only whichever is on screen.
   for (const a of listAccounts()) startAccountWorkers(a.config)
+  startBackgroundSync()
   createWindow()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
+
+/**
+ * Keeps mail current while no window is open.
+ *
+ * The renderer runs its own timer for the list on screen, but that dies with
+ * the window — on macOS the app stays resident, so without this the mailbox
+ * goes stale until the user reopens it and waits for a sync.
+ */
+function startBackgroundSync(): void {
+  const INTERVAL_MS = 60_000
+  // Guards against a slow pass overlapping the next tick; runSyncFor also has
+  // its own per-account guard against the renderer's timer.
+  let running = false
+  setInterval(() => {
+    if (running) return
+    running = true
+    void (async () => {
+      try {
+        for (const a of listAccounts()) {
+          await runSyncFor({
+            ok: true,
+            accountId: a.accountId,
+            email: a.email,
+            config: a.config
+          })
+        }
+      } finally {
+        running = false
+      }
+    })()
+  }, INTERVAL_MS)
+}
 
 app.on('before-quit', () => {
   // No argument: stops every account's watcher and pool.

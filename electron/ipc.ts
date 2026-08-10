@@ -723,39 +723,50 @@ export function registerIpc(): void {
     return true
   })
 
-  ipcMain.handle('sync:run', async () => {
-    const s = getBootState()
-    if (!s.ok) return { ok: false, error: s.error }
-    // Overlap is normal (timer + focus + boot) — skip quietly, not an error.
-    if (syncing.has(s.accountId)) {
-      return { ok: true, folders: 0, messages: 0, reconciled: 0, errors: [], skipped: true }
-    }
+  ipcMain.handle('sync:run', () => runSyncFor(getBootState()))
+}
 
-    syncing.add(s.accountId)
-    try {
-      const result = await syncAccount(s.accountId, s.config, {
-        // Server state must not clobber a local flag change still in the queue.
-        pendingFlagIds: flagWriters.get(s.accountId)?.pendingIds(),
-        onProgress: (p) => {
-          for (const w of BrowserWindow.getAllWindows()) w.webContents.send('sync:progress', p)
-        }
-      })
-      // One-time threading repair, in the background: it re-reads every header
-      // in the mailbox and must not delay the list the user is waiting on.
-      if (!rethreadDone(s.accountId)) {
-        void repairThreading(s.accountId, s.config)
-          .then((r) => {
-            if (r.skipped || !r.updated) return
-            for (const w of BrowserWindow.getAllWindows())
-              w.webContents.send('threading:repaired', { updated: r.updated })
-          })
-          .catch((e) => console.error('[rethread] failed:', e))
+/**
+ * One guarded sync pass. Exported so the main-process timer and the renderer's
+ * sync:run share the same in-flight guard — two concurrent passes over the same
+ * account would double-fetch and fight over last_uid.
+ */
+export async function runSyncFor(
+  s: ReturnType<typeof getBootState>
+): Promise<
+  | { ok: true; folders: number; messages: number; reconciled: number; errors: unknown[]; skipped: boolean }
+  | { ok: false; error: string }
+> {
+  if (!s.ok) return { ok: false, error: s.error }
+  // Overlap is normal (timer + focus + boot) — skip quietly, not an error.
+  if (syncing.has(s.accountId)) {
+    return { ok: true, folders: 0, messages: 0, reconciled: 0, errors: [], skipped: true }
+  }
+
+  syncing.add(s.accountId)
+  try {
+    const result = await syncAccount(s.accountId, s.config, {
+      // Server state must not clobber a local flag change still in the queue.
+      pendingFlagIds: flagWriters.get(s.accountId)?.pendingIds(),
+      onProgress: (p) => {
+        for (const w of BrowserWindow.getAllWindows()) w.webContents.send('sync:progress', p)
       }
-      return { ok: true, ...result, skipped: false }
-    } catch (e) {
-      return { ok: false, error: (e as Error).message }
-    } finally {
-      syncing.delete(s.accountId)
+    })
+    // One-time threading repair, in the background: it re-reads every header
+    // in the mailbox and must not delay the list the user is waiting on.
+    if (!rethreadDone(s.accountId)) {
+      void repairThreading(s.accountId, s.config)
+        .then((r) => {
+          if (r.skipped || !r.updated) return
+          for (const w of BrowserWindow.getAllWindows())
+            w.webContents.send('threading:repaired', { updated: r.updated })
+        })
+        .catch((e) => console.error('[rethread] failed:', e))
     }
-  })
+    return { ok: true, ...result, skipped: false }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  } finally {
+    syncing.delete(s.accountId)
+  }
 }
