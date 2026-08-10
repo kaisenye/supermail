@@ -18,6 +18,28 @@ import { addAccount, getAccount, listAccounts, setBootError } from './state.js'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
+/**
+ * Without these, any throw outside a try/catch takes the whole app down with
+ * no trace — which is how an IMAP socket timeout used to kill it. Mail is
+ * already on disk, so staying up and reporting beats exiting.
+ */
+function installCrashHandlers(): void {
+  const report = (kind: string, err: unknown): void => {
+    const message = err instanceof Error ? (err.stack ?? err.message) : String(err)
+    console.error(`[${kind}]`, message)
+    for (const w of BrowserWindow.getAllWindows()) {
+      w.webContents.send('app:error', { kind, message })
+    }
+  }
+  process.on('uncaughtException', (err) => report('uncaughtException', err))
+  process.on('unhandledRejection', (reason) => report('unhandledRejection', reason))
+  // A renderer crash leaves a blank window; reload once so it recovers.
+  app.on('render-process-gone', (_e, contents, details) => {
+    console.error('[render-process-gone]', details.reason)
+    if (details.reason !== 'clean-exit') contents.reload()
+  })
+}
+
 /** dev: repo root (cwd). packaged: userData, since the bundle is read-only. */
 function envLocalPath(): string {
   return app.isPackaged
@@ -73,6 +95,8 @@ function createWindow(): void {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
+
+installCrashHandlers()
 
 app.whenReady().then(() => {
   boot()

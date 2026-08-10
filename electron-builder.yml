@@ -1,0 +1,50 @@
+appId: com.kaisenye.supermail
+productName: Supermail
+copyright: Copyright © 2026 Kaisen Ye
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+
+# better-sqlite3 ships a .node binary; it cannot be loaded from inside an asar.
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
+
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.icns
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  # Mail lives behind the keychain and the network; the sandbox entitlements
+  # below are the minimum that still allows both.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+dmg:
+  artifactName: ${productName}-${version}-${arch}.dmg
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+
+linux:
+  icon: build/icon.png
+  category: Network;Email
+  target:
+    - AppImage
+
+# Nothing is published automatically; a release is an explicit act.
+publish: null
+
+# productName drives the userData directory name. It differs in case from the
+# dev value ("supermail"), which resolves to the same folder only because macOS
+# is case-insensitive — do not rely on that on Linux.
