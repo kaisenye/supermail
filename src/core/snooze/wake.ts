@@ -25,6 +25,35 @@ export interface WakeResult {
   woken: number
 }
 
+/**
+ * Moves a message into Snoozed and returns its new uid there.
+ *
+ * Done inline rather than through MoveWriter because the uid the server
+ * assigns is the only reliable way to find the message again: Exmail's
+ * SEARCH HEADER returns nothing for a Message-ID it demonstrably has, so a
+ * lookup at wake time would fail. Exmail does support UIDPLUS, so MOVE
+ * reports the new uid directly.
+ */
+export async function moveToSnooze(
+  config: AccountConfig,
+  fromPath: string,
+  uid: number
+): Promise<number | null> {
+  return getPool(config).withConnection(async (client) => {
+    const lock = await client.getMailboxLock(fromPath)
+    try {
+      const res = await client.messageMove(String(uid), SNOOZE_PATH, { uid: true })
+      if (res && typeof res === 'object' && res.uidMap) {
+        const next = res.uidMap.get(uid)
+        return typeof next === 'number' ? next : null
+      }
+      return null
+    } finally {
+      lock.release()
+    }
+  })
+}
+
 export async function wakeDueSnoozes(
   configFor: (accountId: number) => AccountConfig | null,
   now = Date.now()
@@ -44,11 +73,12 @@ export async function wakeDueSnoozes(
     }
 
     try {
-      if (row.uid !== null) {
+      // snooze_uid is what MOVE reported when the message went into Snoozed.
+      if (row.snooze_uid !== null) {
         await getPool(config).withConnection(async (client) => {
           const lock = await client.getMailboxLock(SNOOZE_PATH)
           try {
-            await client.messageMove(String(row.uid), backTo, { uid: true })
+            await client.messageMove(String(row.snooze_uid), backTo, { uid: true })
           } finally {
             lock.release()
           }

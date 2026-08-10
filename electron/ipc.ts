@@ -23,7 +23,7 @@ import {
   type NewAccountInput
 } from '../src/core/accounts/manage.js'
 import { startAccountWorkers, stopAccountWorkers } from './workers.js'
-import { ensureSnoozeFolder, SNOOZE_PATH } from '../src/core/snooze/wake.js'
+import { ensureSnoozeFolder, moveToSnooze, SNOOZE_PATH } from '../src/core/snooze/wake.js'
 import {
   addFlag,
   countDrafts,
@@ -745,13 +745,17 @@ export function registerIpc(): void {
     for (const id of ids) {
       const loc = getMessageLocation(id)
       if (!loc || loc.path === SNOOZE_PATH) continue
-      setSnooze(id, wakeAt, loc.path)
+      // Inline rather than queued: the uid the server assigns in Snoozed is
+      // the only way to find the message again at wake time, and MoveWriter
+      // discards it. A failure here leaves the message where it is.
+      let snoozeUid: number | null = null
+      try {
+        snoozeUid = await moveToSnooze(s.config, loc.path, loc.uid)
+      } catch (e) {
+        return { ok: false as const, error: (e as Error).message }
+      }
+      setSnooze(id, wakeAt, loc.path, snoozeUid)
       moveMessage(id, dest.id)
-      moveWriterFor(s.accountId, s.config).enqueue({
-        fromPath: loc.path,
-        uid: loc.uid,
-        toPath: SNOOZE_PATH
-      })
       moved.push(id)
     }
     return { ok: true as const, moved }
