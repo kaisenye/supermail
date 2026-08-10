@@ -23,7 +23,7 @@ const GROUPS: Group[] = [
       { label: 'Search and command menu', keys: ['⌘', 'K'], alt: ['/'] },
       { label: 'Compose', keys: ['c'] },
       { label: 'Settings', keys: [','] },
-      { label: 'Keyboard shortcuts', keys: ['?'] },
+      { label: 'Keyboard shortcuts', keys: ['⌘', '.'], alt: ['?'] },
       { label: 'Close · clear selection · go back', keys: ['Esc'] }
     ]
   },
