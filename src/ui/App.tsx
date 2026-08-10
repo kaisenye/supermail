@@ -792,7 +792,10 @@ export default function App() {
           if (compose) return
           openPalette()
         }
-      }
+      },
+      // '?' needs shift and is swallowed while composing, so give the
+      // shortcut sheet a chord that works from anywhere.
+      { key: '.', handler: () => setShortcutsOpen(true) }
     ],
     [compose, openPalette]
   )
