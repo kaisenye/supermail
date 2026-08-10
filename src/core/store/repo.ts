@@ -627,3 +627,37 @@ export function updateDraft(
 export function deleteDraft(id: number): void {
   getDb().prepare('DELETE FROM messages WHERE id = ? AND folder_id IS NULL').run(id)
 }
+
+// ---- snooze ----
+
+/**
+ * Marks a message snoozed. The row keeps the folder it came from so waking it
+ * returns it there rather than assuming INBOX.
+ */
+export function setSnooze(id: number, wakeAt: number, fromPath: string): void {
+  getDb()
+    .prepare('UPDATE messages SET wake_at = ?, snooze_from = ? WHERE id = ?')
+    .run(wakeAt, fromPath, id)
+}
+
+export function clearSnooze(id: number): void {
+  getDb().prepare('UPDATE messages SET wake_at = NULL, snooze_from = NULL WHERE id = ?').run(id)
+}
+
+export interface DueSnooze {
+  id: number
+  account_id: number
+  uid: number | null
+  snooze_from: string | null
+}
+
+/** Snoozed messages whose time has come. */
+export function listDueSnoozes(now = Date.now()): DueSnooze[] {
+  return getDb()
+    .prepare(
+      `SELECT id, account_id, uid, snooze_from FROM messages
+        WHERE wake_at IS NOT NULL AND wake_at <= ?
+        ORDER BY wake_at`
+    )
+    .all(now) as DueSnooze[]
+}

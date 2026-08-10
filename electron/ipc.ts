@@ -23,6 +23,7 @@ import {
   type NewAccountInput
 } from '../src/core/accounts/manage.js'
 import { startAccountWorkers, stopAccountWorkers } from './workers.js'
+import { ensureSnoozeFolder, SNOOZE_PATH } from '../src/core/snooze/wake.js'
 import {
   addFlag,
   countDrafts,
@@ -48,6 +49,7 @@ import {
   removeFlag,
   restoreMessage,
   searchMessages,
+  setSnooze,
   toggleFlag,
   unreadCounts,
   updateDraft
@@ -721,6 +723,38 @@ export function registerIpc(): void {
     if (!/^https?:\/\//i.test(url)) return false
     await shell.openExternal(url)
     return true
+  })
+
+  // Optimistic like trash: move locally, then push to the server. The message
+  // physically moves so other clients see it leave the inbox too.
+  ipcMain.handle('messages:snooze', async (_e, ids: number[], wakeAt: number) => {
+    const s = getBootState()
+    if (!s.ok) return { ok: false as const, error: s.error }
+    if (!Number.isFinite(wakeAt) || wakeAt <= Date.now()) {
+      return { ok: false as const, error: 'wake time must be in the future' }
+    }
+    try {
+      await ensureSnoozeFolder(s.config)
+    } catch (e) {
+      return { ok: false as const, error: `cannot create Snoozed folder: ${(e as Error).message}` }
+    }
+    const dest = findFolderByPath(s.accountId, SNOOZE_PATH)
+    if (!dest) return { ok: false as const, error: 'no Snoozed folder' }
+
+    const moved: number[] = []
+    for (const id of ids) {
+      const loc = getMessageLocation(id)
+      if (!loc || loc.path === SNOOZE_PATH) continue
+      setSnooze(id, wakeAt, loc.path)
+      moveMessage(id, dest.id)
+      moveWriterFor(s.accountId, s.config).enqueue({
+        fromPath: loc.path,
+        uid: loc.uid,
+        toPath: SNOOZE_PATH
+      })
+      moved.push(id)
+    }
+    return { ok: true as const, moved }
   })
 
   ipcMain.handle('sync:run', () => runSyncFor(getBootState()))
