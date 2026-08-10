@@ -4,9 +4,12 @@ import { fileURLToPath } from 'url'
 import { flushPendingMoves, registerIpc } from './ipc.js'
 import { initDb } from '../src/core/store/db.js'
 import { initAttachmentStore } from '../src/core/store/attachments.js'
-import { loadStoredAccounts, migrateEnvAccount } from '../src/core/accounts/manage.js'
+import {
+  displayNameFor,
+  loadStoredAccounts,
+  migrateEnvAccount
+} from '../src/core/accounts/manage.js'
 import { initVault } from '../src/core/accounts/vault.js'
-import { getSettings } from '../src/core/store/repo.js'
 import { startOutboxWorker } from '../src/core/send/flush.js'
 import { stopIdleWatcher } from '../src/core/sync/idle.js'
 import { closePool } from '../src/core/sync/pool.js'
@@ -42,11 +45,6 @@ function boot(): void {
   // No accounts is a normal first-run state, not a crash — the renderer shows
   // onboarding rather than an error.
   if (!stored.length) setBootError('no account connected')
-}
-
-/** Per-account display name for the From: header. */
-function displayNameFor(accountId: number): string | null {
-  return getSettings()[`account.${accountId}.name`] ?? null
 }
 
 function createWindow(): void {

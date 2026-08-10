@@ -1,9 +1,25 @@
 import { existsSync } from 'fs'
-import { listAccounts, upsertAccount } from '../store/repo.js'
+import { getSettings, listAccounts, setSetting, upsertAccount } from '../store/repo.js'
 import type { Account } from '../store/types.js'
 import { loadAccountConfig, type AccountConfig } from './config.js'
 import { presetFor } from './presets.js'
 import { authRefFor, deletePassword, getPassword, setPassword } from './vault.js'
+
+/** The From: display name is per-account state, not a connection setting. */
+export function displayNameKey(accountId: number): string {
+  return `account.${accountId}.name`
+}
+
+export function displayNameFor(accountId: number): string | null {
+  return getSettings()[displayNameKey(accountId)] ?? null
+}
+
+/** No-op for a blank name, so a re-migration cannot wipe one the user set. */
+export function rememberDisplayName(accountId: number, name: string | null): void {
+  const trimmed = name?.trim()
+  if (!trimmed) return
+  setSetting(displayNameKey(accountId), trimmed)
+}
 
 export interface NewAccountInput {
   email: string
@@ -102,10 +118,16 @@ export function migrateEnvAccount(envPath: string): { account: Account; config: 
   )
   // Already migrated: keep the keychain copy, which the user may have updated.
   if (existing?.auth_ref && getPassword(existing.auth_ref)) {
-    const live = configForAccount(existing, config.name)
+    // The name lives in settings, not on the account row, so a migration that
+    // predates this would have left it unset — mail then goes out with a bare
+    // address and clients render the local-part as the sender's name.
+    rememberDisplayName(existing.id, config.name)
+    const live = configForAccount(existing, displayNameFor(existing.id) ?? config.name)
     return live ? { account: existing, config: live } : null
   }
-  return saveAccount({ ...config, smtpSavesSent: config.smtpSavesSent })
+  const saved = saveAccount({ ...config, smtpSavesSent: config.smtpSavesSent })
+  rememberDisplayName(saved.account.id, config.name)
+  return saved
 }
 
 /** Every stored account that still has a usable password. */

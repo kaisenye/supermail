@@ -17,6 +17,7 @@ import { listPresets, presetFor } from '../src/core/accounts/presets.js'
 import { verifyAccount } from '../src/core/accounts/verify.js'
 import {
   forgetAccount,
+  rememberDisplayName,
   saveAccount,
   toConfig,
   type NewAccountInput
@@ -259,7 +260,7 @@ export function registerIpc(): void {
     if (!check.ok) return { ok: false as const, error: check.message ?? 'connection failed' }
     try {
       const { account } = saveAccount(input)
-      if (config.name) setSetting(`account.${account.id}.name`, config.name)
+      rememberDisplayName(account.id, config.name)
       addAccountToState({ accountId: account.id, email: account.email, config })
       setActiveAccount(account.id)
       startAccountWorkers(config)
