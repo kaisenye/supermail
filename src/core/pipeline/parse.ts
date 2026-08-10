@@ -1,5 +1,6 @@
 import { simpleParser } from 'mailparser'
 import type { MsgCtx, Processor } from './types.js'
+import { threadKey } from './threadKey.js'
 
 const SNIPPET_LEN = 140
 
@@ -27,34 +28,6 @@ function stripHtml(html: string): string {
     .replace(/&quot;/g, '"')
     .replace(/\s+/g, ' ')
     .trim()
-}
-
-/** `<>` and blanks are not real ids: Zimbra emits an empty leading reference. */
-function validId(id: string | null | undefined): string | null {
-  const t = id?.trim()
-  if (!t || t === '<>' || t === '<' || t === '>') return null
-  return t
-}
-
-/**
- * Thread key. References[0] is the root of the conversation, so all replies
- * agree on it regardless of arrival order. Falls back through in-reply-to to
- * the message's own id (a new thread of one).
- */
-function threadKey(
-  references: string[] | null | undefined,
-  inReplyTo: string | null | undefined,
-  messageId: string | null | undefined
-): string | null {
-  // First *valid* reference, not references[0]: Poltra's Zimbra prefixes the
-  // header with `<>`, which would otherwise become the thread id for every
-  // message that passes through it — collapsing unrelated mail into one thread
-  // while splitting the real conversation.
-  for (const r of references ?? []) {
-    const v = validId(r)
-    if (v) return v
-  }
-  return validId(inReplyTo) ?? validId(messageId) ?? null
 }
 
 function addrList(
