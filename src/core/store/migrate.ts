@@ -100,7 +100,10 @@ END;
       `ALTER TABLE messages ADD COLUMN wake_at INTEGER;
        ALTER TABLE messages ADD COLUMN snooze_from TEXT;
        CREATE INDEX idx_messages_wake ON messages (wake_at) WHERE wake_at IS NOT NULL;`
-    )
+    ),
+  // v10: the uid MOVE assigned in Snoozed. Exmail's SEARCH HEADER cannot find
+  // a message by Message-ID, so this is the only way back.
+  (db) => db.exec('ALTER TABLE messages ADD COLUMN snooze_uid INTEGER')
 ]
 
 export function migrate(db: Database): number {

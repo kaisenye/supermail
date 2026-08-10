@@ -634,28 +634,38 @@ export function deleteDraft(id: number): void {
  * Marks a message snoozed. The row keeps the folder it came from so waking it
  * returns it there rather than assuming INBOX.
  */
-export function setSnooze(id: number, wakeAt: number, fromPath: string): void {
+export function setSnooze(
+  id: number,
+  wakeAt: number,
+  fromPath: string,
+  snoozeUid: number | null
+): void {
   getDb()
-    .prepare('UPDATE messages SET wake_at = ?, snooze_from = ? WHERE id = ?')
-    .run(wakeAt, fromPath, id)
+    .prepare('UPDATE messages SET wake_at = ?, snooze_from = ?, snooze_uid = ? WHERE id = ?')
+    .run(wakeAt, fromPath, snoozeUid, id)
 }
 
 export function clearSnooze(id: number): void {
-  getDb().prepare('UPDATE messages SET wake_at = NULL, snooze_from = NULL WHERE id = ?').run(id)
+  getDb()
+    .prepare('UPDATE messages SET wake_at = NULL, snooze_from = NULL, snooze_uid = NULL WHERE id = ?')
+    .run(id)
 }
 
 export interface DueSnooze {
   id: number
   account_id: number
+  /** Null after the optimistic move; the server uid is resolved at wake time. */
   uid: number | null
+  message_id: string | null
   snooze_from: string | null
+  snooze_uid: number | null
 }
 
 /** Snoozed messages whose time has come. */
 export function listDueSnoozes(now = Date.now()): DueSnooze[] {
   return getDb()
     .prepare(
-      `SELECT id, account_id, uid, snooze_from FROM messages
+      `SELECT id, account_id, uid, message_id, snooze_from, snooze_uid FROM messages
         WHERE wake_at IS NOT NULL AND wake_at <= ?
         ORDER BY wake_at`
     )
