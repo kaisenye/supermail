@@ -1,4 +1,4 @@
-import { Keyboard, PenSquare, Settings as SettingsIcon } from 'lucide-react'
+import { Keyboard, Settings as SettingsIcon } from 'lucide-react'
 import type { AccountSummary } from '../../../electron/preload'
 import { AccountSwitcher } from './AccountSwitcher'
 import type { Folder } from '../../core/store/types'
@@ -16,7 +16,6 @@ interface Props {
   onSelect: (id: number) => void
   onSettings: () => void
   onShortcuts: () => void
-  onCompose: () => void
   unread?: Record<number, number>
 }
 
@@ -39,7 +38,6 @@ export function Sidebar({
   onSelect,
   onSettings,
   onShortcuts,
-  onCompose,
   unread
 }: Props) {
   const sorted = [...folders].sort(
@@ -60,18 +58,6 @@ export function Sidebar({
           {email}
         </div>
       )}
-      <button
-        className="sidebar-compose"
-        title="Compose (c)"
-        onClick={(e) => {
-          // Keep focus on the document so j/k still work after clicking.
-          e.currentTarget.blur()
-          onCompose()
-        }}
-      >
-        <PenSquare size={12} strokeWidth={2} />
-        Compose
-      </button>
       <ul className="folder-list">
         {sorted.map((f) => {
           const Icon = folderIcon(f.path)
