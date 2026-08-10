@@ -46,6 +46,7 @@ const GROUPS: Group[] = [
       { label: 'Star', keys: ['s'] },
       { label: 'Toggle read / unread', keys: ['u'] },
       { label: 'Trash', keys: ['⌫'] },
+      { label: 'Snooze', keys: ['h'] },
       { label: 'Select', keys: ['x'] }
     ]
   },
