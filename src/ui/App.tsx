@@ -12,6 +12,7 @@ import { CommandPalette, type PaletteAction } from './views/CommandPalette'
 import { Compose } from './views/Compose'
 import { UndoToast } from './views/UndoToast'
 import { Settings } from './views/Settings'
+import { ShortcutHelp } from './views/ShortcutHelp'
 import { Onboarding } from './views/Onboarding'
 import { folderLabel, isFlagged, isUnread } from './format'
 import { buildForwardBody, buildReplyBody } from './quote'
@@ -127,6 +128,7 @@ export default function App() {
   }, [])
 
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [signature, setSignature] = useState('')
   const [theme, setTheme] = useState<Theme>('system')
 
@@ -709,7 +711,7 @@ export default function App() {
     }
   }, [openThread, paletteOpen, compose, gotoFolder])
 
-  const mode: Mode = paletteOpen || settingsOpen
+  const mode: Mode = paletteOpen || settingsOpen || shortcutsOpen
     ? 'modal'
     : compose
       ? 'compose'
@@ -757,7 +759,8 @@ export default function App() {
       { key: 'f', modes: ['thread'], handler: () => void startForward() },
       { key: 'Backspace', modes: ['thread'], handler: () => void triageFromThread() },
       { key: 's', modes: ['thread'], handler: () => void starFromThread() },
-      { key: ',', modes: ['list', 'thread'], handler: () => setSettingsOpen(true) }
+      { key: ',', modes: ['list', 'thread'], handler: () => setSettingsOpen(true) },
+      { key: '?', modes: ['list', 'thread'], handler: () => setShortcutsOpen(true) }
     ],
     [
       moveSelection,
@@ -917,6 +920,7 @@ export default function App() {
         activeFolderId={activeFolderId}
         onSelect={onFolder}
         onSettings={() => setSettingsOpen(true)}
+        onShortcuts={() => setShortcutsOpen(true)}
         unread={unread}
       />
       <main className="main">
@@ -1028,6 +1032,7 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+      {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
       {addingAccount && (
         <div className="onboard-overlay">
           <Onboarding
