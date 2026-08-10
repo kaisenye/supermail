@@ -85,7 +85,7 @@ export function Sidebar({
       <div className="sidebar-footer">
         <button
           className="folder-item"
-          title="Settings (,)"
+          title="Settings (⌘,)"
           onClick={(e) => {
             e.currentTarget.blur()
             onSettings()
@@ -96,7 +96,7 @@ export function Sidebar({
         </button>
         <button
           className="sidebar-shortcuts"
-          title="Keyboard shortcuts (?)"
+          title="Keyboard shortcuts (⌘.)"
           aria-label="Keyboard shortcuts"
           onClick={(e) => {
             e.currentTarget.blur()

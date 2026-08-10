@@ -22,8 +22,8 @@ const GROUPS: Group[] = [
     items: [
       { label: 'Search and command menu', keys: ['⌘', 'K'], alt: ['/'] },
       { label: 'Compose', keys: ['c'] },
-      { label: 'Settings', keys: [','] },
-      { label: 'Keyboard shortcuts', keys: ['⌘', '.'], alt: ['?'] },
+      { label: 'Settings', keys: ['⌘', ','] },
+      { label: 'Keyboard shortcuts', keys: ['⌘', '.'] },
       { label: 'Close · clear selection · go back', keys: ['Esc'] }
     ]
   },

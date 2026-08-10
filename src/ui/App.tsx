@@ -758,9 +758,7 @@ export default function App() {
       { key: 'R', modes: ['thread'], handler: () => void startReply(true) },
       { key: 'f', modes: ['thread'], handler: () => void startForward() },
       { key: 'Backspace', modes: ['thread'], handler: () => void triageFromThread() },
-      { key: 's', modes: ['thread'], handler: () => void starFromThread() },
-      { key: ',', modes: ['list', 'thread'], handler: () => setSettingsOpen(true) },
-      { key: '?', modes: ['list', 'thread'], handler: () => setShortcutsOpen(true) }
+      { key: 's', modes: ['thread'], handler: () => void starFromThread() }
     ],
     [
       moveSelection,
@@ -793,8 +791,9 @@ export default function App() {
           openPalette()
         }
       },
-      // '?' needs shift and is swallowed while composing, so give the
-      // shortcut sheet a chord that works from anywhere.
+      // Chords rather than bare keys: these must work while composing too,
+      // where a plain ',' is just a character.
+      { key: ',', handler: () => setSettingsOpen(true) },
       { key: '.', handler: () => setShortcutsOpen(true) }
     ],
     [compose, openPalette]
@@ -836,7 +835,7 @@ export default function App() {
       {
         id: 'settings',
         label: 'Settings',
-        hint: ',',
+        hint: '⌘,',
         run: () => setSettingsOpen(true)
       },
       {
