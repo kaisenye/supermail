@@ -2422,15 +2422,19 @@ button.sidebar-account svg {
 
 /* ---- compose button ------------------------------------------------------ */
 
-.sidebar-compose {
-  /* inline-flex, not flex: the button hugs its label instead of spanning the
-     sidebar, so it reads as an action rather than another folder row. */
+.header-compose {
   display: inline-flex;
-  align-self: flex-start;
   align-items: center;
   gap: var(--space-1);
-  margin: 0 var(--space-2) var(--space-2);
+  /* Pushes to the right end. The header is a baseline row with asymmetric
+     padding, so centring on the box sits low — align to the title's own
+     centre instead. */
+  margin-left: auto;
+  align-self: flex-start;
+  margin-top: -3px;
   padding: 4px var(--space-2);
+  /* The header is a drag region — a button inside it must opt out. */
+  -webkit-app-region: no-drag;
   font-family: var(--font-ui);
   font-size: var(--text-sm);
   font-weight: 500;
@@ -2442,10 +2446,10 @@ button.sidebar-account svg {
   transition: filter var(--duration-fast) var(--ease-out);
 }
 
-.sidebar-compose:hover {
+.header-compose:hover {
   filter: brightness(1.06);
 }
 
-.sidebar-compose svg {
+.header-compose svg {
   flex-shrink: 0;
 }

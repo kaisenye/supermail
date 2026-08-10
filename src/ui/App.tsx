@@ -14,6 +14,7 @@ import { UndoToast } from './views/UndoToast'
 import { Settings } from './views/Settings'
 import { ShortcutHelp } from './views/ShortcutHelp'
 import { Onboarding } from './views/Onboarding'
+import { PenSquare } from 'lucide-react'
 import { folderLabel, isFlagged, isUnread } from './format'
 import { buildForwardBody, buildReplyBody } from './quote'
 import { applyTheme, isTheme, type Theme } from './theme'
@@ -923,7 +924,6 @@ export default function App() {
         onSelect={onFolder}
         onSettings={() => setSettingsOpen(true)}
         onShortcuts={() => setShortcutsOpen(true)}
-        onCompose={startCompose}
         unread={unread}
       />
       <main className="main">
@@ -959,6 +959,18 @@ export default function App() {
                   />
                 )}
               </span>
+              <button
+                className="header-compose"
+                title="Compose (c)"
+                onClick={(e) => {
+                  // Keep focus on the document so j/k still work after clicking.
+                  e.currentTarget.blur()
+                  startCompose()
+                }}
+              >
+                <PenSquare size={12} strokeWidth={2} />
+                Compose
+              </button>
             </header>
             {syncError && (
               <div className="sync-error-banner" role="alert">
