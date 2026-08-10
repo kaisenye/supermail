@@ -20,7 +20,10 @@
     "build": "tsc --noEmit && electron-vite build",
     "start": "env -u ELECTRON_RUN_AS_NODE electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "dist": "pnpm build && electron-builder --publish never",
+    "dist:mac": "pnpm build && electron-builder --mac --publish never",
+    "dist:dir": "pnpm build && electron-builder --dir --publish never"
   },
   "dependencies": {
     "@fontsource/inter-tight": "^5.3.0",
