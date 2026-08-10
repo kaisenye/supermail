@@ -1,4 +1,4 @@
-import { Settings as SettingsIcon } from 'lucide-react'
+import { Keyboard, Settings as SettingsIcon } from 'lucide-react'
 import type { AccountSummary } from '../../../electron/preload'
 import { AccountSwitcher } from './AccountSwitcher'
 import type { Folder } from '../../core/store/types'
@@ -15,6 +15,7 @@ interface Props {
   activeFolderId: number | null
   onSelect: (id: number) => void
   onSettings: () => void
+  onShortcuts: () => void
   unread?: Record<number, number>
 }
 
@@ -36,6 +37,7 @@ export function Sidebar({
   activeFolderId,
   onSelect,
   onSettings,
+  onShortcuts,
   unread
 }: Props) {
   const sorted = [...folders].sort(
@@ -91,6 +93,17 @@ export function Sidebar({
         >
           <SettingsIcon className="folder-icon" size={15} strokeWidth={1.75} />
           <span className="folder-name">Settings</span>
+        </button>
+        <button
+          className="sidebar-shortcuts"
+          title="Keyboard shortcuts (?)"
+          aria-label="Keyboard shortcuts"
+          onClick={(e) => {
+            e.currentTarget.blur()
+            onShortcuts()
+          }}
+        >
+          <Keyboard size={15} strokeWidth={1.75} />
         </button>
       </div>
     </nav>
