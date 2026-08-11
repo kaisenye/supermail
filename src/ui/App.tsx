@@ -12,6 +12,7 @@ import { CommandPalette, type PaletteAction } from './views/CommandPalette'
 import { Compose } from './views/Compose'
 import { UndoToast } from './views/UndoToast'
 import { Settings } from './views/Settings'
+import { Tasks } from './views/Tasks'
 import { ShortcutHelp } from './views/ShortcutHelp'
 import { Onboarding } from './views/Onboarding'
 import { PenSquare } from 'lucide-react'
@@ -130,6 +131,19 @@ export default function App() {
 
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  // Tasks replaces the mail pane rather than overlaying it: it is a separate
+  // place to be, not a modal on top of the inbox.
+  const [tasksOpen, setTasksOpen] = useState(false)
+  const [openTasks, setOpenTasks] = useState(0)
+
+  const refreshTaskCount = useCallback(async () => {
+    if (typeof window.api.countOpenTasks !== 'function') return
+    setOpenTasks(await window.api.countOpenTasks())
+  }, [])
+
+  useEffect(() => {
+    void refreshTaskCount()
+  }, [refreshTaskCount, tasksOpen])
   const [signature, setSignature] = useState('')
   const [theme, setTheme] = useState<Theme>('system')
 
@@ -977,14 +991,28 @@ export default function App() {
         onAddAccount={() => setAddingAccount(true)}
         folders={folders}
         activeFolderId={activeFolderId}
-        onSelect={onFolder}
+        onSelect={(id) => {
+          setTasksOpen(false)
+          onFolder(id)
+        }}
         onSettings={() => setSettingsOpen(true)}
         onShortcuts={() => setShortcutsOpen(true)}
+        onTasks={() => setTasksOpen((v) => !v)}
+        tasksActive={tasksOpen}
+        openTasks={openTasks}
         unread={unread}
       />
       <main className="main">
         {compose ? (
           <Compose compose={compose} onClose={closeCompose} onSent={onSent} />
+        ) : tasksOpen ? (
+          <>
+            <header className="list-header">
+              <h1 className="list-title">Tasks</h1>
+              <span className="list-meta">{openTasks}</span>
+            </header>
+            <Tasks onChange={refreshTaskCount} />
+          </>
         ) : openThread ? (
           <Thread
             threadId={openThread.threadId}

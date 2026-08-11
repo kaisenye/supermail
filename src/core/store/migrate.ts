@@ -103,7 +103,25 @@ END;
     ),
   // v10: the uid MOVE assigned in Snoozed. Exmail's SEARCH HEADER cannot find
   // a message by Message-ID, so this is the only way back.
-  (db) => db.exec('ALTER TABLE messages ADD COLUMN snooze_uid INTEGER')
+  (db) => db.exec('ALTER TABLE messages ADD COLUMN snooze_uid INTEGER'),
+  // v11: tasks. Local only — nothing here syncs to IMAP, so no account
+  // scoping beyond the owning account for multi-account separation.
+  (db) =>
+    db.exec(`
+CREATE TABLE IF NOT EXISTS tasks (
+  id INTEGER PRIMARY KEY,
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  due_at INTEGER,
+  done_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  sort_order REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_open ON tasks (account_id, done_at, sort_order);
+CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks (account_id, due_at) WHERE due_at IS NOT NULL;
+`)
 ]
 
 export function migrate(db: Database): number {

@@ -1,4 +1,4 @@
-import { Keyboard, Settings as SettingsIcon } from 'lucide-react'
+import { CheckSquare, Keyboard, Settings as SettingsIcon } from 'lucide-react'
 import type { AccountSummary } from '../../../electron/preload'
 import { AccountSwitcher } from './AccountSwitcher'
 import type { Folder } from '../../core/store/types'
@@ -16,6 +16,9 @@ interface Props {
   onSelect: (id: number) => void
   onSettings: () => void
   onShortcuts: () => void
+  onTasks: () => void
+  tasksActive: boolean
+  openTasks: number
   unread?: Record<number, number>
 }
 
@@ -38,6 +41,9 @@ export function Sidebar({
   onSelect,
   onSettings,
   onShortcuts,
+  onTasks,
+  tasksActive,
+  openTasks,
   unread
 }: Props) {
   const sorted = [...folders].sort(
@@ -81,6 +87,21 @@ export function Sidebar({
           )
         })}
       </ul>
+
+      <div className="sidebar-tasks">
+        <button
+          className="folder-item"
+          aria-current={tasksActive}
+          onClick={(e) => {
+            e.currentTarget.blur()
+            onTasks()
+          }}
+        >
+          <CheckSquare className="folder-icon" size={15} strokeWidth={1.75} />
+          <span className="folder-name">Tasks</span>
+          {openTasks > 0 && <span className="folder-count">{openTasks}</span>}
+        </button>
+      </div>
 
       <div className="sidebar-footer">
         <button

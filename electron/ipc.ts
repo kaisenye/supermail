@@ -25,6 +25,15 @@ import {
 import { startAccountWorkers, stopAccountWorkers } from './workers.js'
 import { ensureSnoozeFolder, moveToSnooze, SNOOZE_PATH } from '../src/core/snooze/wake.js'
 import {
+  countOpenTasks,
+  createTask,
+  deleteTask,
+  listTasks,
+  setTaskDone,
+  updateTask,
+  type TaskPatch
+} from '../src/core/store/tasks.js'
+import {
   addFlag,
   countDrafts,
   deleteAccount,
@@ -759,6 +768,65 @@ export function registerIpc(): void {
       moved.push(id)
     }
     return { ok: true as const, moved }
+  })
+
+  // ---- tasks ----
+  // Descriptions are user-authored HTML, but they round-trip through a
+  // contenteditable, so sanitise on the way in rather than trusting the
+  // renderer to have done it.
+  const cleanDescription = (html: string | null | undefined): string | null => {
+    const raw = html?.trim()
+    if (!raw) return null
+    return sanitizeEmailHtml(raw).html
+  }
+
+  ipcMain.handle('tasks:list', (_e, includeDone = true) => {
+    const s = getBootState()
+    return s.ok ? listTasks(s.accountId, includeDone) : []
+  })
+
+  ipcMain.handle(
+    'tasks:create',
+    (_e, input: { title: string; description?: string | null; due_at?: number | null }) => {
+      const s = getBootState()
+      if (!s.ok) return { ok: false as const, error: s.error }
+      const title = input.title?.trim()
+      if (!title) return { ok: false as const, error: 'title is required' }
+      const task = createTask({
+        account_id: s.accountId,
+        title,
+        description: cleanDescription(input.description),
+        due_at: input.due_at ?? null
+      })
+      return { ok: true as const, task }
+    }
+  )
+
+  ipcMain.handle('tasks:update', (_e, id: number, patch: TaskPatch) => {
+    const next: TaskPatch = { ...patch }
+    if ('title' in next) {
+      const t = next.title?.trim()
+      if (!t) return { ok: false as const, error: 'title cannot be empty' }
+      next.title = t
+    }
+    if ('description' in next) next.description = cleanDescription(next.description)
+    const task = updateTask(id, next)
+    return task ? { ok: true as const, task } : { ok: false as const, error: 'no such task' }
+  })
+
+  ipcMain.handle('tasks:setDone', (_e, id: number, done: boolean) => {
+    const task = setTaskDone(id, done)
+    return task ? { ok: true as const, task } : { ok: false as const, error: 'no such task' }
+  })
+
+  ipcMain.handle('tasks:delete', (_e, id: number) => {
+    deleteTask(id)
+    return { ok: true as const }
+  })
+
+  ipcMain.handle('tasks:countOpen', () => {
+    const s = getBootState()
+    return s.ok ? countOpenTasks(s.accountId) : 0
   })
 
   ipcMain.handle('sync:run', () => runSyncFor(getBootState()))
