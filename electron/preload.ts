@@ -104,7 +104,36 @@ export interface QueueSendPayload extends DraftPayload {
   attachments?: ComposeAttachment[]
 }
 
+export interface Task {
+  id: number
+  account_id: number
+  title: string
+  description: string | null
+  due_at: number | null
+  done_at: number | null
+  created_at: number
+  updated_at: number
+  sort_order: number
+}
+
+type TaskResult = { ok: true; task: Task } | { ok: false; error: string }
+
 const api = {
+  listTasks: (includeDone?: boolean): Promise<Task[]> =>
+    ipcRenderer.invoke('tasks:list', includeDone),
+  createTask: (input: {
+    title: string
+    description?: string | null
+    due_at?: number | null
+  }): Promise<TaskResult> => ipcRenderer.invoke('tasks:create', input),
+  updateTask: (
+    id: number,
+    patch: { title?: string; description?: string | null; due_at?: number | null }
+  ): Promise<TaskResult> => ipcRenderer.invoke('tasks:update', id, patch),
+  setTaskDone: (id: number, done: boolean): Promise<TaskResult> =>
+    ipcRenderer.invoke('tasks:setDone', id, done),
+  deleteTask: (id: number): Promise<{ ok: true }> => ipcRenderer.invoke('tasks:delete', id),
+  countOpenTasks: (): Promise<number> => ipcRenderer.invoke('tasks:countOpen'),
   bootStatus: (): Promise<BootStatus> => ipcRenderer.invoke('boot:status'),
   /** Fires once after the one-time threading repair merges split conversations. */
   onThreadingRepaired: (fn: (p: { updated: number }) => void): (() => void) => {
