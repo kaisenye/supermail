@@ -729,7 +729,9 @@ export function registerIpc(): void {
 
   // Links from mail open in the real browser, never inside the app frame.
   ipcMain.handle('shell:open', async (_e, url: string) => {
-    if (!/^https?:\/\//i.test(url)) return false
+    // mailto: too — the editor accepts those, and rejecting them here made a
+    // mailto link silently do nothing.
+    if (!/^(https?:\/\/|mailto:)/i.test(url)) return false
     await shell.openExternal(url)
     return true
   })
