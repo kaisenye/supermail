@@ -30,7 +30,9 @@ import {
   listTasks,
   setTaskDone,
   updateTask,
-  type TaskPatch
+  type Priority,
+  type TaskPatch,
+  type TaskQuery
 } from '../src/core/store/tasks.js'
 import {
   addFlag,
@@ -742,14 +744,22 @@ export function registerIpc(): void {
     return sanitizeEmailHtml(raw).html
   }
 
-  ipcMain.handle('tasks:list', (_e, includeDone = true) => {
+  ipcMain.handle('tasks:list', (_e, query?: TaskQuery) => {
     const s = getBootState()
-    return s.ok ? listTasks(s.accountId, includeDone) : []
+    return s.ok ? listTasks(s.accountId, query ?? { includeDone: true }) : []
   })
 
   ipcMain.handle(
     'tasks:create',
-    (_e, input: { title: string; description?: string | null; due_at?: number | null }) => {
+    (
+      _e,
+      input: {
+        title: string
+        description?: string | null
+        due_at?: number | null
+        priority?: Priority
+      }
+    ) => {
       const s = getBootState()
       if (!s.ok) return { ok: false as const, error: s.error }
       const title = input.title?.trim()
@@ -758,7 +768,8 @@ export function registerIpc(): void {
         account_id: s.accountId,
         title,
         description: cleanDescription(input.description),
-        due_at: input.due_at ?? null
+        due_at: input.due_at ?? null,
+        priority: input.priority ?? 0
       })
       return { ok: true as const, task }
     }

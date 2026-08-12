@@ -121,6 +121,13 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_open ON tasks (account_id, done_at, sort_order);
 CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks (account_id, due_at) WHERE due_at IS NOT NULL;
+`),
+  // v12: priority, Linear's scale. 0 = none so existing rows need no backfill;
+  // 1..4 run urgent -> low, which is also their sort order.
+  (db) =>
+    db.exec(`
+ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks (account_id, priority);
 `)
 ]
 
