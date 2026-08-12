@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Calendar, X } from 'lucide-react'
 import type { Priority } from '../../../electron/preload'
 import { PriorityPicker } from './Priority'
-import { handlePaste } from '../richText'
+import { RichEditor, type RichEditorHandle } from './RichEditor'
 
 export interface NewTaskDraft {
   title: string
@@ -28,7 +28,7 @@ export function TaskModal({ onCancel, onCreate }: Props) {
   const [due, setDue] = useState('')
   const [priority, setPriority] = useState<Priority>(0)
   const titleRef = useRef<HTMLInputElement>(null)
-  const descRef = useRef<HTMLDivElement>(null)
+  const descRef = useRef<RichEditorHandle>(null)
 
   useEffect(() => {
     titleRef.current?.focus()
@@ -47,7 +47,7 @@ export function TaskModal({ onCancel, onCreate }: Props) {
     if (!t) return
     onCreate({
       title: t,
-      description: descRef.current?.innerHTML.trim() || null,
+      description: descRef.current?.getHtml().trim() || null,
       due_at: fromDateInput(due),
       priority
     })
@@ -84,13 +84,11 @@ export function TaskModal({ onCancel, onCreate }: Props) {
           }}
         />
 
-        <div
+        <RichEditor
           ref={descRef}
           className="tm-desc"
-          contentEditable
-          suppressContentEditableWarning
-          data-placeholder="Add description…"
-          onPaste={(e) => handlePaste(e, descRef.current, () => {})}
+          placeholder="Add description…"
+          onSave={() => {}}
         />
 
         <div className="tm-controls">
