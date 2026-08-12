@@ -104,6 +104,8 @@ export interface QueueSendPayload extends DraftPayload {
   attachments?: ComposeAttachment[]
 }
 
+export type Priority = 0 | 1 | 2 | 3 | 4
+
 export interface Task {
   id: number
   account_id: number
@@ -111,24 +113,38 @@ export interface Task {
   description: string | null
   due_at: number | null
   done_at: number | null
+  priority: Priority
   created_at: number
   updated_at: number
   sort_order: number
 }
 
+export interface TaskQuery {
+  includeDone?: boolean
+  search?: string
+  sort?: 'manual' | 'due' | 'priority'
+  minPriority?: number
+  dueBefore?: number
+}
+
 type TaskResult = { ok: true; task: Task } | { ok: false; error: string }
 
 const api = {
-  listTasks: (includeDone?: boolean): Promise<Task[]> =>
-    ipcRenderer.invoke('tasks:list', includeDone),
+  listTasks: (query?: TaskQuery): Promise<Task[]> => ipcRenderer.invoke('tasks:list', query),
   createTask: (input: {
     title: string
     description?: string | null
     due_at?: number | null
+    priority?: Priority
   }): Promise<TaskResult> => ipcRenderer.invoke('tasks:create', input),
   updateTask: (
     id: number,
-    patch: { title?: string; description?: string | null; due_at?: number | null }
+    patch: {
+      title?: string
+      description?: string | null
+      due_at?: number | null
+      priority?: Priority
+    }
   ): Promise<TaskResult> => ipcRenderer.invoke('tasks:update', id, patch),
   setTaskDone: (id: number, done: boolean): Promise<TaskResult> =>
     ipcRenderer.invoke('tasks:setDone', id, done),

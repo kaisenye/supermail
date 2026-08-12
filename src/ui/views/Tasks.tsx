@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Calendar, Check, Link2, Trash2 } from 'lucide-react'
-import type { Task } from '../../../electron/preload'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Calendar, Check, Link2, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
+import type { Priority, Task, TaskQuery } from '../../../electron/preload'
 import { applyLink, captureSelection, handlePaste } from '../richText'
 import { LinkPrompt } from './LinkPrompt'
+import { PriorityIcon, PriorityPicker } from './Priority'
+import { TaskModal } from './TaskModal'
 
 /** Relative for anything close, absolute beyond a week. */
 function dueLabel(due: number): { text: string; tone: 'overdue' | 'soon' | 'later' } {
@@ -38,21 +40,53 @@ function fromDateInput(value: string): number | null {
   return new Date(y, m - 1, d, 12, 0, 0, 0).getTime()
 }
 
-export function Tasks({ onChange }: { onChange?: () => void }) {
+export function Tasks({
+  onChange,
+  creating,
+  onCloseCreate
+}: {
+  onChange?: () => void
+  creating?: boolean
+  onCloseCreate?: () => void
+}) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [selected, setSelected] = useState<Task | null>(null)
-  const [draft, setDraft] = useState('')
+  const [search, setSearch] = useState('')
+  const [sort, setSort] = useState<'manual' | 'due' | 'priority'>('manual')
+  const [minPriority, setMinPriority] = useState(0)
+  const [dueFilter, setDueFilter] = useState<'all' | 'today' | 'week' | 'overdue'>('all')
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [linkPrompt, setLinkPrompt] = useState<Range | null>(null)
   const descRef = useRef<HTMLDivElement>(null)
-  const newRef = useRef<HTMLInputElement>(null)
+
+  /** Recomputed per render so "today" stays correct across midnight. */
+  const query = useMemo<TaskQuery>(() => {
+    const endOfDay = new Date()
+    endOfDay.setHours(23, 59, 59, 999)
+    const dueBefore =
+      dueFilter === 'today'
+        ? endOfDay.getTime()
+        : dueFilter === 'week'
+          ? endOfDay.getTime() + 6 * 86_400_000
+          : dueFilter === 'overdue'
+            ? Date.now()
+            : undefined
+    return {
+      includeDone: true,
+      search: search.trim() || undefined,
+      sort,
+      minPriority: minPriority || undefined,
+      dueBefore
+    }
+  }, [search, sort, minPriority, dueFilter])
 
   const reload = useCallback(async () => {
-    const list = await window.api.listTasks(true)
+    const list = await window.api.listTasks(query)
     setTasks(list)
     // Keep the open task in sync without closing the pane under the user.
     setSelected((cur) => (cur ? (list.find((t) => t.id === cur.id) ?? null) : null))
     onChange?.()
-  }, [onChange])
+  }, [onChange, query])
 
   useEffect(() => {
     void reload()
@@ -64,16 +98,17 @@ export function Tasks({ onChange }: { onChange?: () => void }) {
     if (descRef.current) descRef.current.innerHTML = selected?.description ?? ''
   }, [selected?.id])
 
-  const add = useCallback(async () => {
-    const title = draft.trim()
-    if (!title) return
-    setDraft('')
-    const res = await window.api.createTask({ title })
-    if (res.ok) {
-      await reload()
-      setSelected(res.task)
-    }
-  }, [draft, reload])
+  const create = useCallback(
+    async (d: { title: string; description: string | null; due_at: number | null; priority: Priority }) => {
+      const res = await window.api.createTask(d)
+      onCloseCreate?.()
+      if (res.ok) {
+        await reload()
+        setSelected(res.task)
+      }
+    },
+    [reload, onCloseCreate]
+  )
 
   const saveDescription = useCallback(async () => {
     if (!selected || !descRef.current) return
@@ -109,6 +144,9 @@ export function Tasks({ onChange }: { onChange?: () => void }) {
         >
           {t.done_at && <Check size={11} strokeWidth={3} />}
         </span>
+        <span className="task-pri" aria-label={`Priority ${t.priority}`}>
+          <PriorityIcon value={t.priority} />
+        </span>
         <span className="task-title">{t.title}</span>
         {due && !t.done_at && (
           <span className="task-due" data-tone={due.tone}>
@@ -122,23 +160,98 @@ export function Tasks({ onChange }: { onChange?: () => void }) {
   return (
     <div className="tasks">
       <div className="task-list">
-        <div className="task-new">
-          <input
-            ref={newRef}
-            value={draft}
-            placeholder="Add a task…"
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void add()
-              if (e.key === 'Escape') setDraft('')
-            }}
-          />
+        <div className="task-toolbar">
+          <label className="task-search">
+            <Search size={13} strokeWidth={2} />
+            <input
+              value={search}
+              placeholder="Search tasks…"
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setSearch('')
+              }}
+            />
+          </label>
+          <div className="task-filter-wrap">
+            <button
+              className="task-filter-btn"
+              data-active={sort !== 'manual' || minPriority > 0 || dueFilter !== 'all'}
+              aria-haspopup="menu"
+              aria-expanded={filtersOpen}
+              onClick={(e) => {
+                e.currentTarget.blur()
+                setFiltersOpen((v) => !v)
+              }}
+            >
+              <SlidersHorizontal size={13} strokeWidth={2} />
+            </button>
+            {filtersOpen && (
+              <div className="task-filters" role="menu">
+                <div className="task-filter-group">
+                  <span className="task-filter-label">Sort</span>
+                  {(['manual', 'due', 'priority'] as const).map((s2) => (
+                    <button
+                      key={s2}
+                      className="task-filter-opt"
+                      data-selected={sort === s2}
+                      onClick={() => setSort(s2)}
+                    >
+                      {s2 === 'manual' ? 'Manual' : s2 === 'due' ? 'Due date' : 'Priority'}
+                    </button>
+                  ))}
+                </div>
+                <div className="task-filter-group">
+                  <span className="task-filter-label">Priority</span>
+                  {[
+                    { v: 0, l: 'Any' },
+                    { v: 1, l: 'Urgent' },
+                    { v: 2, l: 'High and up' },
+                    { v: 3, l: 'Medium and up' }
+                  ].map((o) => (
+                    <button
+                      key={o.v}
+                      className="task-filter-opt"
+                      data-selected={minPriority === o.v}
+                      onClick={() => setMinPriority(o.v)}
+                    >
+                      {o.l}
+                    </button>
+                  ))}
+                </div>
+                <div className="task-filter-group">
+                  <span className="task-filter-label">Due</span>
+                  {(['all', 'overdue', 'today', 'week'] as const).map((d) => (
+                    <button
+                      key={d}
+                      className="task-filter-opt"
+                      data-selected={dueFilter === d}
+                      onClick={() => setDueFilter(d)}
+                    >
+                      {d === 'all'
+                        ? 'Any'
+                        : d === 'overdue'
+                          ? 'Overdue'
+                          : d === 'today'
+                            ? 'Today'
+                            : 'Next 7 days'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {!open.length && !done.length && (
           <div className="empty">
-            <span className="empty-title">No tasks</span>
-            <span className="empty-sub">Add one above to get started.</span>
+            <span className="empty-title">
+              {search || minPriority || dueFilter !== 'all' ? 'No matches' : 'No tasks'}
+            </span>
+            <span className="empty-sub">
+              {search || minPriority || dueFilter !== 'all'
+                ? 'Try a different search or filter.'
+                : 'Create one to get started.'}
+            </span>
           </div>
         )}
 
@@ -167,6 +280,13 @@ export function Tasks({ onChange }: { onChange?: () => void }) {
           />
 
           <div className="task-meta">
+            <PriorityPicker
+              value={selected.priority}
+              onChange={async (p) => {
+                await window.api.updateTask(selected.id, { priority: p })
+                await reload()
+              }}
+            />
             <label className="task-date">
               <Calendar size={13} strokeWidth={2} />
               <input
@@ -210,6 +330,8 @@ export function Tasks({ onChange }: { onChange?: () => void }) {
           />
         </div>
       )}
+
+      {creating && <TaskModal onCancel={() => onCloseCreate?.()} onCreate={create} />}
 
       {linkPrompt !== null && (
         <LinkPrompt

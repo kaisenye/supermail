@@ -15,7 +15,7 @@ import { Settings } from './views/Settings'
 import { Tasks } from './views/Tasks'
 import { ShortcutHelp } from './views/ShortcutHelp'
 import { Onboarding } from './views/Onboarding'
-import { PenSquare } from 'lucide-react'
+import { PenSquare, Plus } from 'lucide-react'
 import { folderLabel, isFlagged, isUnread } from './format'
 import { buildForwardBody, buildReplyBody } from './quote'
 import { applyTheme, isTheme, type Theme } from './theme'
@@ -134,6 +134,7 @@ export default function App() {
   // Tasks replaces the mail pane rather than overlaying it: it is a separate
   // place to be, not a modal on top of the inbox.
   const [tasksOpen, setTasksOpen] = useState(false)
+  const [creatingTask, setCreatingTask] = useState(false)
   const [openTasks, setOpenTasks] = useState(0)
 
   const refreshTaskCount = useCallback(async () => {
@@ -970,8 +971,23 @@ export default function App() {
             <header className="list-header">
               <h1 className="list-title">Tasks</h1>
               <span className="list-meta">{openTasks}</span>
+              <button
+                className="header-compose"
+                title="New task"
+                onClick={(e) => {
+                  e.currentTarget.blur()
+                  setCreatingTask(true)
+                }}
+              >
+                <Plus size={12} strokeWidth={2.5} />
+                Add task
+              </button>
             </header>
-            <Tasks onChange={refreshTaskCount} />
+            <Tasks
+              onChange={refreshTaskCount}
+              creating={creatingTask}
+              onCloseCreate={() => setCreatingTask(false)}
+            />
           </>
         ) : openThread ? (
           <Thread

@@ -96,3 +96,76 @@ describe('tasks', () => {
     expect(Database).toBeTypeOf('function')
   })
 })
+
+describe('priority, search, sort and filter', () => {
+  it('defaults to no priority', () => {
+    expect(createTask({ account_id: ACC, title: 'a' }).priority).toBe(0)
+  })
+
+  it('stores and patches priority', () => {
+    const t = createTask({ account_id: ACC, title: 'a', priority: 1 })
+    expect(t.priority).toBe(1)
+    expect(updateTask(t.id, { priority: 4 })?.priority).toBe(4)
+  })
+
+  it('sorts unset priority last, not first', () => {
+    createTask({ account_id: ACC, title: 'none' })
+    createTask({ account_id: ACC, title: 'low', priority: 4 })
+    createTask({ account_id: ACC, title: 'urgent', priority: 1 })
+    expect(listTasks(ACC, { sort: 'priority' }).map((t) => t.title)).toEqual([
+      'urgent',
+      'low',
+      'none'
+    ])
+  })
+
+  it('sorts undated tasks last when sorting by due date', () => {
+    createTask({ account_id: ACC, title: 'undated' })
+    createTask({ account_id: ACC, title: 'later', due_at: 2000 })
+    createTask({ account_id: ACC, title: 'sooner', due_at: 1000 })
+    expect(listTasks(ACC, { sort: 'due' }).map((t) => t.title)).toEqual([
+      'sooner',
+      'later',
+      'undated'
+    ])
+  })
+
+  it('searches titles case-insensitively', () => {
+    createTask({ account_id: ACC, title: 'Send Poltra the price list' })
+    createTask({ account_id: ACC, title: 'Book booth' })
+    expect(listTasks(ACC, { search: 'poltra' }).map((t) => t.title)).toEqual([
+      'Send Poltra the price list'
+    ])
+  })
+
+  it('filters by priority without matching unset ones', () => {
+    createTask({ account_id: ACC, title: 'none' })
+    createTask({ account_id: ACC, title: 'urgent', priority: 1 })
+    createTask({ account_id: ACC, title: 'low', priority: 4 })
+    expect(listTasks(ACC, { minPriority: 2 }).map((t) => t.title)).toEqual(['urgent'])
+  })
+
+  it('filters by due date and excludes undated tasks', () => {
+    createTask({ account_id: ACC, title: 'undated' })
+    createTask({ account_id: ACC, title: 'soon', due_at: 500 })
+    createTask({ account_id: ACC, title: 'far', due_at: 5000 })
+    expect(listTasks(ACC, { dueBefore: 1000 }).map((t) => t.title)).toEqual(['soon'])
+  })
+
+  it('keeps done tasks below open ones regardless of sort', () => {
+    const d = createTask({ account_id: ACC, title: 'done-urgent', priority: 1 })
+    createTask({ account_id: ACC, title: 'open-low', priority: 4 })
+    setTaskDone(d.id, true)
+    expect(listTasks(ACC, { sort: 'priority' }).map((t) => t.title)).toEqual([
+      'open-low',
+      'done-urgent'
+    ])
+  })
+
+  it('still accepts a bare boolean for includeDone', () => {
+    const t = createTask({ account_id: ACC, title: 'x' })
+    setTaskDone(t.id, true)
+    expect(listTasks(ACC, false)).toHaveLength(0)
+    expect(listTasks(ACC, true)).toHaveLength(1)
+  })
+})
