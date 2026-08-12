@@ -706,7 +706,6 @@ button > svg {
   position: relative;
 }
 
-.body-loading,
 .body-error,
 .thread-loading {
   padding: var(--space-3) 0;
@@ -3257,4 +3256,58 @@ button.sidebar-account svg {
 .task-desc a:hover,
 .tm-desc a:hover {
   text-decoration: underline;
+}
+
+/* ---- loading skeleton ---------------------------------------------------- */
+
+.body-skeleton {
+  padding: var(--space-2) 0 var(--space-3);
+  /* Delayed: a cached body paints almost immediately, and a skeleton that
+     flashes for 80ms is worse than nothing. */
+  animation: skeleton-in var(--duration-base) var(--ease-out) 140ms both;
+}
+
+@keyframes skeleton-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.skeleton-line {
+  height: 9px;
+  margin-bottom: 10px;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-hover) 0%,
+    var(--surface-selected) 50%,
+    var(--surface-hover) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.6s ease-in-out infinite;
+}
+
+/* Paragraph break, so the block reads as prose rather than one slab. */
+.skeleton-gap {
+  height: var(--space-3);
+}
+
+@keyframes skeleton-sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  .body-skeleton,
+  .skeleton-line {
+    animation: none;
+  }
+  .skeleton-line {
+    background: var(--surface-hover);
+  }
 }
