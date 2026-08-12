@@ -108,15 +108,22 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
   }, [save])
 
   /**
-   * Opens a link in the browser. Plain click would fight text editing — the
-   * caret has to be placeable inside link text — so require a modifier, which
-   * is what every editor of this kind does.
+   * Opens a link on a plain click, which is what people expect.
+   *
+   * Editing the link text is still possible: a drag-select through it, or a
+   * double/triple click, is not treated as a click-through, so text can be
+   * selected and retyped. Alt-click also skips opening, to place the caret.
    */
   const onClickBody = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const anchor = (e.target as HTMLElement).closest?.('a')
     const href = anchor?.getAttribute('href')
     if (!href) return
-    if (!(e.metaKey || e.ctrlKey)) return
+    // Alt is the deliberate "let me edit this" escape hatch.
+    if (e.altKey) return
+    // A selection means the user is editing, not following.
+    if (e.detail > 1) return
+    const sel = window.getSelection()
+    if (sel && !sel.isCollapsed) return
     if (!SAFE_HREF.test(href)) return
     e.preventDefault()
     void window.api.openExternal(href)
