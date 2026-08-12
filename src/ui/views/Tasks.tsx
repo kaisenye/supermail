@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Calendar, Check, Link2, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { Calendar, Check, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { Priority, Task, TaskQuery } from '../../../electron/preload'
-import { applyLink, captureSelection, handlePaste } from '../richText'
-import { LinkPrompt } from './LinkPrompt'
 import { PriorityIcon, PriorityPicker } from './Priority'
+import { RichEditor, type RichEditorHandle } from './RichEditor'
 import { TaskModal } from './TaskModal'
 
 /** Relative for anything close, absolute beyond a week. */
@@ -56,8 +55,7 @@ export function Tasks({
   const [minPriority, setMinPriority] = useState(0)
   const [dueFilter, setDueFilter] = useState<'all' | 'today' | 'week' | 'overdue'>('all')
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [linkPrompt, setLinkPrompt] = useState<Range | null>(null)
-  const descRef = useRef<HTMLDivElement>(null)
+  const descRef = useRef<RichEditorHandle>(null)
 
   /** Recomputed per render so "today" stays correct across midnight. */
   const query = useMemo<TaskQuery>(() => {
@@ -95,7 +93,7 @@ export function Tasks({
   // The editor is uncontrolled, so only push HTML in when the task changes —
   // rewriting it on every keystroke would fight the caret.
   useEffect(() => {
-    if (descRef.current) descRef.current.innerHTML = selected?.description ?? ''
+    descRef.current?.setHtml(selected?.description ?? '')
   }, [selected?.id])
 
   const create = useCallback(
@@ -110,13 +108,15 @@ export function Tasks({
     [reload, onCloseCreate]
   )
 
-  const saveDescription = useCallback(async () => {
-    if (!selected || !descRef.current) return
-    const html = descRef.current.innerHTML
-    if (html === (selected.description ?? '')) return
-    await window.api.updateTask(selected.id, { description: html })
-    await reload()
-  }, [selected, reload])
+  const saveDescription = useCallback(
+    async (html: string) => {
+      if (!selected) return
+      if (html === (selected.description ?? '')) return
+      await window.api.updateTask(selected.id, { description: html })
+      await reload()
+    },
+    [selected, reload]
+  )
 
   const open = tasks.filter((t) => !t.done_at)
   const done = tasks.filter((t) => t.done_at)
@@ -300,13 +300,6 @@ export function Tasks({
               />
             </label>
             <button
-              className="task-link-btn"
-              title="Add link"
-              onClick={() => setLinkPrompt(captureSelection(descRef.current))}
-            >
-              <Link2 size={13} strokeWidth={2} />
-            </button>
-            <button
               className="task-delete"
               title="Delete task"
               onClick={async () => {
@@ -319,29 +312,17 @@ export function Tasks({
             </button>
           </div>
 
-          <div
+          <RichEditor
             ref={descRef}
             className="task-desc"
-            contentEditable
-            suppressContentEditableWarning
-            data-placeholder="Notes, links, anything…"
-            onPaste={(e) => handlePaste(e, descRef.current, () => void saveDescription())}
-            onBlur={() => void saveDescription()}
+            placeholder="Notes, links, anything…"
+            onSave={(html) => void saveDescription(html)}
           />
         </div>
       )}
 
       {creating && <TaskModal onCancel={() => onCloseCreate?.()} onCreate={create} />}
 
-      {linkPrompt !== null && (
-        <LinkPrompt
-          onCancel={() => setLinkPrompt(null)}
-          onSubmit={(url) => {
-            applyLink(descRef.current, linkPrompt, url, () => void saveDescription())
-            setLinkPrompt(null)
-          }}
-        />
-      )}
     </div>
   )
 }

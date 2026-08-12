@@ -92,10 +92,32 @@ export function handlePaste(
 ): void {
   e.preventDefault()
   const html = e.clipboardData.getData('text/html')
-  const text = e.clipboardData.getData('text/plain')
+  const text = e.clipboardData.getData('text/plain').trim()
+
+  // Pasting a URL over selected text links that text instead of replacing it —
+  // the single most common formatting action, and typing it out by hand is
+  // three steps otherwise.
+  const sel = window.getSelection()
+  if (text && SAFE_HREF.test(text) && !/\s/.test(text) && sel && !sel.isCollapsed) {
+    document.execCommand('createLink', false, text)
+    if (el) onChange(el.innerHTML)
+    return
+  }
+
   if (html) document.execCommand('insertHTML', false, cleanPastedHtml(html))
-  else document.execCommand('insertText', false, text)
+  // A bare URL with nothing selected still becomes a link, just self-titled.
+  else if (text && SAFE_HREF.test(text) && !/\s/.test(text)) {
+    document.execCommand('insertHTML', false, `<a href="${escapeAttr(text)}">${escapeHtml(text)}</a>`)
+  } else document.execCommand('insertText', false, text)
   if (el) onChange(el.innerHTML)
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function escapeAttr(s: string): string {
+  return escapeHtml(s).replace(/"/g, '&quot;')
 }
 
 /**
