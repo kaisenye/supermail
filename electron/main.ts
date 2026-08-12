@@ -14,7 +14,6 @@ import { startOutboxWorker } from '../src/core/send/flush.js'
 import { stopIdleWatcher } from '../src/core/sync/idle.js'
 import { closePool } from '../src/core/sync/pool.js'
 import { refreshSentFolder, startAccountWorkers } from './workers.js'
-import { startSnoozeWorker, stopSnoozeWorker } from '../src/core/snooze/wake.js'
 import { addAccount, getAccount, listAccounts, setBootError } from './state.js'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -117,13 +116,6 @@ app.whenReady().then(() => {
   // pushes for all of them rather than only whichever is on screen.
   for (const a of listAccounts()) startAccountWorkers(a.config)
   startBackgroundSync()
-  // Snoozed mail must return even with no window open, same as the outbox.
-  startSnoozeWorker(
-    (accountId) => getAccount(accountId)?.config ?? null,
-    () => {
-      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('snooze:woke')
-    }
-  )
   createWindow()
 
   app.on('activate', () => {
@@ -166,7 +158,6 @@ function startBackgroundSync(): void {
 app.on('before-quit', () => {
   // No argument: stops every account's watcher and pool.
   stopIdleWatcher()
-  stopSnoozeWorker()
   // SQLite already shows these moved; don't strand them mid-undo-window.
   flushPendingMoves()
   void closePool()
