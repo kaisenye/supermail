@@ -2699,9 +2699,10 @@ button.sidebar-account svg {
 }
 
 .task-detail {
+  position: relative;
   display: flex;
   flex-direction: column;
-  width: 340px;
+  /* width is set inline from the persisted drag value */
   flex-shrink: 0;
   border-left: 1px solid var(--border);
   padding: var(--space-4);
@@ -3219,4 +3220,41 @@ button.sidebar-account svg {
   border: none;
   border-top: 1px solid var(--border);
   margin: var(--space-3) 0;
+}
+
+/* Sits over the pane's left border; widened invisibly so it is easy to grab. */
+.task-resize {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.task-resize::after {
+  content: '';
+  position: absolute;
+  inset: 0 3px;
+  background: transparent;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.task-resize:hover::after {
+  background: var(--accent);
+}
+
+/* Links inside the editor: only actionable with a modifier, so the pointer
+   change is what tells the user that. */
+.rte-body a:hover {
+  text-decoration: underline;
+}
+
+.rte-body a {
+  cursor: text;
+}
+
+.rte-body a:active {
+  cursor: pointer;
 }

@@ -13,7 +13,7 @@ import {
   Strikethrough,
   Underline
 } from 'lucide-react'
-import { applyLink, captureSelection, handlePaste } from '../richText'
+import { applyLink, captureSelection, handlePaste, SAFE_HREF } from '../richText'
 import { LinkPrompt } from './LinkPrompt'
 
 /**
@@ -106,6 +106,21 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
     }
     save()
   }, [save])
+
+  /**
+   * Opens a link in the browser. Plain click would fight text editing — the
+   * caret has to be placeable inside link text — so require a modifier, which
+   * is what every editor of this kind does.
+   */
+  const onClickBody = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const anchor = (e.target as HTMLElement).closest?.('a')
+    const href = anchor?.getAttribute('href')
+    if (!href) return
+    if (!(e.metaKey || e.ctrlKey)) return
+    if (!SAFE_HREF.test(href)) return
+    e.preventDefault()
+    void window.api.openExternal(href)
+  }, [])
 
   const openLink = useCallback(() => {
     setLinkRange(captureSelection(elRef.current))
@@ -290,6 +305,7 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
         suppressContentEditableWarning
         data-placeholder={placeholder}
         onKeyDown={onKeyDown}
+        onClick={onClickBody}
         onPaste={(e) => handlePaste(e, elRef.current, save)}
         onBlur={save}
       />
