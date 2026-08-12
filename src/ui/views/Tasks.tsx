@@ -5,6 +5,9 @@ import { PriorityIcon, PriorityPicker } from './Priority'
 import { RichEditor, type RichEditorHandle } from './RichEditor'
 import { TaskModal } from './TaskModal'
 
+const MIN_PANE = 260
+const MAX_PANE = 720
+
 /** Relative for anything close, absolute beyond a week. */
 function dueLabel(due: number): { text: string; tone: 'overdue' | 'soon' | 'later' } {
   const now = new Date()
@@ -56,6 +59,14 @@ export function Tasks({
   const [dueFilter, setDueFilter] = useState<'all' | 'today' | 'week' | 'overdue'>('all')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const descRef = useRef<RichEditorHandle>(null)
+  // Persisted so the pane keeps its size across restarts.
+  const [paneWidth, setPaneWidth] = useState(() => {
+    const saved = Number(localStorage.getItem('tasks.paneWidth'))
+    return Number.isFinite(saved) && saved >= MIN_PANE ? saved : 340
+  })
+  const dragging = useRef(false)
+  // The mouseup listener is registered once, so it needs the live width.
+  const paneWidthRef = useRef(paneWidth)
 
   /** Recomputed per render so "today" stays correct across midnight. */
   const query = useMemo<TaskQuery>(() => {
@@ -89,6 +100,33 @@ export function Tasks({
   useEffect(() => {
     void reload()
   }, [reload])
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent): void => {
+      if (!dragging.current) return
+      // Measured from the right edge: the pane is anchored there, so this
+      // stays correct when the window resizes mid-drag.
+      const next = Math.min(MAX_PANE, Math.max(MIN_PANE, window.innerWidth - e.clientX))
+      // Track it here as well: mouseup fires before React has re-rendered, so
+      // reading state there would persist the previous width.
+      paneWidthRef.current = next
+      setPaneWidth(next)
+    }
+    const onUp = (): void => {
+      if (!dragging.current) return
+      dragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      localStorage.setItem('tasks.paneWidth', String(paneWidthRef.current))
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [])
+
 
   // The editor is uncontrolled, so only push HTML in when the task changes —
   // rewriting it on every keystroke would fight the caret.
@@ -266,7 +304,24 @@ export function Tasks({
       </div>
 
       {selected && (
-        <div className="task-detail">
+        <div className="task-detail" style={{ width: paneWidth }}>
+          <div
+            className="task-resize"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize panel"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              dragging.current = true
+              // Hold the cursor through the drag even over other elements.
+              document.body.style.cursor = 'col-resize'
+              document.body.style.userSelect = 'none'
+            }}
+            onDoubleClick={() => {
+              setPaneWidth(340)
+              localStorage.setItem('tasks.paneWidth', '340')
+            }}
+          />
           <input
             className="task-detail-title"
             value={selected.title}
