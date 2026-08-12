@@ -7,7 +7,7 @@ on:
 
 jobs:
   check:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -17,9 +17,15 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      # electron-builder's install-app-deps runs on postinstall and needs the
-      # Electron headers to rebuild better-sqlite3.
-      - run: pnpm install --frozen-lockfile
+
+      # postinstall runs electron-builder install-app-deps, which rebuilds
+      # better-sqlite3 from source through node-gyp. That needs Python's
+      # distutils, gone since 3.12, so it fails on current runners — and it is
+      # not needed here: typecheck, tests and build never load the native
+      # module, and better-sqlite3 ships prebuilds for every platform anyway.
+      # Packaging still rebuilds it locally, where postinstall does run.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
