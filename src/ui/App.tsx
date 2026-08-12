@@ -267,12 +267,6 @@ export default function App() {
     const offNewMail = window.api.onNewMail(() => void backgroundSync())
     // Sent gets no IDLE push (the watcher holds INBOX), so the main process
     // tells us when the just-sent copy has landed locally.
-    // Snoozed mail returning is a folder change like any other.
-    const offWoke = window.api.onSnoozeWoke?.(() => {
-      const id = useStore.getState().activeFolderId
-      if (id) void loadRows(id, true)
-      else void refreshUnread()
-    })
     const offSentStored = window.api.onSentStored(() => {
       const id = useStore.getState().activeFolderId
       if (id) void loadRows(id, true)
@@ -294,7 +288,6 @@ export default function App() {
     return () => {
       offRethread()
       offSentStored()
-      offWoke?.()
       clearInterval(timer)
       window.removeEventListener('focus', onFocus)
       offNewMail()
@@ -507,27 +500,6 @@ export default function App() {
     const anyUnread = targets.some((id) => isUnread(rowsById.get(id)?.flags ?? null))
     await applyFlags('\\Seen', anyUnread)
   }, [applyFlags])
-
-  const snoozeSelected = useCallback(
-    async (wakeAt: number) => {
-      const ids = targetIds()
-      if (!ids.length) return
-      if (typeof window.api.snooze !== 'function') {
-        setSyncError('App needs restart — snooze API not loaded')
-        return
-      }
-      const res = await window.api.snooze(ids, wakeAt)
-      if (!res.ok) {
-        setSyncError(res.error ?? 'Could not snooze')
-        return
-      }
-      // Optimistic: the rows have left this folder on the server too.
-      removeRows(res.moved ?? ids)
-      clearChecked()
-      void refreshUnread()
-    },
-    [targetIds, removeRows, clearChecked, refreshUnread, setSyncError]
-  )
 
   const moveSelected = useCallback(
     async () => {
@@ -817,19 +789,7 @@ export default function App() {
       { key: 'R', modes: ['thread'], handler: () => void startReply(true) },
       { key: 'f', modes: ['thread'], handler: () => void startForward() },
       { key: 'Backspace', modes: ['thread'], handler: () => void triageFromThread() },
-      { key: 's', modes: ['thread'], handler: () => void starFromThread() },
-      {
-        key: 'h',
-        modes: ['list', 'thread'],
-        handler: () => {
-          // A key cannot open a menu usefully, so take the common choice:
-          // tomorrow at 08:00. The menu remains for anything else.
-          const d = new Date()
-          d.setDate(d.getDate() + 1)
-          d.setHours(8, 0, 0, 0)
-          void snoozeSelected(d.getTime())
-        }
-      }
+      { key: 's', modes: ['thread'], handler: () => void starFromThread() }
     ],
     [
       moveSelection,
@@ -1077,7 +1037,6 @@ export default function App() {
                 onMarkUnread={() => void applyFlags('\\Seen', false)}
                 onStar={() => void starSelected()}
                 onTrash={() => void moveSelected()}
-                onSnooze={(wakeAt) => void snoozeSelected(wakeAt)}
               />
             )}
             {rows.length === 0 && !hasSyncedOnce ? (

@@ -23,7 +23,6 @@ import {
   type NewAccountInput
 } from '../src/core/accounts/manage.js'
 import { startAccountWorkers, stopAccountWorkers } from './workers.js'
-import { ensureSnoozeFolder, moveToSnooze, SNOOZE_PATH } from '../src/core/snooze/wake.js'
 import {
   countOpenTasks,
   createTask,
@@ -58,7 +57,6 @@ import {
   removeFlag,
   restoreMessage,
   searchMessages,
-  setSnooze,
   toggleFlag,
   unreadCounts,
   updateDraft
@@ -732,42 +730,6 @@ export function registerIpc(): void {
     if (!/^https?:\/\//i.test(url)) return false
     await shell.openExternal(url)
     return true
-  })
-
-  // Optimistic like trash: move locally, then push to the server. The message
-  // physically moves so other clients see it leave the inbox too.
-  ipcMain.handle('messages:snooze', async (_e, ids: number[], wakeAt: number) => {
-    const s = getBootState()
-    if (!s.ok) return { ok: false as const, error: s.error }
-    if (!Number.isFinite(wakeAt) || wakeAt <= Date.now()) {
-      return { ok: false as const, error: 'wake time must be in the future' }
-    }
-    try {
-      await ensureSnoozeFolder(s.config)
-    } catch (e) {
-      return { ok: false as const, error: `cannot create Snoozed folder: ${(e as Error).message}` }
-    }
-    const dest = findFolderByPath(s.accountId, SNOOZE_PATH)
-    if (!dest) return { ok: false as const, error: 'no Snoozed folder' }
-
-    const moved: number[] = []
-    for (const id of ids) {
-      const loc = getMessageLocation(id)
-      if (!loc || loc.path === SNOOZE_PATH) continue
-      // Inline rather than queued: the uid the server assigns in Snoozed is
-      // the only way to find the message again at wake time, and MoveWriter
-      // discards it. A failure here leaves the message where it is.
-      let snoozeUid: number | null = null
-      try {
-        snoozeUid = await moveToSnooze(s.config, loc.path, loc.uid)
-      } catch (e) {
-        return { ok: false as const, error: (e as Error).message }
-      }
-      setSnooze(id, wakeAt, loc.path, snoozeUid)
-      moveMessage(id, dest.id)
-      moved.push(id)
-    }
-    return { ok: true as const, moved }
   })
 
   // ---- tasks ----
