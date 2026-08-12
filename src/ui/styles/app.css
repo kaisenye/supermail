@@ -3245,16 +3245,16 @@ button.sidebar-account svg {
   background: var(--accent);
 }
 
-/* Links inside the editor: only actionable with a modifier, so the pointer
-   change is what tells the user that. */
-.rte-body a:hover {
-  text-decoration: underline;
-}
-
-.rte-body a {
-  cursor: text;
-}
-
-.rte-body a:active {
+/* A plain click opens these, so the pointer has to say so — a text caret over
+   something clickable reads as broken. */
+.rte-body a,
+.task-desc a,
+.tm-desc a {
   cursor: pointer;
+}
+
+.rte-body a:hover,
+.task-desc a:hover,
+.tm-desc a:hover {
+  text-decoration: underline;
 }
