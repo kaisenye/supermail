@@ -1,4 +1,5 @@
 import { app, BrowserWindow, nativeTheme } from 'electron'
+import { existsSync } from 'fs'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { flushPendingMoves, registerIpc, runSyncFor } from './ipc.js'
@@ -96,9 +97,28 @@ function createWindow(): void {
   }
 }
 
+/**
+ * Matches dev's app name to productName, so dialogs and userData resolve the
+ * same as a release. The Dock label still reads "Electron" — in dev we run
+ * inside Electron's own .app and macOS takes it from that bundle's plist.
+ */
+function brandDevApp(): void {
+  if (app.isPackaged) return
+  app.setName('Supermail')
+}
+
+/** The Dock icon, unlike the name, can be replaced once the dock exists. */
+function setDevDockIcon(): void {
+  if (app.isPackaged) return
+  const icon = join(__dirname, '../../build/icon.png')
+  if (existsSync(icon)) app.dock?.setIcon(icon)
+}
+
+brandDevApp()
 installCrashHandlers()
 
 app.whenReady().then(() => {
+  setDevDockIcon()
   boot()
   registerIpc()
   startOutboxWorker(
