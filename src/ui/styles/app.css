@@ -1868,38 +1868,16 @@ div.compose-body[data-empty='true']::before {
   padding-bottom: var(--space-6);
 }
 
-/* Three bars: a mail list reduced to its essentials. */
 .onboard-mark {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  width: 26px;
+  display: block;
   margin: 0 auto var(--space-5);
-}
-
-.onboard-mark span {
-  height: 3px;
-  border-radius: 1.5px;
-  background: var(--text-quaternary);
   animation: onboard-mark-in var(--duration-base) var(--ease-out) both;
-}
-
-.onboard-mark span:first-child {
-  background: var(--accent);
-}
-.onboard-mark span:nth-child(2) {
-  width: 78%;
-  animation-delay: 40ms;
-}
-.onboard-mark span:last-child {
-  width: 52%;
-  animation-delay: 80ms;
 }
 
 @keyframes onboard-mark-in {
   from {
     opacity: 0;
-    transform: translateX(-3px);
+    transform: translateY(4px);
   }
 }
 

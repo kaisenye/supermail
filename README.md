@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/brand/mark.svg" width="64" height="64" alt="Supermail" />
+  <img src="docs/brand/mark.png" width="64" height="64" alt="Supermail" />
 </p>
 
 <h1 align="center">Supermail</h1>

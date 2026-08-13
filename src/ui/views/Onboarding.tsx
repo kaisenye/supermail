@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowRight, Check, Loader2, LockKeyhole } from 'lucide-react'
+import { BrandMark } from './BrandMark'
 
 interface Preset {
   id: string
@@ -96,11 +97,7 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
     return (
       <div className="onboard">
         <div className="onboard-panel onboard-welcome">
-          <div className="onboard-mark" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
+          <BrandMark className="onboard-mark" />
           <h1>Supermail</h1>
           <p className="onboard-lede">
             Your mail, stored locally and searchable instantly. Connect an IMAP account to begin.
