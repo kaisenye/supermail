@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeTheme } from 'electron'
+import { app, BrowserWindow, nativeTheme, shell } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
@@ -89,6 +89,37 @@ function createWindow(): void {
   })
 
   win.on('ready-to-show', () => win.show())
+
+  /*
+   * A message body is untrusted HTML. Its frame is sandboxed, but a link that
+   * escapes would replace the whole app with a web page and there is no way
+   * back. Any navigation away from our own document opens in the real browser
+   * instead; new windows are refused outright.
+   */
+  const isOwnPage = (url: string): boolean =>
+    url.startsWith('file://') || (!!process.env.ELECTRON_RENDERER_URL &&
+      url.startsWith(process.env.ELECTRON_RENDERER_URL))
+
+  const openOutside = (url: string): void => {
+    if (/^https?:\/\//i.test(url) || /^mailto:/i.test(url)) void shell.openExternal(url)
+  }
+
+  win.webContents.on('will-navigate', (e, url) => {
+    if (isOwnPage(url)) return
+    e.preventDefault()
+    openOutside(url)
+  })
+  // Subframes navigate separately; the message body is one. This event passes
+  // one object carrying both the url and preventDefault.
+  win.webContents.on('will-frame-navigate', (details) => {
+    if (isOwnPage(details.url)) return
+    details.preventDefault()
+    openOutside(details.url)
+  })
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    openOutside(url)
+    return { action: 'deny' }
+  })
 
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
