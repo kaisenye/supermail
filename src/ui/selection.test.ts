@@ -83,6 +83,15 @@ describe('row click wiring', () => {
   // a moved cursor and an unchanged selection.
   const list = readFileSync(join(__dirname, 'views/MessageList.tsx'), 'utf8')
 
+  it('ignores the change event that follows a shift-click', () => {
+    // preventDefault stops the native toggle but React fires change anyway, so
+    // the ranged-in row was immediately unchecked again.
+    expect(list).toContain('shiftHandled.current = true')
+    const onChange = list.match(/onChange=\{\(\) => \{[\s\S]*?\}\}/)
+    expect(onChange?.[0]).toContain('if (shiftHandled.current)')
+    expect(onChange?.[0]).toContain('return')
+  })
+
   it('routes a shift-click on the row into the range handler', () => {
     // Anchored on onSelect so it cannot pass by matching the checkbox handler,
     // which has its own identical-looking shiftKey branch.
