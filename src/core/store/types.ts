@@ -61,7 +61,14 @@ export type MessageListRow = Pick<
   | 'snippet'
   | 'flags'
   | 'has_attachments'
->
+> & {
+  /**
+   * Thread rollup, present only where the list is threaded. The row itself is
+   * still the newest message, so every other field reads as before.
+   */
+  thread_count?: number
+  thread_unread?: number
+}
 
 export interface UpsertMessageInput {
   account_id: number

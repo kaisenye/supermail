@@ -202,6 +202,16 @@ export default function App() {
   )
 
   /**
+   * Repaint the current page in place. A thread rollup cannot be patched from
+   * one message's flags, so a thread-wide change has to re-read the page.
+   */
+  const refreshRows = useCallback(async () => {
+    const { activeFolderId: f, page } = useStore.getState()
+    if (!f) return
+    setPageRows(await fetchPage(f, page))
+  }, [fetchPage, setPageRows])
+
+  /**
    * Jump to a page. When a page lands past what SQLite holds, reach further
    * back on the server first — the initial sync window is not the whole
    * mailbox, so running out locally does not mean running out of mail.
@@ -492,15 +502,36 @@ export default function App() {
   }, [applyFlags, updateRowFlags])
 
   /** Linear-style: u toggles read ↔ unread on selection (or focused row). */
+  /**
+   * Thread-scoped, because opening a row marks its whole thread read. Toggling
+   * only the newest message would be reverted by the next open.
+   */
   const toggleReadSelected = useCallback(async () => {
     const { checkedIds: c, rows: r, selectedIndex: i } = useStore.getState()
-    const targets = c.length ? c : r[i] ? [r[i].id] : []
+    const targets = c.length ? r.filter((row) => c.includes(row.id)) : r[i] ? [r[i]] : []
     if (!targets.length) return
-    const rowsById = new Map(r.map((row) => [row.id, row]))
-    // If any target is unread, mark all read; otherwise mark all unread.
-    const anyUnread = targets.some((id) => isUnread(rowsById.get(id)?.flags ?? null))
-    await applyFlags('\\Seen', anyUnread)
-  }, [applyFlags])
+    // Unread if any message anywhere in the thread is unread, matching the dot.
+    const anyUnread = targets.some((row) =>
+      row.thread_unread === undefined ? isUnread(row.flags) : row.thread_unread > 0
+    )
+    if (anyUnread) {
+      // Mark read: every message in each thread, same as opening it.
+      for (const row of targets) {
+        if (!row.thread_id) continue
+        const res = await window.api.markThreadRead(row.thread_id)
+        if (res.ok) for (const id of res.changed) markRowSeen(id)
+      }
+      await refreshRows()
+      void refreshUnread()
+      return
+    }
+    const threadIds = targets.map((row) => row.thread_id).filter((t): t is string => !!t)
+    if (!threadIds.length) return
+    const res = await window.api.markThreadsUnread(threadIds)
+    if (!res.ok) return setSyncError(res.error)
+    await refreshRows()
+    void refreshUnread()
+  }, [markRowSeen, refreshRows, refreshUnread, setSyncError])
 
   const moveSelected = useCallback(
     async () => {
@@ -602,14 +633,15 @@ export default function App() {
 
   const unreadFromThread = useCallback(async () => {
     const ot = useStore.getState().openThread
-    if (!ot) return
-    // Opening the thread marked it read, so this always means "back to unread".
-    const res = await window.api.setFlag([ot.messageId], '\\Seen', false)
+    if (!ot?.threadId) return
+    // Opening the thread marked every message read, so this un-reads all of
+    // them — clearing only the newest would leave the thread read.
+    const res = await window.api.markThreadsUnread([ot.threadId])
     if (!res.ok) return setSyncError(res.error)
-    for (const u of res.updated) updateRowFlags(u.id, JSON.stringify(u.flags))
+    await refreshRows()
     void refreshUnread()
     closeThread()
-  }, [updateRowFlags, setSyncError, refreshUnread, closeThread])
+  }, [setSyncError, refreshRows, refreshUnread, closeThread])
 
   const onToggleCheck = useCallback(
     (id: number, index: number, shiftKey: boolean) => {
