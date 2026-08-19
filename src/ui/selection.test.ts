@@ -64,6 +64,25 @@ describe('shift-range selection', () => {
   })
 })
 
+describe('selection survives a refresh', () => {
+  // setRows keeps ids that still exist; setPageRows clears. A background sync
+  // used to take the setPageRows path and wipe the selection under the user.
+  function setRows(ids: number[], s: Sel): Sel {
+    const live = new Set(ids)
+    return { ...s, checkedIds: s.checkedIds.filter((id) => live.has(id)) }
+  }
+
+  it('keeps checked rows when the same page is re-read', () => {
+    const s = range(4, select(1, empty))
+    expect(setRows(ROWS.map((r) => r.id), s).checkedIds).toEqual([101, 102, 103, 104])
+  })
+
+  it('drops only the rows that went away', () => {
+    const s = range(4, select(1, empty))
+    expect(setRows([101, 103], s).checkedIds).toEqual([101, 103])
+  })
+})
+
 describe('store wiring', () => {
   // The functions above mirror store.ts rather than importing it (the store
   // pulls in the whole app), so the re-anchor is asserted against the source.
@@ -75,6 +94,12 @@ describe('store wiring', () => {
 
   it('re-anchors on j/k navigation too', () => {
     expect(store).toContain('set({ selectedIndex: next, lastCheckedIndex: next })')
+  })
+
+  it('refreshes in place without clearing the selection', () => {
+    const app = readFileSync(join(__dirname, 'App.tsx'), 'utf8')
+    expect(app).toContain('if (keepPage) setRows(rows)')
+    expect(app).toMatch(/refreshRows[\s\S]{0,400}setRows\(await fetchPage/)
   })
 })
 
