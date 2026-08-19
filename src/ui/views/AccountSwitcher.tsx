@@ -10,8 +10,8 @@ interface Props {
 }
 
 /**
- * Collapses to a plain label with one account, so a single-account user never
- * pays for a feature they don't use.
+ * Also the only route to "Add account", so it renders with a single account
+ * too — the affordance shifts from switching to adding.
  */
 export function AccountSwitcher({ accounts, activeAccountId, onSwitch, onAdd }: Props) {
   const [open, setOpen] = useState(false)
@@ -46,7 +46,11 @@ export function AccountSwitcher({ accounts, activeAccountId, onSwitch, onAdd }: 
         onClick={() => setOpen((v) => !v)}
       >
         <span className="sidebar-account-email">{active.email}</span>
-        <ChevronsUpDown size={12} strokeWidth={2} aria-hidden="true" />
+        {accounts.length > 1 ? (
+          <ChevronsUpDown size={12} strokeWidth={2} aria-hidden="true" />
+        ) : (
+          <Plus size={12} strokeWidth={2} aria-hidden="true" />
+        )}
       </button>
 
       {open && (

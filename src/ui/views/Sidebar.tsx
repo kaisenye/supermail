@@ -52,7 +52,9 @@ export function Sidebar({
 
   return (
     <nav className="sidebar">
-      {accounts.length > 1 ? (
+      {/* Renders at any account count: "Add account" lives in this menu, so
+          gating it on a second account made the first one impossible to add. */}
+      {accounts.length > 0 ? (
         <AccountSwitcher
           accounts={accounts}
           activeAccountId={activeAccountId}
