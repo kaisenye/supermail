@@ -41,6 +41,8 @@ export function MessageList({
   showRecipient = false
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  /** Set by a shift-click so the change that follows it is ignored. */
+  const shiftHandled = useRef(false)
   const checked = new Set(checkedIds)
 
   const virtualizer = useVirtualizer({
@@ -157,12 +159,21 @@ export function MessageList({
                     onClick={(e) => {
                       e.stopPropagation()
                       // Shift-range: prevent the default toggle, apply range instead.
+                      // preventDefault stops the native toggle but React still
+                      // fires change, which would undo the row just ranged in.
                       if (e.shiftKey) {
                         e.preventDefault()
+                        shiftHandled.current = true
                         onToggleCheck(r.id, item.index, true)
                       }
                     }}
-                    onChange={() => onToggleCheck(r.id, item.index, false)}
+                    onChange={() => {
+                      if (shiftHandled.current) {
+                        shiftHandled.current = false
+                        return
+                      }
+                      onToggleCheck(r.id, item.index, false)
+                    }}
                     aria-label="Select message"
                   />
                 </label>
