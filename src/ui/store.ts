@@ -210,12 +210,15 @@ export const useStore = create<AppState>((set, get) => ({
         return { ...r, flags: JSON.stringify([...flags, '\\Seen']) }
       })
     })),
-  setSelectedIndex: (selectedIndex) => set({ selectedIndex }),
+  // A plain click re-anchors the range: shift extends from the last row the
+  // user pointed at, not from a checkbox they may have since cleared.
+  setSelectedIndex: (selectedIndex) => set({ selectedIndex, lastCheckedIndex: selectedIndex }),
   moveSelection: (delta) => {
     const { rows, selectedIndex } = get()
     if (!rows.length) return
     const next = Math.max(0, Math.min(rows.length - 1, selectedIndex + delta))
-    if (next !== selectedIndex) set({ selectedIndex: next })
+    // Re-anchors like a click: j/k then shift-click ranges from where you are.
+    if (next !== selectedIndex) set({ selectedIndex: next, lastCheckedIndex: next })
   },
   toggleChecked: (id, index) =>
     set((s) => {

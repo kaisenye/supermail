@@ -134,7 +134,16 @@ export function MessageList({
                 data-selected={item.index === selectedIndex}
                 data-checked={isChecked}
                 data-unread={unread}
-                onClick={() => onSelect(item.index)}
+                onClick={(e) => {
+                  // Shift anywhere on the row extends the range, not just on
+                  // the checkbox — clicking the row is the usual way to do it.
+                  if (e.shiftKey) {
+                    e.preventDefault()
+                    onToggleCheck(r.id, item.index, true)
+                    return
+                  }
+                  onSelect(item.index)
+                }}
                 onDoubleClick={() => onOpen?.(item.index)}
               >
                 <label
