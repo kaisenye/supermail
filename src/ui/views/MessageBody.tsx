@@ -125,17 +125,20 @@ export function MessageBody({ messageId }: Props) {
         className="body-frame"
         style={{ height }}
         /*
-         * Fully opaque sandbox: no allow-scripts (nothing executes) and no
-         * allow-same-origin (frame cannot reach window.api, our storage, or
-         * this document). Height is measured by a hidden host-side probe
-         * instead, so the frame needs no privileges at all.
+         * Still no allow-scripts (nothing executes) and no allow-same-origin
+         * (the frame cannot reach window.api, our storage, or this document).
+         * Height is measured by a hidden host-side probe.
+         *
+         * top-navigation-by-user-activation lets a clicked link ask to
+         * navigate; main refuses and opens it in the real browser instead.
+         * Without it the click is silently inert.
          */
-        sandbox=""
+        sandbox="allow-top-navigation-by-user-activation"
         srcDoc={doc.srcDoc}
         title="Message body"
       />
-      {/* The frame is fully sandboxed, so its links cannot navigate. Surface
-          them here instead, opened via the host in the real browser. */}
+      {/* Links open on click via the host. This list stays as the way to see
+          every destination at once before following any of them. */}
       {links.length > 0 && (
         <details className="body-links">
           <summary>
