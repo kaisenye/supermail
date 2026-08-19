@@ -200,6 +200,10 @@ const api = {
     threadId: string
   ): Promise<{ ok: true; changed: number[] } | { ok: false; error: string }> =>
     ipcRenderer.invoke('thread:markRead', threadId),
+  markThreadsUnread: (
+    threadIds: string[]
+  ): Promise<{ ok: true; changed: number[] } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('thread:markUnread', threadIds),
   getBody: (messageId: number, allowRemoteImages?: boolean): Promise<BodyResult> =>
     ipcRenderer.invoke('message:body', messageId, allowRemoteImages),
   getMessage: (id: number): Promise<Message | undefined> =>

@@ -450,6 +450,15 @@ button > svg {
   color: var(--text-secondary);
 }
 
+/* Message count, shown only on threads of two or more. Tabular so the digits
+   do not shift the subject as counts change. */
+.row-thread-count {
+  margin-left: var(--space-2);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
 .row[data-unread='true'] .row-subject {
   color: var(--text-primary);
   font-weight: 500;

@@ -121,7 +121,10 @@ export function MessageList({
         >
           {items.map((item) => {
             const r = rows[item.index]
-            const unread = isUnread(r.flags)
+            // A thread is unread if any message in it is; flags alone describe
+            // only the newest one.
+            const unread =
+              r.thread_unread === undefined ? isUnread(r.flags) : r.thread_unread > 0
             const isChecked = checked.has(r.id)
             return (
               <div
@@ -160,7 +163,12 @@ export function MessageList({
                     ? recipientLabel(r.to_addrs, senderLabel(r.from_name, r.from_addr))
                     : senderLabel(r.from_name, r.from_addr)}
                 </span>
-                <span className="row-subject">{r.subject || '(no subject)'}</span>
+                <span className="row-subject">
+                  {r.subject || '(no subject)'}
+                  {(r.thread_count ?? 1) > 1 && (
+                    <span className="row-thread-count">{r.thread_count}</span>
+                  )}
+                </span>
                 <span className="row-snippet">{r.snippet}</span>
                 <span className="row-trailing">
                   {isFlagged(r.flags) && (

@@ -249,17 +249,66 @@ export function getMessage(id: number): Message | undefined {
     | undefined
 }
 
+/**
+ * One row per thread, newest first, each carrying its own message count and
+ * unread count.
+ *
+ * Three statements rather than one: grouping the folder is fast, but a single
+ * query that also reads flags degrades into a row fetch per message. Selecting
+ * the page first keeps the aggregate and the row fetch bound to the ~50 threads
+ * actually on screen.
+ */
 export function listInbox(
   folderId: number,
   limit = 100,
   offset = 0
 ): MessageListRow[] {
-  return getDb()
+  const db = getDb()
+
+  // id tracks sync order, not date, so the newest message must be picked by
+  // date. SQLite's bare-column rule returns the id from the MAX(date) row.
+  const page = db
     .prepare(
-      `SELECT ${LIST_COLS} FROM messages
-       WHERE folder_id = ? ORDER BY date DESC LIMIT ? OFFSET ?`
+      `SELECT thread_id, MAX(date) AS date, id AS newest_id
+         FROM messages
+        WHERE folder_id = ?
+        GROUP BY thread_id
+        ORDER BY date DESC
+        LIMIT ? OFFSET ?`
     )
-    .all(folderId, limit, offset) as MessageListRow[]
+    .all(folderId, limit, offset) as { thread_id: string; newest_id: number }[]
+
+  if (!page.length) return []
+
+  const holes = page.map(() => '?').join(',')
+  const threadIds = page.map((p) => p.thread_id)
+
+  const stats = db
+    .prepare(
+      `SELECT thread_id, COUNT(*) AS n,
+              SUM(CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM json_each(COALESCE(m.flags, '[]'))
+                     WHERE lower(json_each.value) = '\\seen'
+                  ) THEN 1 ELSE 0 END) AS unread
+         FROM messages m
+        WHERE folder_id = ? AND thread_id IN (${holes})
+        GROUP BY thread_id`
+    )
+    .all(folderId, ...threadIds) as { thread_id: string; n: number; unread: number }[]
+  const statFor = new Map(stats.map((r) => [r.thread_id, r]))
+
+  const rows = db
+    .prepare(`SELECT ${LIST_COLS} FROM messages WHERE id IN (${holes})`)
+    .all(...page.map((p) => p.newest_id)) as MessageListRow[]
+  const rowFor = new Map(rows.map((r) => [r.id, r]))
+
+  // Rebuilt from `page` so the caller's order survives the IN lookup.
+  return page.flatMap((p) => {
+    const row = rowFor.get(p.newest_id)
+    if (!row) return []
+    const st = statFor.get(p.thread_id)
+    return [{ ...row, thread_count: st?.n ?? 1, thread_unread: st?.unread ?? 0 }]
+  })
 }
 
 /**

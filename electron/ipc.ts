@@ -516,6 +516,26 @@ export function registerIpc(): void {
   // Mark every message in a thread \Seen. Optimistic: SQLite first, IMAP in the
   // background. Returns the ids whose read-state actually changed so the list
   // can clear their unread dots.
+  /**
+   * Whole-thread, mirroring markRead: reading marks every message seen, so
+   * un-reading only the newest would be undone the moment it reopens.
+   */
+  ipcMain.handle('thread:markUnread', (_e, threadIds: string[]) => {
+    const s = getBootState()
+    if (!s.ok) return { ok: false as const, error: s.error }
+    const writer = flagWriterFor(s.accountId, s.config)
+    const changed: number[] = []
+    for (const threadId of threadIds) {
+      for (const m of getThread(s.accountId, threadId)) {
+        const next = removeFlag(m.id, '\\Seen')
+        if (!next) continue
+        changed.push(m.id)
+        writer.enqueue({ messageId: m.id, flag: '\\Seen', add: false })
+      }
+    }
+    return { ok: true as const, changed }
+  })
+
   ipcMain.handle('thread:markRead', (_e, threadId: string) => {
     const s = getBootState()
     if (!s.ok) return { ok: false as const, error: s.error }
