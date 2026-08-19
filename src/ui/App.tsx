@@ -871,6 +871,11 @@ export default function App() {
         run: () => setSettingsOpen(true)
       },
       {
+        id: 'add-account',
+        label: 'Add mailbox…',
+        run: () => setAddingAccount(true)
+      },
+      {
         id: 'scheduled',
         label: scheduled.length
           ? `Scheduled sends (${scheduled.length})`
