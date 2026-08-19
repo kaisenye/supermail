@@ -63,6 +63,7 @@ export default function App() {
     setBoot,
     setFolders,
     setActiveFolder,
+    setRows,
     setPageRows,
     restoreRows,
     setSelectedIndex,
@@ -193,12 +194,15 @@ export default function App() {
       // should send the user back to page 1.
       const page = keepPage ? useStore.getState().page : 0
       const rows = await fetchPage(folderId, page)
-      setPageRows(rows)
+      // keepPage means a refresh under the user (sync, new mail): keep the
+      // selection. Only a real folder or page change resets it.
+      if (keepPage) setRows(rows)
+      else setPageRows(rows)
       setPage(page)
       setTotalRows(await window.api.countMessages(folderId))
       void refreshUnread()
     },
-    [fetchPage, setPageRows, setPage, setTotalRows, refreshUnread]
+    [fetchPage, setRows, setPageRows, setPage, setTotalRows, refreshUnread]
   )
 
   /**
@@ -208,8 +212,10 @@ export default function App() {
   const refreshRows = useCallback(async () => {
     const { activeFolderId: f, page } = useStore.getState()
     if (!f) return
-    setPageRows(await fetchPage(f, page))
-  }, [fetchPage, setPageRows])
+    // setRows, not setPageRows: the page has not changed, so the cursor and
+    // any checked rows that still exist have to survive.
+    setRows(await fetchPage(f, page))
+  }, [fetchPage, setRows])
 
   /**
    * Jump to a page. When a page lands past what SQLite holds, reach further
