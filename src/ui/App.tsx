@@ -501,37 +501,47 @@ export default function App() {
     if (res.ok) updateRowFlags(row.id, JSON.stringify(res.flags))
   }, [applyFlags, updateRowFlags])
 
-  /** Linear-style: u toggles read ↔ unread on selection (or focused row). */
-  /**
-   * Thread-scoped, because opening a row marks its whole thread read. Toggling
-   * only the newest message would be reverted by the next open.
-   */
-  const toggleReadSelected = useCallback(async () => {
+  /** The checked rows, or the cursor row when nothing is checked. */
+  const targetRows = useCallback((): MessageListRow[] => {
     const { checkedIds: c, rows: r, selectedIndex: i } = useStore.getState()
-    const targets = c.length ? r.filter((row) => c.includes(row.id)) : r[i] ? [r[i]] : []
+    return c.length ? r.filter((row) => c.includes(row.id)) : r[i] ? [r[i]] : []
+  }, [])
+
+  /**
+   * Thread-scoped, because opening a row marks its whole thread read. Acting
+   * on the newest message alone would be reverted by the next open.
+   */
+  const setThreadsRead = useCallback(
+    async (read: boolean) => {
+      const targets = targetRows()
+      const threadIds = targets.map((row) => row.thread_id).filter((t): t is string => !!t)
+      if (!threadIds.length) return
+      if (read) {
+        for (const threadId of threadIds) {
+          const res = await window.api.markThreadRead(threadId)
+          if (!res.ok) return setSyncError(res.error)
+          for (const id of res.changed) markRowSeen(id)
+        }
+      } else {
+        const res = await window.api.markThreadsUnread(threadIds)
+        if (!res.ok) return setSyncError(res.error)
+      }
+      await refreshRows()
+      void refreshUnread()
+    },
+    [targetRows, markRowSeen, refreshRows, refreshUnread, setSyncError]
+  )
+
+  /** Linear-style: u toggles read ↔ unread on selection (or focused row). */
+  const toggleReadSelected = useCallback(async () => {
+    const targets = targetRows()
     if (!targets.length) return
     // Unread if any message anywhere in the thread is unread, matching the dot.
     const anyUnread = targets.some((row) =>
       row.thread_unread === undefined ? isUnread(row.flags) : row.thread_unread > 0
     )
-    if (anyUnread) {
-      // Mark read: every message in each thread, same as opening it.
-      for (const row of targets) {
-        if (!row.thread_id) continue
-        const res = await window.api.markThreadRead(row.thread_id)
-        if (res.ok) for (const id of res.changed) markRowSeen(id)
-      }
-      await refreshRows()
-      void refreshUnread()
-      return
-    }
-    const threadIds = targets.map((row) => row.thread_id).filter((t): t is string => !!t)
-    if (!threadIds.length) return
-    const res = await window.api.markThreadsUnread(threadIds)
-    if (!res.ok) return setSyncError(res.error)
-    await refreshRows()
-    void refreshUnread()
-  }, [markRowSeen, refreshRows, refreshUnread, setSyncError])
+    await setThreadsRead(anyUnread)
+  }, [targetRows, setThreadsRead])
 
   const moveSelected = useCallback(
     async () => {
@@ -1086,8 +1096,8 @@ export default function App() {
                   else setCheckedAll(rows.map((r) => r.id))
                 }}
                 onClear={clearChecked}
-                onMarkRead={() => void applyFlags('\\Seen', true)}
-                onMarkUnread={() => void applyFlags('\\Seen', false)}
+                onMarkRead={() => void setThreadsRead(true)}
+                onMarkUnread={() => void setThreadsRead(false)}
                 onStar={() => void starSelected()}
                 onTrash={() => void moveSelected()}
               />
