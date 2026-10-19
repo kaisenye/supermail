@@ -2,7 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AccountSummary, ScheduledSend } from '../../electron/preload'
 import type { MessageListRow } from '../core/store/types'
 import { emptyCompose, useStore, type ComposeAttachment } from './store'
-import { useHotkeys, type Binding, type Mode } from './hooks/useHotkeys'
+import { useHotkeys, type Mode } from './hooks/useHotkeys'
+import { useKeySequences } from './hooks/useKeySequences'
+import {
+  buildBindings,
+  buildChords,
+  buildPaletteActions,
+  buildSequences,
+  withTiming,
+  type Handlers
+} from './commands'
 import { useCommandChord } from './hooks/useCommandChord'
 import { MessageList } from './views/MessageList'
 import { ActionBar } from './views/ActionBar'
@@ -751,41 +760,6 @@ export default function App() {
     })
   }, [openCompose, signature])
 
-  useEffect(() => {
-    if (openThread || paletteOpen || compose) return
-    const GOTO: Record<string, FolderRole> = { i: 'inbox', s: 'sent', t: 'trash', d: 'drafts', j: 'junk' }
-    let armed = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const disarm = (): void => {
-      armed = false
-      if (timer) clearTimeout(timer)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      const el = e.target as HTMLElement
-      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable) return
-
-      if (armed) {
-        const role = GOTO[e.key]
-        disarm()
-        if (role) {
-          e.preventDefault()
-          gotoFolder(role)
-        }
-        return
-      }
-      if (e.key === 'g') {
-        armed = true
-        timer = setTimeout(disarm, 1200)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      disarm()
-    }
-  }, [openThread, paletteOpen, compose, gotoFolder])
-
   const mode: Mode = paletteOpen || settingsOpen || shortcutsOpen
     ? 'modal'
     : compose
@@ -794,130 +768,75 @@ export default function App() {
         ? 'thread'
         : 'list'
 
-  const bindings = useMemo<Binding[]>(
-    () => [
-      { key: 'j', modes: ['list'], handler: () => moveSelection(1) },
-      { key: 'k', modes: ['list'], handler: () => moveSelection(-1) },
-      { key: 'Enter', modes: ['list'], handler: openSelected },
-      { key: 's', modes: ['list'], handler: () => void starSelected() },
-      {
-        key: 'x',
-        modes: ['list'],
-        handler: () => {
+  const handlers = useMemo<Handlers>(
+    () =>
+      withTiming({
+        // Checks compose itself, not the mode: a modal over compose (⌘, or ⌘.)
+        // reads as 'modal', and ⌘K must still do nothing while composing.
+        'palette.open': () => {
+          if (!useStore.getState().compose) openPalette()
+        },
+        'compose.new': startCompose,
+        'settings.open': () => setSettingsOpen(true),
+        'shortcuts.open': () => setShortcutsOpen(true),
+        escape: ({ mode: m }) => {
+          if (m === 'thread') closeThread()
+          else if (useStore.getState().checkedIds.length) clearChecked()
+        },
+        'sync.now': () => backgroundSync(),
+        'account.add': () => setAddingAccount(true),
+        'nav.down': () => moveSelection(1),
+        'nav.up': () => moveSelection(-1),
+        'nav.open': openSelected,
+        'go.inbox': () => gotoFolder('inbox'),
+        'go.sent': () => gotoFolder('sent'),
+        'go.drafts': () => gotoFolder('drafts'),
+        'go.trash': () => gotoFolder('trash'),
+        'go.junk': () => gotoFolder('junk'),
+        'msg.star': ({ mode: m }) => (m === 'thread' ? starFromThread() : starSelected()),
+        // In a thread, u un-reads and leaves, since staying would re-mark it read.
+        'msg.read': ({ mode: m }) => (m === 'thread' ? unreadFromThread() : toggleReadSelected()),
+        'msg.trash': ({ mode: m }) => (m === 'thread' ? triageFromThread() : triageSelected()),
+        'msg.select': () => {
           const { rows: r, selectedIndex: i } = useStore.getState()
           const row = r[i]
           if (row) toggleChecked(row.id, i)
-        }
-      },
-      {
-        key: 'u',
-        modes: ['list'],
-        handler: () => void toggleReadSelected()
-      },
-      // The Mac key labelled "delete" reports as Backspace.
-      { key: 'Backspace', modes: ['list'], handler: () => void triageSelected() },
-      // Matches the list: u is unread. It closes the thread too, since leaving
-      // it open would immediately re-mark it read.
-      { key: 'u', modes: ['thread'], handler: () => void unreadFromThread() },
-      {
-        key: 'Escape',
-        modes: ['list'],
-        handler: () => {
-          if (useStore.getState().checkedIds.length) clearChecked()
-        }
-      },
-      { key: 'Escape', modes: ['thread'], handler: closeThread },
-      { key: '/', modes: ['list', 'thread'], handler: () => openPalette() },
-      { key: 'c', modes: ['list', 'thread'], handler: startCompose },
-      { key: 'r', modes: ['thread'], handler: () => void startReply(false) },
-      { key: 'R', modes: ['thread'], handler: () => void startReply(true) },
-      { key: 'f', modes: ['thread'], handler: () => void startForward() },
-      { key: 'Backspace', modes: ['thread'], handler: () => void triageFromThread() },
-      { key: 's', modes: ['thread'], handler: () => void starFromThread() }
-    ],
+        },
+        'thread.reply': () => startReply(false),
+        'thread.replyAll': () => startReply(true),
+        'thread.forward': () => startForward()
+      }),
     [
-      moveSelection,
-      openSelected,
-      starSelected,
-      toggleReadSelected,
-      toggleChecked,
-      applyFlags,
-      triageSelected,
-      clearChecked,
-      closeThread,
       openPalette,
       startCompose,
-      startReply,
-      startForward,
-      triageFromThread,
+      closeThread,
+      clearChecked,
+      backgroundSync,
+      moveSelection,
+      openSelected,
+      gotoFolder,
       starFromThread,
-      unreadFromThread
+      starSelected,
+      unreadFromThread,
+      toggleReadSelected,
+      triageFromThread,
+      triageSelected,
+      toggleChecked,
+      startReply,
+      startForward
     ]
   )
 
+  const bindings = useMemo(() => buildBindings(mode, handlers), [mode, handlers])
   useHotkeys(mode, bindings)
-
-  const chords = useMemo(
-    () => [
-      {
-        key: 'k',
-        handler: () => {
-          if (compose) return
-          openPalette()
-        }
-      },
-      // Chords rather than bare keys: these must work while composing too,
-      // where a plain ',' is just a character.
-      { key: ',', handler: () => setSettingsOpen(true) },
-      { key: '.', handler: () => setShortcutsOpen(true) }
-    ],
-    [compose, openPalette]
-  )
+  const chords = useMemo(() => buildChords(mode, handlers), [mode, handlers])
   useCommandChord(chords)
+  const sequences = useMemo(() => buildSequences(mode, handlers), [mode, handlers])
+  useKeySequences(sequences)
 
   const paletteActions = useMemo<PaletteAction[]>(
     () => [
-      { id: 'compose', label: 'Compose new message', hint: 'c', run: startCompose },
-      {
-        id: 'inbox',
-        label: 'Go to Inbox',
-        hint: 'g i',
-        run: () => gotoFolder('inbox')
-      },
-      {
-        id: 'sent',
-        label: 'Go to Sent',
-        hint: 'g s',
-        run: () => gotoFolder('sent')
-      },
-      {
-        id: 'trash',
-        label: 'Go to Trash',
-        hint: 'g t',
-        run: () => gotoFolder('trash')
-      },
-      {
-        id: 'drafts',
-        label: 'Go to Drafts',
-        hint: 'g d',
-        run: () => gotoFolder('drafts')
-      },
-      {
-        id: 'sync',
-        label: 'Sync now',
-        run: () => void backgroundSync()
-      },
-      {
-        id: 'settings',
-        label: 'Settings',
-        hint: '⌘,',
-        run: () => setSettingsOpen(true)
-      },
-      {
-        id: 'add-account',
-        label: 'Add mailbox…',
-        run: () => setAddingAccount(true)
-      },
+      ...buildPaletteActions(mode, handlers),
       {
         id: 'scheduled',
         label: scheduled.length
@@ -937,7 +856,7 @@ export default function App() {
         }
       }))
     ],
-    [startCompose, gotoFolder, backgroundSync, scheduled]
+    [mode, handlers, scheduled]
   )
 
   const onSent = useCallback(
