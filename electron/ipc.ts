@@ -605,6 +605,20 @@ export function registerIpc(): void {
     }
   )
 
+  // Warms the bodies either side of the open thread, so auto-advance after a
+  // triage opens the next one from SQLite instead of waiting on IMAP.
+  ipcMain.handle('messages:prefetchBodies', async (_e, ids: number[]) => {
+    for (const id of ids.slice(0, 4)) {
+      const acct = ownerOf(id)
+      if (!acct) continue
+      try {
+        await ensureBody(acct.accountId, acct.config, id)
+      } catch {
+        // Best effort: opening the message retries and reports properly.
+      }
+    }
+  })
+
   ipcMain.handle('message:get', (_e, id: number) => getMessage(id))
 
   ipcMain.handle('compose:saveDraft', (_e, payload: DraftPayload) => {

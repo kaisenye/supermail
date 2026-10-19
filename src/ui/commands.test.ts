@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Mode } from './hooks/useHotkeys.js'
 import {
   COMMANDS,
@@ -7,7 +7,8 @@ import {
   buildPaletteActions,
   buildSequences,
   keyCaps,
-  shortcutGroups
+  shortcutGroups,
+  withTiming
 } from './commands.js'
 
 const ALL_MODES: Mode[] = ['list', 'thread', 'compose', 'modal']
@@ -84,5 +85,22 @@ describe('command registry', () => {
       then: true,
       alt: undefined
     })
+  })
+})
+
+describe('withTiming', () => {
+  it('logs, instead of rejecting, when a handler throws', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const wrapped = withTiming({
+        'nav.down': () => {
+          throw new Error('x')
+        }
+      })
+      await expect(wrapped['nav.down']!({ mode: 'list' })).resolves.toBeUndefined()
+      expect(spy).toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

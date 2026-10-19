@@ -445,6 +445,10 @@ export default function App() {
         return
       }
       if (row.thread_id) openThreadAndRead(row.thread_id, row.id)
+      const neighbors = [r[index + 1]?.id, r[index - 1]?.id].filter(
+        (id): id is number => typeof id === 'number'
+      )
+      if (neighbors.length) void window.api.prefetchBodies(neighbors)
     },
     [openThreadAndRead, openDraft, isDraftsFolder]
   )

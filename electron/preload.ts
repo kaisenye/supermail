@@ -207,6 +207,8 @@ const api = {
     ipcRenderer.invoke('thread:markUnread', threadIds),
   getBody: (messageId: number, allowRemoteImages?: boolean): Promise<BodyResult> =>
     ipcRenderer.invoke('message:body', messageId, allowRemoteImages),
+  prefetchBodies: (ids: number[]): Promise<void> =>
+    ipcRenderer.invoke('messages:prefetchBodies', ids),
   getMessage: (id: number): Promise<Message | undefined> =>
     ipcRenderer.invoke('message:get', id),
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke('shell:open', url),

@@ -202,7 +202,8 @@ export function buildPaletteActions(mode: Mode, handlers: Handlers): PaletteActi
 export function withTiming(handlers: Handlers): Handlers {
   const out: Handlers = {}
   for (const [id, h] of Object.entries(handlers) as [CommandId, Handler][]) {
-    out[id] = (ctx) => timed(id, () => h(ctx))
+    out[id] = (ctx) =>
+      timed(id, () => h(ctx)).catch((e) => console.error(`[command] ${id} failed:`, e))
   }
   return out
 }
