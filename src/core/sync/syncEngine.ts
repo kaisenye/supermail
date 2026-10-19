@@ -3,11 +3,13 @@ import type { AccountConfig } from '../accounts/config.js'
 import { processors } from '../pipeline/index.js'
 import { runPipeline } from '../pipeline/pipeline.js'
 import { getDb } from '../store/db.js'
+import { assignRoles } from '../store/folderRoles.js'
 import {
   deleteFolder,
   listFolders,
   oldestSyncedUid,
   resetFolder,
+  setFolderRoles,
   setLastUid,
   upsertFolder,
   getSettings,
@@ -84,6 +86,12 @@ export async function syncAccount(
       result.folders++
     }
 
+    // SPECIAL-USE where the server offers it (Gmail, Outlook), names otherwise
+    // (Exmail). Recomputed every pass so a renamed folder cannot keep a role.
+    // An empty result (odd LIST reply) must not wipe the roles we already have.
+    const roles = assignRoles(boxes.filter((b) => b.selectable && !isIgnoredFolder(b.path)))
+    if (roles.size) setFolderRoles(accountId, roles)
+
     // Clear out folders a previous sync stored before they were ignored.
     for (const f of listFolders(accountId)) {
       if (isIgnoredFolder(f.path)) deleteFolder(f.id)
@@ -91,7 +99,7 @@ export async function syncAccount(
 
     // INBOX first so the primary view is usable before the rest finishes.
     const folders = listFolders(accountId).sort((a, b) =>
-      a.path === 'INBOX' ? -1 : b.path === 'INBOX' ? 1 : 0
+      a.role === 'inbox' ? -1 : b.role === 'inbox' ? 1 : 0
     )
 
     // Exmail has high per-command latency, so probe all folders concurrently

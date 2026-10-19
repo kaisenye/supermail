@@ -36,7 +36,7 @@ export async function syncBodies(
 
   // INBOX first — that's what the user is looking at.
   const folders = listFolders(accountId).sort((a, b) =>
-    a.path === 'INBOX' ? -1 : b.path === 'INBOX' ? 1 : 0
+    a.role === 'inbox' ? -1 : b.role === 'inbox' ? 1 : 0
   )
 
   const plan = folders
