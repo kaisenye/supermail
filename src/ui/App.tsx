@@ -17,6 +17,7 @@ import { ShortcutHelp } from './views/ShortcutHelp'
 import { Onboarding } from './views/Onboarding'
 import { PenSquare, Plus } from 'lucide-react'
 import { folderLabel, isFlagged, isUnread } from './format'
+import type { FolderRole } from '../core/store/folderRoles'
 import { buildForwardBody, buildReplyBody } from './quote'
 import { applyTheme, isTheme, type Theme } from './theme'
 import './styles/app.css'
@@ -25,7 +26,7 @@ import './styles/app.css'
 const NO_ACCOUNT = 'no account connected'
 
 /** Folders holding your own mail, where "from" is always you. */
-const OUTGOING_PATHS = ['Sent Messages', 'Sent', 'INBOX.Sent', 'Drafts']
+const OUTGOING_ROLES: FolderRole[] = ['sent', 'drafts']
 
 const PAGE_SIZE = 50
 /** Must not exceed main's UNDO_MOVE_MS, or the toast outlives the undo. */
@@ -110,12 +111,12 @@ export default function App() {
   /** Drafts live outside any folder, so that view has its own query. */
   const isDraftsFolder = useCallback((folderId: number): boolean => {
     const f = useStore.getState().folders.find((x) => x.id === folderId)
-    return f?.path === 'Drafts'
+    return f?.role === 'drafts'
   }, [])
 
   const showRecipient = useMemo(() => {
     const f = folders.find((x) => x.id === activeFolderId)
-    return f ? OUTGOING_PATHS.includes(f.path) : false
+    return f?.role ? OUTGOING_ROLES.includes(f.role) : false
   }, [folders, activeFolderId])
 
   const [accounts, setAccounts] = useState<AccountSummary[]>([])
@@ -342,7 +343,7 @@ export default function App() {
 
       const cached = await window.api.listFolders()
       if (cancelled) return
-      const inbox = cached.find((f) => f.path === 'INBOX') ?? cached[0]
+      const inbox = cached.find((f) => f.role === 'inbox') ?? cached[0]
       if (cached.length) {
         setFolders(cached)
         if (inbox) {
@@ -370,7 +371,7 @@ export default function App() {
       const stillExists = Boolean(current && fresh.some((f) => f.id === current))
       const target = stillExists
         ? fresh.find((f) => f.id === current)!
-        : (fresh.find((f) => f.path === 'INBOX') ?? fresh[0])
+        : (fresh.find((f) => f.role === 'inbox') ?? fresh[0])
       if (target) {
         if (!stillExists) setActiveFolder(target.id)
         await loadRows(target.id, stillExists)
@@ -680,8 +681,8 @@ export default function App() {
   )
 
   const gotoFolder = useCallback(
-    (path: string) => {
-      const f = useStore.getState().folders.find((x) => x.path === path)
+    (role: FolderRole) => {
+      const f = useStore.getState().folders.find((x) => x.role === role)
       if (f) void onFolder(f.id)
     },
     [onFolder]
@@ -752,13 +753,7 @@ export default function App() {
 
   useEffect(() => {
     if (openThread || paletteOpen || compose) return
-    const GOTO: Record<string, string> = {
-      i: 'INBOX',
-      s: 'Sent Messages',
-      t: 'Deleted Messages',
-      d: 'Drafts',
-      j: 'Junk'
-    }
+    const GOTO: Record<string, FolderRole> = { i: 'inbox', s: 'sent', t: 'trash', d: 'drafts', j: 'junk' }
     let armed = false
     let timer: ReturnType<typeof setTimeout> | null = null
     const disarm = (): void => {
@@ -771,11 +766,11 @@ export default function App() {
       if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable) return
 
       if (armed) {
-        const path = GOTO[e.key]
+        const role = GOTO[e.key]
         disarm()
-        if (path) {
+        if (role) {
           e.preventDefault()
-          gotoFolder(path)
+          gotoFolder(role)
         }
         return
       }
@@ -887,25 +882,25 @@ export default function App() {
         id: 'inbox',
         label: 'Go to Inbox',
         hint: 'g i',
-        run: () => gotoFolder('INBOX')
+        run: () => gotoFolder('inbox')
       },
       {
         id: 'sent',
         label: 'Go to Sent',
         hint: 'g s',
-        run: () => gotoFolder('Sent Messages')
+        run: () => gotoFolder('sent')
       },
       {
         id: 'trash',
         label: 'Go to Trash',
         hint: 'g t',
-        run: () => gotoFolder('Deleted Messages')
+        run: () => gotoFolder('trash')
       },
       {
         id: 'drafts',
         label: 'Go to Drafts',
         hint: 'g d',
-        run: () => gotoFolder('Drafts')
+        run: () => gotoFolder('drafts')
       },
       {
         id: 'sync',
@@ -1058,7 +1053,7 @@ export default function App() {
           <>
             <header className="list-header">
               <h1 className="list-title">
-                {active ? folderLabel(active.path, active.name) : 'Supermail'}
+                {active ? folderLabel(active) : 'Supermail'}
               </h1>
               <span className="list-meta">
                 {rows.length}
@@ -1125,7 +1120,7 @@ export default function App() {
                   syncError
                     ? 'Check your connection and try again.'
                     : active
-                      ? `${folderLabel(active.path, active.name)} is empty`
+                      ? `${folderLabel(active)} is empty`
                       : ''
                 }
                 rows={rows}

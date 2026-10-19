@@ -2,6 +2,7 @@ import { CheckSquare, Keyboard, Settings as SettingsIcon } from 'lucide-react'
 import type { AccountSummary } from '../../../electron/preload'
 import { AccountSwitcher } from './AccountSwitcher'
 import type { Folder } from '../../core/store/types'
+import type { FolderRole } from '../../core/store/folderRoles'
 import { folderLabel } from '../format'
 import { folderIcon } from '../folderIcons'
 
@@ -23,10 +24,10 @@ interface Props {
 }
 
 /** Special-use folders first, in the order a human expects them. */
-const ORDER = ['INBOX', 'Drafts', 'Sent Messages', 'Junk', 'Deleted Messages']
+const ORDER: FolderRole[] = ['inbox', 'drafts', 'sent', 'archive', 'all', 'junk', 'trash']
 
-function rank(path: string): number {
-  const i = ORDER.indexOf(path)
+function rank(f: Folder): number {
+  const i = f.role ? ORDER.indexOf(f.role) : -1
   return i === -1 ? ORDER.length : i
 }
 
@@ -47,7 +48,7 @@ export function Sidebar({
   unread
 }: Props) {
   const sorted = [...folders].sort(
-    (a, b) => rank(a.path) - rank(b.path) || a.path.localeCompare(b.path)
+    (a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path)
   )
 
   return (
@@ -68,7 +69,7 @@ export function Sidebar({
       )}
       <ul className="folder-list">
         {sorted.map((f) => {
-          const Icon = folderIcon(f.path)
+          const Icon = folderIcon(f)
           const count = unread?.[f.id] ?? 0
           return (
             <li key={f.id}>
@@ -82,7 +83,7 @@ export function Sidebar({
                 }}
               >
                 <Icon className="folder-icon" size={15} strokeWidth={1.75} />
-                <span className="folder-name">{folderLabel(f.path, f.name)}</span>
+                <span className="folder-name">{folderLabel(f)}</span>
                 {count > 0 && <span className="folder-count">{count}</span>}
               </button>
             </li>

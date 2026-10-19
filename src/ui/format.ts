@@ -1,3 +1,6 @@
+import type { Folder } from '../core/store/types'
+import type { FolderRole } from '../core/store/folderRoles'
+
 const DAY = 86_400_000
 
 /** Superhuman-style relative dates: fixed width, no "ago" noise. */
@@ -87,20 +90,22 @@ export const isUnread = (flags: string | null): boolean =>
 export const isFlagged = (flags: string | null): boolean =>
   parseFlags(flags).some((f) => f.toLowerCase() === '\\flagged' || f.toLowerCase() === 'flagged')
 
-// Exmail's IMAP paths are verbose ("Sent Messages", "Deleted Messages") and
-// SHOUTED ("INBOX"). Map the well-known ones to clean labels; everything else
-// (the user's custom 客户/询价/跟进 folders) keeps its leaf name.
-const FOLDER_LABELS: Record<string, string> = {
-  INBOX: 'Inbox',
-  'Sent Messages': 'Sent',
-  Sent: 'Sent',
-  Drafts: 'Drafts',
-  Junk: 'Junk',
-  'Deleted Messages': 'Trash',
-  Trash: 'Trash'
+const ROLE_LABELS: Record<FolderRole, string> = {
+  inbox: 'Inbox',
+  sent: 'Sent',
+  drafts: 'Drafts',
+  trash: 'Trash',
+  junk: 'Junk',
+  archive: 'Archive',
+  all: 'All Mail'
 }
 
-/** IMAP paths are delimiter-joined; show a friendly label or the leaf. */
-export function folderLabel(path: string, name: string | null): string {
-  return FOLDER_LABELS[path] ?? name ?? path.split('/').pop() ?? path
+/**
+ * Special folders get a clean label whatever the server calls them
+ * ("Sent Messages", "[Gmail]/Sent Mail"); custom folders (客户/询价/跟进) keep
+ * their own name, or the leaf of the path.
+ */
+export function folderLabel(f: Pick<Folder, 'path' | 'name' | 'role'>): string {
+  if (f.role) return ROLE_LABELS[f.role]
+  return f.name ?? f.path.split('/').pop() ?? f.path
 }

@@ -1,34 +1,39 @@
 import {
-  Inbox,
-  Send,
-  FileText,
-  ShieldAlert,
-  Trash2,
-  Folder,
-  Users,
-  Tag,
+  Archive,
   Clock,
+  FileText,
+  Folder as FolderIcon,
+  Inbox,
+  Mails,
+  Send,
+  ShieldAlert,
+  Tag,
+  Trash2,
+  Users,
   type LucideIcon
 } from 'lucide-react'
+import type { Folder } from '../core/store/types'
+import type { FolderRole } from '../core/store/folderRoles'
 
-// Keyed by IMAP path first, then by leaf name for the custom Chinese folders.
-const BY_PATH: Record<string, LucideIcon> = {
-  INBOX: Inbox,
-  'Sent Messages': Send,
-  Sent: Send,
-  Drafts: FileText,
-  Junk: ShieldAlert,
-  'Deleted Messages': Trash2,
-  Trash: Trash2
+const BY_ROLE: Record<FolderRole, LucideIcon> = {
+  inbox: Inbox,
+  sent: Send,
+  drafts: FileText,
+  junk: ShieldAlert,
+  trash: Trash2,
+  archive: Archive,
+  all: Mails
 }
 
+// The user's custom Chinese folders, by leaf name.
 const BY_LEAF: Record<string, LucideIcon> = {
   客户: Users, // customers
   询价: Tag, // inquiries / quotes
   跟进: Clock // follow-ups
 }
 
-export function folderIcon(path: string): LucideIcon {
-  const leaf = path.split('/').pop() ?? path
-  return BY_PATH[path] ?? BY_LEAF[leaf] ?? Folder
+export function folderIcon(f: Pick<Folder, 'path' | 'role'>): LucideIcon {
+  if (f.role) return BY_ROLE[f.role]
+  const leaf = f.path.split('/').pop() ?? f.path
+  return BY_LEAF[leaf] ?? FolderIcon
 }
