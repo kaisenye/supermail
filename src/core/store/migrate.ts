@@ -165,10 +165,11 @@ CREATE INDEX IF NOT EXISTS idx_messages_thread_page
   }
 ]
 
-export function migrate(db: Database): number {
+/** `target` stops early — tests use it to stage data at an older version. */
+export function migrate(db: Database, target = migrations.length): number {
   const current = db.pragma('user_version', { simple: true }) as number
 
-  for (let v = current; v < migrations.length; v++) {
+  for (let v = current; v < target; v++) {
     const run = db.transaction(() => {
       migrations[v](db)
       // pragma cannot be bound; v+1 is loop-derived, never user input
