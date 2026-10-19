@@ -55,6 +55,7 @@ import {
   listAttachments,
   listDrafts,
   listInlineParts,
+  getFolder,
   listFolders,
   listInbox,
   moveMessage,
@@ -148,6 +149,7 @@ interface PendingMove {
   fromPath: string
   uid: number
   toPath: string
+  uidValidity: number | null
 }
 
 let moveBatchSeq = 0
@@ -170,7 +172,8 @@ function commitMove(batchId: number): void {
     moveWriterFor(acct.accountId, acct.config).enqueue({
       fromPath: j.fromPath,
       uid: j.uid,
-      toPath: j.toPath
+      toPath: j.toPath,
+      uidValidity: j.uidValidity
     })
   }
 }
@@ -356,7 +359,8 @@ export function registerIpc(): void {
           fromFolderId: loc.folder_id,
           fromPath: loc.path,
           uid: loc.uid,
-          toPath
+          toPath,
+          uidValidity: getFolder(loc.folder_id)?.uidvalidity ?? null
         })
         moveMessage(id, dest.id)
       }

@@ -221,16 +221,35 @@ export async function storeFlag(
   }
 }
 
+/** The mailbox was renumbered since the uid was captured, so it names another message. */
+export class UidValidityChanged extends Error {
+  constructor(path: string) {
+    super(`UIDVALIDITY of "${path}" changed`)
+  }
+}
+
 /** MOVE one UID from source mailbox to destination path. */
 export async function moveUid(
   client: ImapFlow,
   fromPath: string,
   uid: number,
-  toPath: string
+  toPath: string,
+  expectedUidValidity: number | null = null
 ): Promise<void> {
   const lock = await client.getMailboxLock(fromPath)
   try {
-    await client.messageMove(String(uid), toPath, { uid: true })
+    if (
+      expectedUidValidity !== null &&
+      Number((client.mailbox as { uidValidity?: bigint | number }).uidValidity) !==
+        expectedUidValidity
+    ) {
+      throw new UidValidityChanged(fromPath)
+    }
+    const r = await client.messageMove(String(uid), toPath, { uid: true })
+    // imapflow returns false instead of throwing. On a dead connection that
+    // is a transient failure the queue must retry; on a live one the server
+    // said NO or the uid is already gone, and retrying cannot help.
+    if (r === false && !client.usable) throw new Error('connection lost during MOVE')
   } finally {
     lock.release()
   }

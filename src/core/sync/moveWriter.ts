@@ -1,7 +1,7 @@
 import type { ImapFlow } from 'imapflow'
 import type { AccountConfig } from '../accounts/config.js'
 import { deleteMoveJob, insertMoveJob, listMoveJobs } from '../store/moveJobs.js'
-import { listMailboxes, moveUid } from './imap.js'
+import { listMailboxes, moveUid, UidValidityChanged } from './imap.js'
 import { getPool } from './pool.js'
 
 /**
@@ -17,6 +17,8 @@ export interface MoveRequest {
   fromPath: string
   uid: number
   toPath: string
+  /** Mailbox UIDVALIDITY when the uid was read; null if unknown. */
+  uidValidity: number | null
 }
 
 export type MoveFn = (job: MoveRequest) => Promise<void>
@@ -45,6 +47,7 @@ function delay(ms: number): Promise<void> {
 export class MoveWriter {
   private queue: Job[] = []
   private draining: Promise<void> | null = null
+  private inflight: number | null = null
   private paths: Set<string> | null = null
   private move: MoveFn
   private retryBaseMs: number
@@ -63,7 +66,8 @@ export class MoveWriter {
       account_id: this.accountId,
       from_path: job.fromPath,
       uid: job.uid,
-      to_path: job.toPath
+      to_path: job.toPath,
+      uidvalidity: job.uidValidity
     })
     this.queue.push({ ...job, rowId, attempt: 0 })
     void this.drain()
@@ -72,6 +76,7 @@ export class MoveWriter {
   /** Re-queues every persisted job not already queued, with a fresh retry budget. */
   resume(): void {
     const queued = new Set(this.queue.map((j) => j.rowId))
+    if (this.inflight !== null) queued.add(this.inflight)
     for (const r of listMoveJobs(this.accountId)) {
       if (queued.has(r.id)) continue
       this.queue.push({
@@ -79,6 +84,7 @@ export class MoveWriter {
         fromPath: r.from_path,
         uid: r.uid,
         toPath: r.to_path,
+        uidValidity: r.uidvalidity,
         attempt: 0
       })
     }
@@ -92,12 +98,14 @@ export class MoveWriter {
 
   private drain(): Promise<void> {
     if (!this.draining) {
-      this.draining = this.run().finally(() => {
-        this.draining = null
-        // A job enqueued while run() was finishing would otherwise wait for
-        // the next enqueue.
-        if (this.queue.length) void this.drain()
-      })
+      this.draining = this.run()
+        .catch((e) => console.error('[moveWriter] queue stopped:', e))
+        .finally(() => {
+          this.draining = null
+          // A job enqueued while run() was finishing would otherwise wait for
+          // the next enqueue.
+          if (this.queue.length) void this.drain()
+        })
     }
     return this.draining
   }
@@ -105,10 +113,23 @@ export class MoveWriter {
   private async run(): Promise<void> {
     while (this.queue.length) {
       const job = this.queue.shift()!
+      this.inflight = job.rowId
       try {
-        await this.move({ fromPath: job.fromPath, uid: job.uid, toPath: job.toPath })
+        await this.move({
+          fromPath: job.fromPath,
+          uid: job.uid,
+          toPath: job.toPath,
+          uidValidity: job.uidValidity
+        })
         deleteMoveJob(job.rowId)
       } catch (err) {
+        if (err instanceof UidValidityChanged) {
+          console.error(
+            `[moveWriter] ${job.fromPath} was renumbered — dropping stale move of uid ${job.uid}`
+          )
+          deleteMoveJob(job.rowId)
+          continue
+        }
         if (err instanceof MissingMailbox) {
           console.error(
             `[moveWriter] destination mailbox "${job.toPath}" does not exist — ${job.fromPath}:${job.uid} left in place`
@@ -137,6 +158,8 @@ export class MoveWriter {
         // Re-queue at the tail so a failing job never blocks the rest.
         this.queue.push({ ...job, attempt })
         await delay(this.retryBaseMs * 2 ** (attempt - 1))
+      } finally {
+        this.inflight = null
       }
     }
   }
@@ -153,7 +176,7 @@ export class MoveWriter {
     return getPool(this.config).withConnection(async (client) => {
       // Moving into a mailbox that doesn't exist would lose the message.
       if (!(await this.mailboxExists(client, job.toPath))) throw new MissingMailbox(job.toPath)
-      await moveUid(client, job.fromPath, job.uid, job.toPath)
+      await moveUid(client, job.fromPath, job.uid, job.toPath, job.uidValidity)
     })
   }
 }
