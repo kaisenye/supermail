@@ -79,6 +79,7 @@ Each phase gets its own implementation plan and ships on its own. The order is s
    - Write `X-GM-LABELS` into `message_labels`.
    - Sync INBOX, Sent, Drafts, Trash and Spam. User labels are shown from `X-GM-LABELS`, not synced as separate folders.
    - Archive = move to `[Gmail]/All Mail`.
+   - Never sync the `all` role (`[Gmail]/All Mail`) as a normal folder — it holds every message, so it would double counts, search and threads. Phase 0 already gives it role `all`; skip it in `syncAccount` for Gmail accounts.
    - Set `smtpSavesSent = true`.
 5. **Outlook specifics.**
    - Use `smtp.office365.com:587` with STARTTLS. Fix the `secure` handling, which `sync/imap.ts` hardcodes to `true`.

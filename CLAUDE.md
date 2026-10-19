@@ -23,7 +23,7 @@ Fast local-first IMAP client. North star: Superhuman-like speed — keyboard-fir
 1. Paint from SQLite first; network refresh after.
 2. Envelopes before bodies; body backfill is background.
 3. Optimistic SQLite, then background IMAP (`FlagWriter` pattern for flags; same idea for moves/send).
-4. Exmail quirks: STATUS skip, `Sent Messages` / `Deleted Messages` paths, app-specific password.
+4. Exmail quirks: STATUS skip, app-specific password. Special folders are found by role (`folders.role`, from SPECIAL-USE then names) — never by path.
 5. Threading: IMAP `ENVELOPE` has no References (RFC 3501) — fetch the header explicitly or replies each become their own thread. Exmail strips References from its own sent mail, so the thread root comes from a union-find over every id a message mentions, spanning INBOX and Sent.
 
 ## Pipeline
@@ -34,7 +34,8 @@ Ordered `Processor[]` mutate `MsgCtx.draft`. Failures skip except `parse`. FTS5 
 
 Central dispatcher: `src/ui/hooks/useHotkeys.ts`. Modes: `list` | `thread` | `compose` | `modal`.
 
-- Single-key bindings go through `useHotkeys`.
+- Every action is declared once in `src/ui/commands.ts`; hotkeys, ⌘ chords, `g` sequences, ⌘K and the shortcut sheet are built from it. Add the command there, then its handler in `App.tsx`. Handlers run inside a 100ms budget that warns in dev.
+- Single-key bindings go through `useHotkeys`. `g` sequences listen in the capture phase and consume their keys, so the second key never fires its own shortcut.
 - Meta/Ctrl chords (Cmd+K, Cmd+Enter) use a dedicated listener — `useHotkeys` ignores modifiers on purpose.
 - Compose/modal swallow list nav keys.
 
@@ -42,6 +43,9 @@ Central dispatcher: `src/ui/hooks/useHotkeys.ts`. Modes: `list` | `thread` | `co
 
 - Append-only migrations in `src/core/store/migrate.ts`. Never edit shipped migrations.
 - Drafts: `messages.folder_id IS NULL`.
+- `folders.role` (`inbox|sent|drafts|trash|junk|archive|all`) is reassigned every sync; one folder per role per account. Use `folderByRole`.
+- `move_jobs` holds IMAP moves not yet confirmed (with the source mailbox's UIDVALIDITY, so a replay after a renumber is dropped); `MoveWriter.resume()` replays them at boot and after each sync.
+- Handlers that take message ids act on the owning account (`groupByAccount` / `ownerOf`), not the active one.
 - Multi-account: every message/folder query must filter `account_id`. `thread_id` collides across accounts (same mailing list), so thread reads scope by account too.
 - Outbox: `outbox` table for pending/scheduled/undo sends. **Scheduled send only flushes while the app is running.**
 
@@ -61,7 +65,7 @@ pnpm typecheck
 |-------|--------|-------|
 | A | Done | Quick search + Cmd+K command palette |
 | B | Done | Compose / reply / SMTP send / Sent APPEND |
-| C | Done | Schedule send + 10s undo send |
+| C | Done | Schedule send + 3s undo send |
 | D | Done | Selection + action bar; flags; archive/trash |
 | Later | — | Full history sync, AI triage, snooze |
 
