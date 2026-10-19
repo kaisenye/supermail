@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { formatFromHeader, type AccountConfig } from '../accounts/config.js'
 import { getPool } from '../sync/pool.js'
-import { deleteDraft, findFolderByPath, getMessage } from '../store/repo.js'
+import { deleteDraft, folderByRole, getMessage } from '../store/repo.js'
 import {
   getOutbox,
   listDueOutbox,
@@ -17,8 +17,6 @@ import {
   type MimeInlineImage
 } from './mime.js'
 import { sendSmtp, type OutboundAttachment } from './smtp.js'
-
-const SENT_PATHS = ['Sent Messages', 'Sent', 'INBOX.Sent']
 
 /** Plain part is never empty: fall back to a downgrade of the HTML. */
 function plainBody(row: OutboxRow): string {
@@ -102,15 +100,9 @@ async function appendToSent(
   messageId: string,
   attachments: MimeAttachment[]
 ): Promise<void> {
-  // APPEND takes an explicit mailbox, so it needs no SELECT at all.
-  let path: string | null = null
-  for (const p of SENT_PATHS) {
-    if (findFolderByPath(row.account_id, p)) {
-      path = p
-      break
-    }
-  }
-  if (!path) path = 'Sent Messages'
+  // APPEND takes an explicit mailbox, so it needs no SELECT at all. The
+  // fallback is Exmail's name, for an account whose first sync has not run.
+  const path = folderByRole(row.account_id, 'sent')?.path ?? 'Sent Messages'
   const { html, inline } = extractInlineImages(row.body_html)
   const mime = buildMime({
     from: formatFromHeader(config),
@@ -127,7 +119,7 @@ async function appendToSent(
     inline
   })
   await getPool(config).withConnection((client) =>
-    client.append(path as string, Buffer.from(mime, 'utf8'), ['\\Seen'])
+    client.append(path, Buffer.from(mime, 'utf8'), ['\\Seen'])
   )
 }
 

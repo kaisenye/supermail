@@ -43,7 +43,7 @@ import {
   createDraft,
   searchContacts,
   deleteDraft,
-  findFolderByPath,
+  folderByRole,
   getAttachment,
   getMessage,
   getSettings,
@@ -210,17 +210,6 @@ export function flushPendingMoves(): void {
   for (const batchId of [...pendingMoves.keys()]) commitMove(batchId)
 }
 
-// Exmail has no Archive mailbox, so trash is the only move destination.
-const TRASH_PATHS = ['Deleted Messages', 'Trash', 'Deleted']
-
-function resolveTrashPath(accountId: number): string | null {
-  for (const p of TRASH_PATHS) {
-    if (findFolderByPath(accountId, p)) return p
-  }
-  // No fallback: moving into a mailbox that doesn't exist loses the message.
-  return null
-}
-
 interface DraftPayload {
   draftId: number | null
   to: string
@@ -332,10 +321,9 @@ export function registerIpc(): void {
     (_e, ids: number[]) => {
       const s = getBootState()
       if (!s.ok) return { ok: false as const, error: s.error }
-      const toPath = resolveTrashPath(s.accountId)
-      if (!toPath) return { ok: false as const, error: 'no trash folder' }
-      const dest = findFolderByPath(s.accountId, toPath)
+      const dest = folderByRole(s.accountId, 'trash')
       if (!dest) return { ok: false as const, error: 'no trash folder' }
+      const toPath = dest.path
 
       const jobs: PendingMove[] = []
       for (const id of ids) {
@@ -457,7 +445,7 @@ export function registerIpc(): void {
   ipcMain.handle('messages:listDrafts', (_e, limit = 100, offset = 0) => {
     const s = getBootState()
     if (!s.ok) return []
-    const server = findFolderByPath(s.accountId, 'Drafts')
+    const server = folderByRole(s.accountId, 'drafts')
     return listDrafts(s.accountId, server?.id ?? null, limit, offset)
   })
 
@@ -465,7 +453,7 @@ export function registerIpc(): void {
   ipcMain.handle('messages:count', (_e, folderId: number) => {
     const s = getBootState()
     if (!s.ok) return 0
-    const drafts = findFolderByPath(s.accountId, 'Drafts')
+    const drafts = folderByRole(s.accountId, 'drafts')
     return drafts && drafts.id === folderId
       ? countDrafts(s.accountId, drafts.id)
       : countInbox(folderId)

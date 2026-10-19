@@ -3,10 +3,7 @@ import type { AccountConfig } from '../src/core/accounts/config.js'
 import { startIdleWatcher, stopIdleWatcher } from '../src/core/sync/idle.js'
 import { closePool, getPool } from '../src/core/sync/pool.js'
 import { refreshFolderNow } from '../src/core/sync/syncEngine.js'
-import { findFolderByPath } from '../src/core/store/repo.js'
-
-/** Exmail uses "Sent Messages"; other hosts vary. */
-const SENT_PATHS = ['Sent Messages', 'Sent', 'INBOX.Sent']
+import { findFolderByPath, folderByRole } from '../src/core/store/repo.js'
 
 // Exmail files the Sent copy ~1.3s after SMTP returns, so a single check right
 // after the send finds nothing. Measured worst case was well under 15s; past
@@ -37,7 +34,7 @@ export function stopAccountWorkers(email: string): void {
  * made a fresh connection too slow to do this inline.
  */
 export async function refreshSentFolder(accountId: number, config: AccountConfig): Promise<void> {
-  const path = SENT_PATHS.map((p) => findFolderByPath(accountId, p)).find(Boolean)?.path
+  const path = folderByRole(accountId, 'sent')?.path
   if (!path) return
   try {
     for (let attempt = 0; attempt < SENT_POLL_ATTEMPTS; attempt++) {
