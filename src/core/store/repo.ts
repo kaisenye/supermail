@@ -274,6 +274,27 @@ export function getMessage(id: number): Message | undefined {
     | undefined
 }
 
+/** Owning account of a message, or null once it is gone. */
+export function accountOfMessage(id: number): number | null {
+  const row = getDb().prepare('SELECT account_id FROM messages WHERE id = ?').get(id) as
+    | { account_id: number }
+    | undefined
+  return row?.account_id ?? null
+}
+
+/** Message ids by owning account, in input order. Unknown ids are dropped. */
+export function groupByAccount(ids: number[]): Map<number, number[]> {
+  const out = new Map<number, number[]>()
+  for (const id of ids) {
+    const accountId = accountOfMessage(id)
+    if (accountId === null) continue
+    const list = out.get(accountId)
+    if (list) list.push(id)
+    else out.set(accountId, [id])
+  }
+  return out
+}
+
 /**
  * One row per thread, newest first, each carrying its own message count and
  * unread count.

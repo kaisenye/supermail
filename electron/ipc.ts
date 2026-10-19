@@ -42,6 +42,7 @@ import {
   countInbox,
   createDraft,
   searchContacts,
+  accountOfMessage,
   deleteDraft,
   folderByRole,
   getAttachment,
@@ -49,6 +50,7 @@ import {
   getSettings,
   setSetting,
   getMessageLocation,
+  groupByAccount,
   getThread,
   listAttachments,
   listDrafts,
@@ -76,7 +78,8 @@ import {
   getBootState,
   getBootStatus,
   removeAccount as removeAccountFromState,
-  setActiveAccount
+  setActiveAccount,
+  type LiveAccount
 } from './state.js'
 
 /** A signature rides on every message, so a big logo is a per-send tax. */
@@ -121,6 +124,16 @@ function moveWriterFor(accountId: number, config: AccountConfig): MoveWriter {
     moveWriters.set(accountId, w)
   }
   return w
+}
+
+/**
+ * The live account that owns a message. Handlers acting on a message must use
+ * this rather than the active account: the user can switch accounts while an
+ * old row is still on screen, and a unified inbox will mix accounts.
+ */
+function ownerOf(messageId: number): LiveAccount | null {
+  const accountId = accountOfMessage(messageId)
+  return accountId === null ? null : getAccount(accountId)
 }
 
 interface PendingMove {
@@ -288,11 +301,11 @@ export function registerIpc(): void {
 
   // Optimistic star: mutate SQLite now, push the IMAP write to the background.
   ipcMain.handle('message:toggleFlag', (_e, id: number, flag: string) => {
-    const s = getBootState()
-    if (!s.ok) return { ok: false as const, error: s.error }
+    const acct = ownerOf(id)
+    if (!acct) return { ok: false as const, error: 'message not found' }
     const next = toggleFlag(id, flag)
     const nowHas = next.some((f) => f.toLowerCase() === flag.toLowerCase())
-    flagWriterFor(s.accountId, s.config).enqueue({ messageId: id, flag, add: nowHas })
+    flagWriterFor(acct.accountId, acct.config).enqueue({ messageId: id, flag, add: nowHas })
     return { ok: true as const, flags: next }
   })
 
@@ -300,15 +313,17 @@ export function registerIpc(): void {
   ipcMain.handle(
     'messages:setFlag',
     (_e, ids: number[], flag: string, add: boolean) => {
-      const s = getBootState()
-      if (!s.ok) return { ok: false as const, error: s.error }
-      const writer = flagWriterFor(s.accountId, s.config)
       const updated: { id: number; flags: string[] }[] = []
-      for (const id of ids) {
-        const next = add ? addFlag(id, flag) : removeFlag(id, flag)
-        if (!next) continue
-        writer.enqueue({ messageId: id, flag, add })
-        updated.push({ id, flags: next })
+      for (const [accountId, own] of groupByAccount(ids)) {
+        const acct = getAccount(accountId)
+        if (!acct) continue
+        const writer = flagWriterFor(accountId, acct.config)
+        for (const id of own) {
+          const next = add ? addFlag(id, flag) : removeFlag(id, flag)
+          if (!next) continue
+          writer.enqueue({ messageId: id, flag, add })
+          updated.push({ id, flags: next })
+        }
       }
       return { ok: true as const, updated }
     }
@@ -542,10 +557,10 @@ export function registerIpc(): void {
   ipcMain.handle(
     'message:body',
     async (_e, messageId: number, allowRemoteImages = false) => {
-      const s = getBootState()
-      if (!s.ok) return { ok: false as const, error: s.error }
+      const acct = ownerOf(messageId)
+      if (!acct) return { ok: false as const, error: 'message not found' }
       try {
-        const msg = await ensureBody(s.accountId, s.config, messageId)
+        const msg = await ensureBody(acct.accountId, acct.config, messageId)
         if (!msg) return { ok: false as const, error: 'message not found' }
 
         // Sanitising in main means the renderer never sees raw email HTML.
