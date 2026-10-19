@@ -120,10 +120,15 @@ function flagWriterFor(accountId: number, config: AccountConfig): FlagWriter {
 function moveWriterFor(accountId: number, config: AccountConfig): MoveWriter {
   let w = moveWriters.get(accountId)
   if (!w) {
-    w = new MoveWriter(config)
+    w = new MoveWriter(accountId, config)
     moveWriters.set(accountId, w)
   }
   return w
+}
+
+/** Replays IMAP moves a previous run accepted but never confirmed. */
+export function resumePendingMoves(accountId: number, config: AccountConfig): void {
+  moveWriterFor(accountId, config).resume()
 }
 
 /**
@@ -856,6 +861,8 @@ export async function runSyncFor(
         for (const w of BrowserWindow.getAllWindows()) w.webContents.send('sync:progress', p)
       }
     })
+    // The server just answered, so moves deferred while offline can go now.
+    resumePendingMoves(s.accountId, s.config)
     // One-time threading repair, in the background: it re-reads every header
     // in the mailbox and must not delay the list the user is waiting on.
     if (!rethreadDone(s.accountId)) {

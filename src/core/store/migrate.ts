@@ -162,7 +162,23 @@ CREATE INDEX IF NOT EXISTS idx_messages_thread_page
     db.exec(
       'CREATE UNIQUE INDEX idx_folders_role ON folders (account_id, role) WHERE role IS NOT NULL'
     )
-  }
+  },
+
+  // v15: IMAP moves the server has not confirmed yet. Written before the
+  // MOVE runs and deleted once it settles, so a quit or crash in between is
+  // replayed at the next boot instead of leaving SQLite and the server apart.
+  (db) =>
+    db.exec(`
+CREATE TABLE IF NOT EXISTS move_jobs (
+  id INTEGER PRIMARY KEY,
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  from_path TEXT NOT NULL,
+  uid INTEGER NOT NULL,
+  to_path TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_move_jobs_account ON move_jobs (account_id, id);
+`)
 ]
 
 /** `target` stops early — tests use it to stage data at an older version. */

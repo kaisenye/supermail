@@ -2,7 +2,7 @@ import { app, BrowserWindow, nativeTheme, shell } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
-import { flushPendingMoves, registerIpc, runSyncFor } from './ipc.js'
+import { flushPendingMoves, registerIpc, resumePendingMoves, runSyncFor } from './ipc.js'
 import { initDb } from '../src/core/store/db.js'
 import { initAttachmentStore } from '../src/core/store/attachments.js'
 import {
@@ -165,7 +165,10 @@ app.whenReady().then(() => {
   )
   // Every account gets its own warmed pool and parked IDLE connection, so mail
   // pushes for all of them rather than only whichever is on screen.
-  for (const a of listAccounts()) startAccountWorkers(a.config)
+  for (const a of listAccounts()) {
+    startAccountWorkers(a.config)
+    resumePendingMoves(a.accountId, a.config)
+  }
   startBackgroundSync()
   createWindow()
 
