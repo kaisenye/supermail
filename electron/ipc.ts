@@ -66,6 +66,8 @@ import {
   unreadCounts,
   updateDraft
 } from '../src/core/store/repo.js'
+import type { MoveTarget } from '../src/core/store/folderRoles.js'
+import type { Folder } from '../src/core/store/types.js'
 import { sanitizeEmailHtml, textToHtml } from '../src/core/render/sanitize.js'
 import { htmlToPlainText } from '../src/core/send/mime.js'
 import {
@@ -256,6 +258,16 @@ interface QueueSendPayload extends DraftPayload {
   attachments?: ComposeAttachment[]
 }
 
+function resolveMoveTarget(accountId: number, target: MoveTarget): Folder | undefined {
+  if ('role' in target) return folderByRole(accountId, target.role)
+  const f = getFolder(target.folderId)
+  return f?.account_id === accountId ? f : undefined
+}
+
+function missingTargetError(target: MoveTarget): string {
+  return 'role' in target ? `no ${target.role} folder` : 'unknown folder'
+}
+
 export function registerIpc(): void {
   ipcMain.handle('boot:status', () => getBootStatus())
 
@@ -339,39 +351,41 @@ export function registerIpc(): void {
 
   // Optimistic local move now; the IMAP MOVE is held for UNDO_MOVE_MS so undo
   // is a local rollback rather than a compensating reverse MOVE on the server.
-  ipcMain.handle(
-    'messages:move',
-    (_e, ids: number[]) => {
-      const s = getBootState()
-      if (!s.ok) return { ok: false as const, error: s.error }
-      const dest = folderByRole(s.accountId, 'trash')
-      if (!dest) return { ok: false as const, error: 'no trash folder' }
-      const toPath = dest.path
-
-      const jobs: PendingMove[] = []
-      for (const id of ids) {
+  ipcMain.handle('messages:move', (_e, ids: number[], target: MoveTarget) => {
+    // Resolve every destination before touching SQLite, so a missing folder on
+    // one account cannot leave a half-applied move behind.
+    const plan: { job: PendingMove; destId: number }[] = []
+    for (const [accountId, own] of groupByAccount(ids)) {
+      if (!getAccount(accountId)) continue
+      const dest = resolveMoveTarget(accountId, target)
+      if (!dest) return { ok: false as const, error: missingTargetError(target) }
+      for (const id of own) {
         const loc = getMessageLocation(id)
-        if (!loc) continue
-        if (loc.path === toPath) continue
-        jobs.push({
-          id,
-          accountId: s.accountId,
-          fromFolderId: loc.folder_id,
-          fromPath: loc.path,
-          uid: loc.uid,
-          toPath,
-          uidValidity: getFolder(loc.folder_id)?.uidvalidity ?? null
+        // No uid: already mid-move (an earlier optimistic move nulled it).
+        if (!loc?.uid || loc.folder_id === dest.id) continue
+        plan.push({
+          destId: dest.id,
+          job: {
+            id,
+            accountId,
+            fromFolderId: loc.folder_id,
+            fromPath: loc.path,
+            uid: loc.uid,
+            toPath: dest.path,
+            uidValidity: getFolder(loc.folder_id)?.uidvalidity ?? null
+          }
         })
-        moveMessage(id, dest.id)
       }
-      if (!jobs.length) return { ok: true as const, batchId: 0, moved: [], toPath }
-
-      const batchId = ++moveBatchSeq
-      const timer = setTimeout(() => commitMove(batchId), UNDO_MOVE_MS)
-      pendingMoves.set(batchId, { jobs, timer })
-      return { ok: true as const, batchId, moved: jobs.map((j) => j.id), toPath }
     }
-  )
+    if (!plan.length) return { ok: true as const, batchId: 0, moved: [] as number[] }
+
+    for (const p of plan) moveMessage(p.job.id, p.destId)
+    const jobs = plan.map((p) => p.job)
+    const batchId = ++moveBatchSeq
+    const timer = setTimeout(() => commitMove(batchId), UNDO_MOVE_MS)
+    pendingMoves.set(batchId, { jobs, timer })
+    return { ok: true as const, batchId, moved: jobs.map((j) => j.id) }
+  })
 
   // Undo before the window expires: nothing reached the server, so putting the
   // rows back locally is the whole rollback.

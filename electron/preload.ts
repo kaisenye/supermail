@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Folder, Message, MessageListRow } from '../src/core/store/types.js'
+import type { MoveTarget } from '../src/core/store/folderRoles.js'
 import type { SyncProgress } from '../src/core/sync/syncEngine.js'
 
 export interface ScheduledSend {
@@ -231,14 +232,14 @@ const api = {
     | { ok: true; updated: { id: number; flags: string[] }[] }
     | { ok: false; error: string }
   > => ipcRenderer.invoke('messages:setFlag', ids, flag, add),
-  // Trash. The IMAP MOVE is deferred for the undo window, so the returned
-  // batchId is what undoMove reverses.
+  // The IMAP MOVE is deferred for the undo window, so the returned batchId is
+  // what undoMove reverses.
   moveMessages: (
-    ids: number[]
+    ids: number[],
+    target: MoveTarget
   ): Promise<
-    | { ok: true; batchId: number; moved: number[]; toPath: string }
-    | { ok: false; error: string }
-  > => ipcRenderer.invoke('messages:move', ids),
+    { ok: true; batchId: number; moved: number[] } | { ok: false; error: string }
+  > => ipcRenderer.invoke('messages:move', ids, target),
   undoMove: (
     batchId: number
   ): Promise<{ ok: true; restored: number[] } | { ok: false; error: string }> =>

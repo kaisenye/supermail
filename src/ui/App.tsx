@@ -17,7 +17,7 @@ import { ShortcutHelp } from './views/ShortcutHelp'
 import { Onboarding } from './views/Onboarding'
 import { PenSquare, Plus } from 'lucide-react'
 import { folderLabel, isFlagged, isUnread } from './format'
-import type { FolderRole } from '../core/store/folderRoles'
+import type { FolderRole, MoveTarget } from '../core/store/folderRoles'
 import { buildForwardBody, buildReplyBody } from './quote'
 import { applyTheme, isTheme, type Theme } from './theme'
 import './styles/app.css'
@@ -551,7 +551,7 @@ export default function App() {
   }, [targetRows, setThreadsRead])
 
   const moveSelected = useCallback(
-    async () => {
+    async (target: MoveTarget, verb: string) => {
       const ids = targetIds()
       if (!ids.length) return
       if (typeof window.api.moveMessages !== 'function') {
@@ -559,7 +559,7 @@ export default function App() {
         return
       }
       try {
-        const res = await window.api.moveMessages(ids)
+        const res = await window.api.moveMessages(ids, target)
         if (!res.ok) {
           setSyncError(res.error)
           return
@@ -573,7 +573,7 @@ export default function App() {
         const n = removed.length
         setMoveToast({
           batchId: res.batchId,
-          label: `Trashed ${n} message${n === 1 ? '' : 's'}`,
+          label: `${verb} ${n} message${n === 1 ? '' : 's'}`,
           expiresAt: Date.now() + UNDO_MOVE_MS,
           removed
         })
@@ -602,7 +602,7 @@ export default function App() {
     async () => {
       const fid = useStore.getState().activeFolderId
       if (fid && isDraftsFolder(fid)) await deleteDrafts()
-      else await moveSelected()
+      else await moveSelected({ role: 'trash' }, 'Trashed')
     },
     [isDraftsFolder, deleteDrafts, moveSelected]
   )
@@ -1100,7 +1100,7 @@ export default function App() {
                 onMarkRead={() => void setThreadsRead(true)}
                 onMarkUnread={() => void setThreadsRead(false)}
                 onStar={() => void starSelected()}
-                onTrash={() => void moveSelected()}
+                onTrash={() => void moveSelected({ role: 'trash' }, 'Trashed')}
               />
             )}
             {rows.length === 0 && !hasSyncedOnce ? (
