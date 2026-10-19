@@ -1,4 +1,5 @@
 import { getDb } from './db.js'
+import type { FolderRole } from './folderRoles.js'
 import type {
   Account,
   Folder,
@@ -65,6 +66,30 @@ export function listFolders(accountId: number): Folder[] {
   return getDb()
     .prepare('SELECT * FROM folders WHERE account_id = ? ORDER BY path')
     .all(accountId) as Folder[]
+}
+
+export function getFolder(id: number): Folder | undefined {
+  return getDb().prepare('SELECT * FROM folders WHERE id = ?').get(id) as Folder | undefined
+}
+
+/**
+ * Replaces an account's roles in one transaction. Clearing first lets a role
+ * move between folders without a transient clash on idx_folders_role.
+ */
+export function setFolderRoles(accountId: number, roles: Map<string, FolderRole>): void {
+  const db = getDb()
+  db.transaction(() => {
+    db.prepare('UPDATE folders SET role = NULL WHERE account_id = ?').run(accountId)
+    const set = db.prepare('UPDATE folders SET role = ? WHERE account_id = ? AND path = ?')
+    for (const [path, role] of roles) set.run(role, accountId, path)
+  })()
+}
+
+/** The account's folder for a role. Never look special folders up by path. */
+export function folderByRole(accountId: number, role: FolderRole): Folder | undefined {
+  return getDb()
+    .prepare('SELECT * FROM folders WHERE account_id = ? AND role = ?')
+    .get(accountId, role) as Folder | undefined
 }
 
 /**

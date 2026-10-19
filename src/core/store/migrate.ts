@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 // Inlined at build time (?raw) — bundling flattens the output tree, so a
 // runtime readFileSync of schema.sql cannot resolve in a packaged app.
 import schemaSql from './schema.sql?raw'
+import { assignRoles } from './folderRoles.js'
 
 type Migration = (db: Database) => void
 
@@ -136,7 +137,32 @@ CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks (account_id, priority);
     db.exec(`
 CREATE INDEX IF NOT EXISTS idx_messages_thread_page
   ON messages (folder_id, thread_id, flags);
-`)
+`),
+  // v14: folder roles. Replaces hardcoded Exmail paths ("Sent Messages",
+  // "Deleted Messages") so Gmail's [Gmail]/… and Outlook's "Sent Items"
+  // resolve the same way. Backfilled from names here; the next sync refills it
+  // from SPECIAL-USE, which wins. One folder per role per account.
+  (db) => {
+    db.exec('ALTER TABLE folders ADD COLUMN role TEXT')
+    const rows = db.prepare('SELECT id, account_id, path FROM folders').all() as {
+      id: number
+      account_id: number
+      path: string
+    }[]
+    const byAccount = new Map<number, typeof rows>()
+    for (const r of rows) byAccount.set(r.account_id, [...(byAccount.get(r.account_id) ?? []), r])
+    const set = db.prepare('UPDATE folders SET role = ? WHERE id = ?')
+    for (const list of byAccount.values()) {
+      const roles = assignRoles(list.map((r) => ({ path: r.path, specialUse: null })))
+      for (const r of list) {
+        const role = roles.get(r.path)
+        if (role) set.run(role, r.id)
+      }
+    }
+    db.exec(
+      'CREATE UNIQUE INDEX idx_folders_role ON folders (account_id, role) WHERE role IS NOT NULL'
+    )
+  }
 ]
 
 export function migrate(db: Database): number {

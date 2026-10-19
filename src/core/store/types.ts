@@ -1,3 +1,5 @@
+import type { FolderRole } from './folderRoles.js'
+
 export interface Account {
   id: number
   email: string
@@ -15,6 +17,8 @@ export interface Folder {
   path: string
   uidvalidity: number | null
   last_uid: number
+  /** Null for ordinary user folders. Set on every sync. */
+  role: FolderRole | null
 }
 
 export interface Message {
