@@ -8,6 +8,8 @@ export function useCommandChord(
 ): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // A key sequence (g then i) already consumed this key.
+      if (e.defaultPrevented) return
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return
       const key = e.key.toLowerCase()
       for (const c of chords) {

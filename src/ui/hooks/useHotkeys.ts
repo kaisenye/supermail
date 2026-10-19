@@ -32,6 +32,8 @@ function isEditable(target: EventTarget | null): boolean {
 export function useHotkeys(mode: Mode, bindings: Binding[]): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // A key sequence (g then i) already consumed this key.
+      if (e.defaultPrevented) return
       // Modifier chords belong to the command bar / OS, not these bindings.
       if (e.metaKey || e.ctrlKey || e.altKey) return
       // Never hijack typing, except Escape which must always be reachable.

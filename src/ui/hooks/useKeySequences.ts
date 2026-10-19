@@ -30,13 +30,20 @@ export function useKeySequences(
         return
       }
       if (sequences[e.key]) {
+        // A sequence's first key is never a single-key binding (the registry
+        // test enforces it), so claiming it here cannot steal a shortcut.
+        e.preventDefault()
         first = e.key
         timer = setTimeout(disarm, timeoutMs)
       }
     }
-    window.addEventListener('keydown', onKey)
+    // Capture phase: a window capture listener runs before the bubble-phase
+    // listeners useHotkeys and useCommandChord use, whatever the hook order. A
+    // matched second key is marked defaultPrevented, so g s goes to Sent and
+    // does not also star. An unmatched second key is left alone.
+    window.addEventListener('keydown', onKey, true)
     return () => {
-      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keydown', onKey, true)
       disarm()
     }
   }, [sequences, timeoutMs])
