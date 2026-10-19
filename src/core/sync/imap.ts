@@ -34,7 +34,13 @@ export function toMailboxInfo(b: ListResponse): MailboxInfo {
   return {
     path: b.path,
     name: b.name,
-    specialUse: b.specialUse ?? null,
+    // imapflow fills specialUse from name guesses at any depth when the server
+    // advertises none (specialUseSource 'name', untyped). assignRoles applies
+    // its own stricter, top-level-only name rules, so keep only real flags.
+    specialUse:
+      (b as { specialUseSource?: string }).specialUseSource === 'name'
+        ? null
+        : (b.specialUse ?? null),
     selectable: !flags.includes('\\NoSelect')
   }
 }

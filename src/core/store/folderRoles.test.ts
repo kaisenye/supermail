@@ -70,6 +70,12 @@ describe('assignRoles', () => {
     expect(roles.has('Trash')).toBe(false)
   })
 
+  it('matches names case-insensitively', () => {
+    const roles = assignRoles([box('inbox'), box('SENT ITEMS')])
+    expect(roles.get('inbox')).toBe('inbox')
+    expect(roles.get('SENT ITEMS')).toBe('sent')
+  })
+
   it('gives each role to one folder only', () => {
     const roles = assignRoles([box('A', '\\Sent'), box('B', '\\Sent')])
     expect([...roles.values()].filter((r) => r === 'sent')).toHaveLength(1)
