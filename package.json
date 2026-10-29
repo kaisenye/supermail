@@ -15,6 +15,7 @@
   },
   "license": "MIT",
   "author": "Kaisen Ye",
+  "packageManager": "pnpm@10.34.7",
   "scripts": {
     "dev": "env -u ELECTRON_RUN_AS_NODE electron-vite dev",
     "build": "tsc --noEmit && electron-vite build",
