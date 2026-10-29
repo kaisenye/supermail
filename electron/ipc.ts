@@ -312,53 +312,65 @@ export function registerIpc(): void {
   // "Continue with Google / Microsoft": consent in the system browser, then
   // the same verify-before-save path as a password account. Re-signing in to
   // an address already present updates it in place, which is also re-auth.
-  ipcMain.handle('account:oauth', async (_e, provider: 'google' | 'microsoft') => {
-    try {
-      const { verifier, challenge } = createPkce()
-      const { code, redirectUri } = await waitForRedirect({
-        host: provider === 'google' ? '127.0.0.1' : 'localhost',
-        buildUrl: (redirect, state) => authUrl(provider, redirect, challenge, state),
-        openUrl: (url) => shell.openExternal(url)
-      })
-      const t = await exchangeCode(provider, code, verifier, redirectUri)
-      if (!t.email) return { ok: false as const, error: 'The provider did not return an email address.' }
-
-      const existing = storedAccounts().find((a) => a.email.toLowerCase() === t.email!.toLowerCase())
-      const { account, config } = saveOAuthAccount({
-        email: t.email,
-        // The From: name lives in settings (displayNameFor) and is edited there.
-        name: displayNameFor(existing?.id ?? -1),
-        provider: provider === 'google' ? 'gmail' : 'microsoft',
-        oauthProvider: provider,
-        refreshToken: t.refreshToken
-      })
-      if (config.auth.kind === 'oauth2') primeAccessToken(config.auth.ref, t.accessToken, t.expiresAt)
-
-      const check = await verifyAccount(config)
-      if (!check.ok) {
-        // A brand-new account that cannot connect must not linger half-added.
-        if (!existing) {
-          forgetAccount(account)
-          deleteAccount(account.id)
+  // `expectedEmail` is set by the sign-in-again banner: the reconnect must be
+  // for that address, not whichever account the browser happens to pick.
+  ipcMain.handle(
+    'account:oauth',
+    async (_e, provider: 'google' | 'microsoft', expectedEmail?: string) => {
+      try {
+        const { verifier, challenge } = createPkce()
+        const { code, redirectUri } = await waitForRedirect({
+          host: provider === 'google' ? '127.0.0.1' : 'localhost',
+          buildUrl: (redirect, state) => authUrl(provider, redirect, challenge, state, expectedEmail),
+          openUrl: (url) => shell.openExternal(url)
+        })
+        const t = await exchangeCode(provider, code, verifier, redirectUri)
+        if (!t.email) return { ok: false as const, error: 'The provider did not return an email address.' }
+        // Checked before anything is saved, so a wrong pick leaves no new account.
+        if (expectedEmail && t.email.toLowerCase() !== expectedEmail.toLowerCase()) {
+          return {
+            ok: false as const,
+            error: `You signed in as ${t.email}. Sign in as ${expectedEmail} to reconnect it.`
+          }
         }
-        return { ok: false as const, error: check.message ?? 'connection failed' }
+
+        const existing = storedAccounts().find((a) => a.email.toLowerCase() === t.email!.toLowerCase())
+        const { account, config } = saveOAuthAccount({
+          email: t.email,
+          // The From: name lives in settings (displayNameFor) and is edited there.
+          name: displayNameFor(existing?.id ?? -1),
+          provider: provider === 'google' ? 'gmail' : 'microsoft',
+          oauthProvider: provider,
+          refreshToken: t.refreshToken
+        })
+        if (config.auth.kind === 'oauth2') primeAccessToken(config.auth.ref, t.accessToken, t.expiresAt)
+
+        const check = await verifyAccount(config)
+        if (!check.ok) {
+          // A brand-new account that cannot connect must not linger half-added.
+          if (!existing) {
+            forgetAccount(account)
+            deleteAccount(account.id)
+          }
+          return { ok: false as const, error: check.message ?? 'connection failed' }
+        }
+        // A re-auth replaces the live config so pools pick up the new token ref.
+        // Overwriting in place keeps the sidebar order and the active account;
+        // remove-then-add would hand "active" to whichever account is first.
+        if (getAccount(account.id)) stopAccountWorkers(account.email)
+        addAccountToState({ accountId: account.id, email: account.email, config })
+        clearNeedsReauth(account.email)
+        // Only a new account becomes active. A re-auth must not retarget
+        // compose/send (getBootState) away from the account the renderer shows,
+        // since nothing reloads the window here.
+        if (!existing) setActiveAccount(account.id)
+        startAccountWorkers(config)
+        return { ok: true as const, accountId: account.id, email: account.email }
+      } catch (e) {
+        return { ok: false as const, error: (e as Error).message }
       }
-      // A re-auth replaces the live config so pools pick up the new token ref.
-      // Overwriting in place keeps the sidebar order and the active account;
-      // remove-then-add would hand "active" to whichever account is first.
-      if (getAccount(account.id)) stopAccountWorkers(account.email)
-      addAccountToState({ accountId: account.id, email: account.email, config })
-      clearNeedsReauth(account.email)
-      // Only a new account becomes active. A re-auth must not retarget
-      // compose/send (getBootState) away from the account the renderer shows,
-      // since nothing reloads the window here.
-      if (!existing) setActiveAccount(account.id)
-      startAccountWorkers(config)
-      return { ok: true as const, accountId: account.id, email: account.email }
-    } catch (e) {
-      return { ok: false as const, error: (e as Error).message }
     }
-  })
+  )
 
   ipcMain.handle('account:setActive', (_e, accountId: number) => {
     return { ok: setActiveAccount(accountId) }

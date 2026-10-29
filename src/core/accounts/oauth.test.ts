@@ -71,6 +71,15 @@ describe('authUrl', () => {
     expect(u.searchParams.get('scope')).toContain('https://outlook.office.com/SMTP.Send')
     expect(u.searchParams.get('scope')).toContain('offline_access')
   })
+
+  it('passes a login hint to both providers only when given', () => {
+    for (const p of ['google', 'microsoft'] as const) {
+      const hinted = new URL(authUrl(p, 'http://localhost:5000/callback', 'c', 's', 'me@x.com'))
+      expect(hinted.searchParams.get('login_hint')).toBe('me@x.com')
+      const plain = new URL(authUrl(p, 'http://localhost:5000/callback', 'c', 's'))
+      expect(plain.searchParams.has('login_hint')).toBe(false)
+    }
+  })
 })
 
 describe('emailFromIdToken', () => {

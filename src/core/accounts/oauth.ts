@@ -53,7 +53,9 @@ export function authUrl(
   provider: OAuthProvider,
   redirectUri: string,
   challenge: string,
-  state: string
+  state: string,
+  /** Pre-fills the account picker; a re-auth passes the address it expects. */
+  loginHint?: string
 ): string {
   const e = ENDPOINTS[provider]
   const u = new URL(e.auth)
@@ -64,6 +66,7 @@ export function authUrl(
   u.searchParams.set('code_challenge', challenge)
   u.searchParams.set('code_challenge_method', 'S256')
   u.searchParams.set('state', state)
+  if (loginHint) u.searchParams.set('login_hint', loginHint)
   if (provider === 'google') {
     // Without both, Google omits the refresh token on a repeat consent.
     u.searchParams.set('access_type', 'offline')

@@ -173,9 +173,10 @@ const api = {
   ): Promise<{ ok: boolean; accountId?: number; email?: string; error?: string }> =>
     ipcRenderer.invoke('account:add', input),
   accountOAuth: (
-    provider: 'google' | 'microsoft'
+    provider: 'google' | 'microsoft',
+    expectedEmail?: string
   ): Promise<{ ok: true; accountId: number; email: string } | { ok: false; error: string }> =>
-    ipcRenderer.invoke('account:oauth', provider),
+    ipcRenderer.invoke('account:oauth', provider, expectedEmail),
   onReauthNeeded: (fn: (email: string) => void): (() => void) => {
     const h = (_e: unknown, email: string) => fn(email)
     ipcRenderer.on('account:reauth', h)

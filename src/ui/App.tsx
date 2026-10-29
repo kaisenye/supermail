@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AccountSummary, ScheduledSend } from '../../electron/preload'
 import type { MessageListRow } from '../core/store/types'
 import { emptyCompose, useStore, type ComposeAttachment } from './store'
@@ -134,14 +134,27 @@ export default function App() {
   const [reauthEmail, setReauthEmail] = useState<string | null>(null)
   useEffect(() => window.api.onReauthNeeded(setReauthEmail), [])
 
+  const [reauthBusy, setReauthBusy] = useState(false)
+  const reauthBusyRef = useRef(false)
   const reauth = useCallback(async () => {
-    if (!reauthEmail) return
-    // From the account itself, not the domain: Google Workspace and M365
-    // tenants use custom domains.
-    const acct = accounts.find((a) => a.email.toLowerCase() === reauthEmail.toLowerCase())
-    const res = await window.api.accountOAuth(acct?.provider === 'gmail' ? 'google' : 'microsoft')
-    if (res.ok) setReauthEmail(null)
-    else setSyncError(res.error)
+    // One browser round-trip at a time; a second click would race the first.
+    if (!reauthEmail || reauthBusyRef.current) return
+    reauthBusyRef.current = true
+    setReauthBusy(true)
+    try {
+      // From the account itself, not the domain: Google Workspace and M365
+      // tenants use custom domains.
+      const acct = accounts.find((a) => a.email.toLowerCase() === reauthEmail.toLowerCase())
+      const res = await window.api.accountOAuth(
+        acct?.provider === 'gmail' ? 'google' : 'microsoft',
+        reauthEmail
+      )
+      if (res.ok) setReauthEmail(null)
+      else setSyncError(res.error)
+    } finally {
+      reauthBusyRef.current = false
+      setReauthBusy(false)
+    }
   }, [reauthEmail, accounts, setSyncError])
   /**
    * Reload rather than refetch: folders, rows, counts, unread and any open
@@ -954,7 +967,9 @@ export default function App() {
         {reauthEmail && (
           <div className="reauth-banner" role="alert">
             <span>{reauthEmail} needs you to sign in again.</span>
-            <button onClick={() => void reauth()}>Sign in</button>
+            <button onClick={() => void reauth()} disabled={reauthBusy}>
+              {reauthBusy ? 'Waiting for browser…' : 'Sign in'}
+            </button>
             <button
               className="reauth-dismiss"
               onClick={() => setReauthEmail(null)}
