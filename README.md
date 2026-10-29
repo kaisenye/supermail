@@ -35,12 +35,12 @@ Most “modern” mail clients are web apps in a trench coat: always online, alw
 |-----------|----------------|
 | **Local-first** | Paint from SQLite immediately. Network is a background refresh, not a loading spinner. |
 | **Keyboard-native** | `j`/`k`, `c`, `u`, `s`, `/`, `⌘K`, `⌫` — the list is a cockpit, not a mouse trap. |
-| **Own your mail** | IMAP + SMTP to *your* server. Credentials stay on your machine. |
+| **Own your mail** | IMAP/SMTP, Gmail and Outlook. Credentials stay on your machine. |
 | **Thin surface** | No cards-on-cards dashboard. One list. One thread. One command bar. |
 
 Built for power users and small teams who want Superhuman-like speed without surrendering the mailbox.
 
-> Tuned for [Tencent Exmail](https://exmail.qq.com/) defaults. Any IMAP/SMTP host works.
+> Tuned for [Tencent Exmail](https://exmail.qq.com/) defaults. Any IMAP/SMTP host works, and Gmail and Outlook sign in with OAuth.
 
 ---
 
@@ -58,6 +58,11 @@ Built for power users and small teams who want Superhuman-like speed without sur
   `has:attachment` operators, BM25 relevance, recency weighting, and a
   typo-tolerant trigram fallback when an exact query finds nothing
 
+**Accounts**
+- Gmail and Microsoft 365 / Outlook via OAuth (no app passwords)
+- Any IMAP/SMTP host with a password (Exmail, Fastmail, iCloud, …)
+- Gmail syncs system folders only (INBOX, Sent, Drafts, Trash, Spam); labels arrive in a later phase
+
 **Write path**
 - Compose / reply / reply-all / forward, rich-text editor
 - Recipient autocomplete on To / Cc / Bcc, mined from existing mail
@@ -71,7 +76,7 @@ Built for power users and small teams who want Superhuman-like speed without sur
 - Paint from SQLite first; the network is always a background refresh
 
 **Safety**
-- Passwords stored in the OS keychain, never in SQLite and never over IPC
+- Passwords and OAuth refresh tokens stored in the OS keychain, never in SQLite and never over IPC
 - Received HTML sanitized in the main process
 - Opaque iframe + CSP in the renderer; remote images blocked until you opt in
 - Outbound HTML sanitized on paste *and* on send
@@ -93,6 +98,31 @@ pnpm dev
 On first run the app walks you through connecting an account: enter an address
 and it fills in the server settings for known providers, checks IMAP and SMTP
 before saving anything, and stores the password in your OS keychain.
+
+### Gmail and Outlook
+
+"Continue with Google / Microsoft" needs your own OAuth clients. Put these in
+repo-root `.env.local` (gitignored). electron-vite bakes them in at build time,
+so restart `pnpm dev` or rebuild after changing them.
+
+```bash
+MAIN_VITE_GOOGLE_CLIENT_ID=
+MAIN_VITE_GOOGLE_CLIENT_SECRET=
+MAIN_VITE_MS_CLIENT_ID=
+```
+
+- **Google:** create a Cloud project, configure the OAuth consent screen in
+  *Testing* with yourself as a test user, enable the **Gmail API**, and create a
+  **Desktop app** OAuth client. In Testing mode refresh tokens expire after 7 days;
+  the app then shows a "sign in again" banner.
+- **Microsoft:** register an Entra app for any tenant plus personal accounts. Add
+  the *Mobile and desktop applications* platform with redirect
+  `http://localhost/callback`, turn on **Allow public client flows**, and add the
+  delegated permissions `IMAP.AccessAsUser.All`, `SMTP.Send`, `offline_access`,
+  `openid`, `email`. Work or school tenants may have IMAP or SMTP AUTH disabled;
+  the app explains it when so.
+- Gmail syncs only its system folders (INBOX, Sent, Drafts, Trash, Spam).
+  Labels arrive in a later phase.
 
 <details>
 <summary><code>.env.local</code> (optional — pre-seed instead of the setup screen)</summary>
@@ -118,6 +148,7 @@ into the keychain on first launch; the file is left in place.
 
 ```bash
 pnpm typecheck   # strict TypeScript
+pnpm test        # vitest
 pnpm build       # production bundle
 ```
 
@@ -197,6 +228,7 @@ Agent notes for contributors: see [`CLAUDE.md`](./CLAUDE.md).
 - [x] Settings: signature, logo, theme
 - [x] Secure credential store (OS keychain via `safeStorage`)
 - [x] Multi-account
+- [x] Gmail and Outlook sign-in (OAuth2 on IMAP/SMTP)
 - [ ] Snooze / split inbox
 - [ ] AI triage (summaries, labels) — Stage 2 pipeline
 
@@ -207,7 +239,7 @@ PRs welcome. Keep the surface small.
 ## Security notes
 
 - Never commit `.env.local`.
-- Treat app passwords like production secrets.
+- Treat app passwords and OAuth client secrets like production secrets.
 - Scheduled sends only flush **while the app is running**.
 - This is early software — use a dedicated / secondary mailbox if you’re cautious.
 

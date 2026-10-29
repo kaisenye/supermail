@@ -1,6 +1,6 @@
 # Supermail
 
-Fast local-first IMAP client. North star: Superhuman-like speed — keyboard-first, instant search, compose, schedule send. Tuned for Tencent Exmail; works with any IMAP/SMTP host.
+Fast local-first mail client (IMAP/SMTP, Gmail, Outlook). North star: Superhuman-like speed — keyboard-first, instant search, compose, schedule send. Tuned for Tencent Exmail; works with any IMAP/SMTP host.
 
 ## Stages
 
@@ -16,6 +16,8 @@ Fast local-first IMAP client. North star: Superhuman-like speed — keyboard-fir
 
 - Talk only through `window.api` (preload `contextBridge`).
 - Password stays in main memory, encrypted at rest in the OS keychain via `safeStorage` (`accounts.auth_ref` → `credentials/<ref>.bin`). Never SQLite, never IPC.
+- Accounts authenticate with a password or OAuth2 (`AccountConfig.auth`). OAuth refresh tokens live in the vault as JSON under `auth_ref`; access tokens are in-memory only (`src/core/accounts/oauth.ts`). Always build IMAP/SMTP auth with `resolveAuth` / `smtpAuth` — never read a password off the config.
+- Gmail syncs only its system folders (`shouldSyncFolder`); All Mail and label folders are duplicates.
 - Sanitize **received** HTML in main before the renderer sees it. Outbound compose HTML is user-authored.
 
 ## Local-first rules
@@ -57,12 +59,14 @@ pnpm dev          # electron-vite
 pnpm typecheck
 ```
 
-`.env.local` at repo root (see `.env.example`). Legacy `ROMO_*` keys still work.
+`.env.local` at repo root (see `.env.example`). Legacy `ROMO_*` keys still work. OAuth client ids (`MAIN_VITE_GOOGLE_CLIENT_ID`, `MAIN_VITE_GOOGLE_CLIENT_SECRET`, `MAIN_VITE_MS_CLIENT_ID`) are baked into the main bundle at build time by electron-vite; restart `pnpm dev` after changing them.
 
 ## Roadmap
 
 | Phase | Status | Scope |
 |-------|--------|-------|
+| Phase 0 | Done | Folder roles, owner-scoped IPC, persisted move queue, command registry, speed budget |
+| Phase 1 | Done (live OAuth untested) | Gmail + Outlook sign-in via OAuth2 on IMAP/SMTP |
 | A | Done | Quick search + Cmd+K command palette |
 | B | Done | Compose / reply / SMTP send / Sent APPEND |
 | C | Done | Schedule send + 3s undo send |
