@@ -16,12 +16,16 @@ import type { AccountConfig } from '../src/core/accounts/config.js'
 import { listPresets, presetFor } from '../src/core/accounts/presets.js'
 import { verifyAccount } from '../src/core/accounts/verify.js'
 import {
+  displayNameFor,
   forgetAccount,
   rememberDisplayName,
   saveAccount,
+  saveOAuthAccount,
   toConfig,
   type NewAccountInput
 } from '../src/core/accounts/manage.js'
+import { authUrl, createPkce, exchangeCode, primeAccessToken } from '../src/core/accounts/oauth.js'
+import { waitForRedirect } from '../src/core/accounts/oauthFlow.js'
 import { startAccountWorkers, stopAccountWorkers } from './workers.js'
 import {
   countOpenTasks,
@@ -294,6 +298,54 @@ export function registerIpc(): void {
     try {
       const { account } = saveAccount(input)
       rememberDisplayName(account.id, config.name)
+      addAccountToState({ accountId: account.id, email: account.email, config })
+      setActiveAccount(account.id)
+      startAccountWorkers(config)
+      return { ok: true as const, accountId: account.id, email: account.email }
+    } catch (e) {
+      return { ok: false as const, error: (e as Error).message }
+    }
+  })
+
+  // "Continue with Google / Microsoft": consent in the system browser, then
+  // the same verify-before-save path as a password account. Re-signing in to
+  // an address already present updates it in place, which is also re-auth.
+  ipcMain.handle('account:oauth', async (_e, provider: 'google' | 'microsoft') => {
+    try {
+      const { verifier, challenge } = createPkce()
+      const { code, redirectUri } = await waitForRedirect({
+        host: provider === 'google' ? '127.0.0.1' : 'localhost',
+        buildUrl: (redirect, state) => authUrl(provider, redirect, challenge, state),
+        openUrl: (url) => shell.openExternal(url)
+      })
+      const t = await exchangeCode(provider, code, verifier, redirectUri)
+      if (!t.email) return { ok: false as const, error: 'The provider did not return an email address.' }
+
+      const existing = storedAccounts().find((a) => a.email.toLowerCase() === t.email!.toLowerCase())
+      const { account, config } = saveOAuthAccount({
+        email: t.email,
+        // The From: name lives in settings (displayNameFor) and is edited there.
+        name: displayNameFor(existing?.id ?? -1),
+        provider: provider === 'google' ? 'gmail' : 'microsoft',
+        oauthProvider: provider,
+        refreshToken: t.refreshToken
+      })
+      if (config.auth.kind === 'oauth2') primeAccessToken(config.auth.ref, t.accessToken, t.expiresAt)
+
+      const check = await verifyAccount(config)
+      if (!check.ok) {
+        // A brand-new account that cannot connect must not linger half-added.
+        if (!existing) {
+          forgetAccount(account)
+          deleteAccount(account.id)
+        }
+        return { ok: false as const, error: check.message ?? 'connection failed' }
+      }
+      // A re-auth replaces the live config so pools pick up the new token ref.
+      if (getAccount(account.id)) {
+        stopAccountWorkers(account.email)
+        removeAccountFromState(account.id)
+      }
       addAccountToState({ accountId: account.id, email: account.email, config })
       setActiveAccount(account.id)
       startAccountWorkers(config)

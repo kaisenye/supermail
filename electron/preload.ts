@@ -169,6 +169,15 @@ const api = {
     input: NewAccountInput
   ): Promise<{ ok: boolean; accountId?: number; email?: string; error?: string }> =>
     ipcRenderer.invoke('account:add', input),
+  accountOAuth: (
+    provider: 'google' | 'microsoft'
+  ): Promise<{ ok: true; accountId: number; email: string } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('account:oauth', provider),
+  onReauthNeeded: (fn: (email: string) => void): (() => void) => {
+    const h = (_e: unknown, email: string) => fn(email)
+    ipcRenderer.on('account:reauth', h)
+    return () => ipcRenderer.removeListener('account:reauth', h)
+  },
   accountSetActive: (accountId: number): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke('account:setActive', accountId),
   accountRemove: (accountId: number): Promise<{ ok: boolean; error?: string }> =>
