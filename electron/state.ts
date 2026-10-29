@@ -15,6 +15,20 @@ export type BootState =
 const accounts = new Map<number, LiveAccount>()
 let activeId: number | null = null
 let bootError = 'not booted'
+/**
+ * Lower-cased addresses whose refresh token was rejected. Kept here, not only
+ * sent as an event, because a token that died while the app was closed fails
+ * at boot, before any window is listening.
+ */
+const needsReauth = new Set<string>()
+
+export function markNeedsReauth(email: string): void {
+  needsReauth.add(email.toLowerCase())
+}
+
+export function clearNeedsReauth(email: string): void {
+  needsReauth.delete(email.toLowerCase())
+}
 
 export function addAccount(a: LiveAccount): void {
   accounts.set(a.accountId, a)
@@ -70,6 +84,7 @@ export interface AccountSummary {
   name: string | null
   provider: MailProvider
   active: boolean
+  needsReauth: boolean
 }
 
 /** Renderer-safe view: never exposes the password over IPC. */
@@ -85,7 +100,8 @@ export function getBootStatus(): {
     email: a.email,
     name: a.config.name,
     provider: a.config.provider,
-    active: a.accountId === activeId
+    active: a.accountId === activeId,
+    needsReauth: needsReauth.has(a.email.toLowerCase())
   }))
   const active = getActiveAccount()
   return active

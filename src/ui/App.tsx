@@ -360,6 +360,10 @@ export default function App() {
       setBoot(status.email ?? null, status.ok ? null : (status.error ?? 'unknown error'))
       setAccounts(status.accounts ?? [])
       setActiveAccountId(status.activeAccountId ?? null)
+      // A token that died while the app was closed fails before this window
+      // subscribes to the reauth event, so boot status carries it too.
+      const stale = status.accounts?.find((a) => a.needsReauth)
+      if (stale) setReauthEmail(stale.email)
       if (!status.ok) return
 
       const cached = await window.api.listFolders()

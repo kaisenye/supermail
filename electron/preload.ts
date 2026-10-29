@@ -47,6 +47,7 @@ export interface AccountSummary {
   name: string | null
   provider: MailProvider
   active: boolean
+  needsReauth: boolean
 }
 
 export interface BootStatus {

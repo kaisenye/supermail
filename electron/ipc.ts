@@ -81,6 +81,7 @@ import {
 } from '../src/core/send/outbox.js'
 import {
   addAccount as addAccountToState,
+  clearNeedsReauth,
   getAccount,
   getBootState,
   getBootStatus,
@@ -347,6 +348,7 @@ export function registerIpc(): void {
         removeAccountFromState(account.id)
       }
       addAccountToState({ accountId: account.id, email: account.email, config })
+      clearNeedsReauth(account.email)
       setActiveAccount(account.id)
       startAccountWorkers(config)
       return { ok: true as const, accountId: account.id, email: account.email }

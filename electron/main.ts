@@ -17,7 +17,7 @@ import { startOutboxWorker } from '../src/core/send/flush.js'
 import { stopIdleWatcher } from '../src/core/sync/idle.js'
 import { closePool } from '../src/core/sync/pool.js'
 import { refreshSentFolder, startAccountWorkers } from './workers.js'
-import { addAccount, getAccount, listAccounts, setBootError } from './state.js'
+import { addAccount, getAccount, listAccounts, markNeedsReauth, setBootError } from './state.js'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
@@ -160,6 +160,9 @@ app.whenReady().then(() => {
   onReauthRequired((ref) => {
     const acct = storedAccounts().find((a) => a.auth_ref === ref)
     if (!acct) return
+    // Workers start before the window exists, so the event alone can be lost;
+    // the renderer also reads this flag from bootStatus.
+    markNeedsReauth(acct.email)
     for (const w of BrowserWindow.getAllWindows()) w.webContents.send('account:reauth', acct.email)
   })
   startOutboxWorker(
