@@ -2,6 +2,7 @@ import type { AccountConfig } from '../accounts/config.js'
 import { processors } from '../pipeline/index.js'
 import { runPipeline } from '../pipeline/pipeline.js'
 import { listFolders, listUnfetchedUids } from '../store/repo.js'
+import { shouldSyncFolder } from './folderFilter.js'
 import { createClient, fetchSourcesBatch } from './imap.js'
 
 export interface BodySyncProgress {
@@ -35,9 +36,9 @@ export async function syncBodies(
   const cancelled = opts.signal ?? (() => false)
 
   // INBOX first — that's what the user is looking at.
-  const folders = listFolders(accountId).sort((a, b) =>
-    a.role === 'inbox' ? -1 : b.role === 'inbox' ? 1 : 0
-  )
+  const folders = listFolders(accountId)
+    .filter((f) => shouldSyncFolder(config.provider, f))
+    .sort((a, b) => (a.role === 'inbox' ? -1 : b.role === 'inbox' ? 1 : 0))
 
   const plan = folders
     .map((f) => ({ folder: f, uids: listUnfetchedUids(f.id) }))

@@ -24,6 +24,7 @@ import {
   parseReferences,
   type MailboxStatus
 } from './imap.js'
+import { shouldSyncFolder } from './folderFilter.js'
 import { reconcileFolder } from './reconcile.js'
 import { rethreadAccount, type RethreadResult } from './rethread.js'
 import type { RawMessage } from '../pipeline/types.js'
@@ -98,9 +99,9 @@ export async function syncAccount(
     }
 
     // INBOX first so the primary view is usable before the rest finishes.
-    const folders = listFolders(accountId).sort((a, b) =>
-      a.role === 'inbox' ? -1 : b.role === 'inbox' ? 1 : 0
-    )
+    const folders = listFolders(accountId)
+      .filter((f) => shouldSyncFolder(config.provider, f))
+      .sort((a, b) => (a.role === 'inbox' ? -1 : b.role === 'inbox' ? 1 : 0))
 
     // Exmail has high per-command latency, so probe all folders concurrently
     // rather than paying that round-trip once per folder in sequence.
@@ -225,7 +226,9 @@ export async function repairThreading(
   const client = await createClient(config)
   await client.connect()
   try {
-    const folders = listFolders(accountId).map((f) => ({ id: f.id, path: f.path }))
+    const folders = listFolders(accountId)
+      .filter((f) => shouldSyncFolder(config.provider, f))
+      .map((f) => ({ id: f.id, path: f.path }))
     const r = await rethreadAccount(client, accountId, folders)
     setSetting(rethreadKey(accountId), '1')
     return { ...r, skipped: false }
