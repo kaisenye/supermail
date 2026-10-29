@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Folder, Message, MessageListRow } from '../src/core/store/types.js'
 import type { MoveTarget } from '../src/core/store/folderRoles.js'
 import type { SyncProgress } from '../src/core/sync/syncEngine.js'
+import type { MailProvider } from '../src/core/accounts/auth.js'
 
 export interface ScheduledSend {
   id: number
@@ -44,6 +45,7 @@ export interface AccountSummary {
   accountId: number
   email: string
   name: string | null
+  provider: MailProvider
   active: boolean
 }
 

@@ -131,6 +131,18 @@ export default function App() {
   const [accounts, setAccounts] = useState<AccountSummary[]>([])
   const [activeAccountId, setActiveAccountId] = useState<number | null>(null)
   const [addingAccount, setAddingAccount] = useState(false)
+  const [reauthEmail, setReauthEmail] = useState<string | null>(null)
+  useEffect(() => window.api.onReauthNeeded(setReauthEmail), [])
+
+  const reauth = useCallback(async () => {
+    if (!reauthEmail) return
+    // From the account itself, not the domain: Google Workspace and M365
+    // tenants use custom domains.
+    const acct = accounts.find((a) => a.email.toLowerCase() === reauthEmail.toLowerCase())
+    const res = await window.api.accountOAuth(acct?.provider === 'gmail' ? 'google' : 'microsoft')
+    if (res.ok) setReauthEmail(null)
+    else setSyncError(res.error)
+  }, [reauthEmail, accounts, setSyncError])
   /**
    * Reload rather than refetch: folders, rows, counts, unread and any open
    * thread all belong to the old account, and a reload cannot leave one stale.
@@ -935,6 +947,19 @@ export default function App() {
         unread={unread}
       />
       <main className="main">
+        {reauthEmail && (
+          <div className="reauth-banner" role="alert">
+            <span>{reauthEmail} needs you to sign in again.</span>
+            <button onClick={() => void reauth()}>Sign in</button>
+            <button
+              className="reauth-dismiss"
+              onClick={() => setReauthEmail(null)}
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
         {compose ? (
           <Compose compose={compose} onClose={closeCompose} onSent={onSent} />
         ) : tasksOpen ? (

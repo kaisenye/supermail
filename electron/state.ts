@@ -1,4 +1,5 @@
 import type { AccountConfig } from '../src/core/accounts/index.js'
+import type { MailProvider } from '../src/core/accounts/auth.js'
 
 export interface LiveAccount {
   accountId: number
@@ -67,6 +68,7 @@ export interface AccountSummary {
   accountId: number
   email: string
   name: string | null
+  provider: MailProvider
   active: boolean
 }
 
@@ -82,6 +84,7 @@ export function getBootStatus(): {
     accountId: a.accountId,
     email: a.email,
     name: a.config.name,
+    provider: a.config.provider,
     active: a.accountId === activeId
   }))
   const active = getActiveAccount()

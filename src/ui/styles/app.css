@@ -3312,3 +3312,20 @@ button.sidebar-account svg {
 .onboard-note { margin: 0; color: var(--text-tertiary); font-size: var(--text-sm); text-align: center; }
 .onboard-divider { display: flex; align-items: center; gap: var(--space-2); color: var(--text-tertiary); font-size: var(--text-sm); }
 .onboard-divider::before, .onboard-divider::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
+
+.reauth-banner {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: color-mix(in srgb, var(--flag) 12%, var(--bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--flag) 30%, transparent);
+  font-size: var(--text-sm); color: var(--text-primary);
+}
+.reauth-banner span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reauth-banner button {
+  height: 24px; padding: 0 var(--space-3); border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong); background: var(--bg-raised); color: var(--text-primary);
+  font: inherit; font-size: var(--text-sm); cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+.reauth-banner button:hover { background: var(--surface-hover); }
+.reauth-banner .reauth-dismiss { border-color: transparent; background: transparent; color: var(--text-tertiary); padding: 0 var(--space-2); }
