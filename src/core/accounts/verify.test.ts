@@ -36,6 +36,27 @@ describe('explain', () => {
     expect(explain({ authenticationFailed: true }, 'imap', g)).toMatch(/sign in again/i)
   })
 
+  it('says plainly when a server offers no encryption on that port', () => {
+    const pw: AccountConfig = {
+      ...ms,
+      imapHost: 'mail.example.com',
+      imapPort: 143,
+      smtpPort: 25,
+      provider: 'imap',
+      auth: { kind: 'password', pass: 'x' }
+    }
+    const imap = explain({ message: 'Server does not support STARTTLS' }, 'imap', pw)
+    expect(imap).toMatch(/no encrypted connection on port 143/i)
+    expect(imap).toMatch(/993/)
+    const smtp = explain(
+      { message: 'Error upgrading connection with STARTTLS: 500 Invalid command', code: 'ETLS' },
+      'smtp',
+      pw
+    )
+    expect(smtp).toMatch(/no encrypted connection on port 25/i)
+    expect(smtp).toMatch(/465/)
+  })
+
   it('keeps the password hint for password accounts', () => {
     const pw: AccountConfig = { ...ms, provider: 'imap', auth: { kind: 'password', pass: 'x' } }
     expect(explain({ authenticationFailed: true }, 'imap', pw)).toMatch(/password/i)

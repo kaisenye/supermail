@@ -68,6 +68,13 @@ export function explain(err: unknown, stage: 'imap' | 'smtp', config: AccountCon
   if (/ETIMEDOUT|timed? ?out/i.test(raw) || code === 'ETIMEDOUT') {
     return 'Connection timed out. The server may be unreachable from this network, or the port may be wrong.'
   }
+  // Off 993/465 the upgrade is required, so a server that cannot do it is
+  // refused rather than sent the password in the clear.
+  if (/does not support STARTTLS|upgrading connection with STARTTLS/i.test(raw)) {
+    const port = stage === 'imap' ? config.imapPort : config.smtpPort
+    const ssl = stage === 'imap' ? 993 : 465
+    return `The server offers no encrypted connection on port ${port}, so Supermail will not send your password over it. Use the SSL port instead (usually ${ssl}) under Advanced.`
+  }
   if (/self.signed|certificate|SSL|TLS|wrong version number/i.test(raw)) {
     return 'TLS handshake failed. The port may expect STARTTLS rather than implicit TLS — check the port under Advanced.'
   }
