@@ -145,6 +145,29 @@ export function upsertMessage(m: UpsertMessageInput): number {
     flags: null,
     ...m
   }
+  // An optimistic move leaves the row in its new folder with uid NULL: the
+  // server picks the new uid, and Exmail has no UIDPLUS to say what it was.
+  // When sync then finds the message there, give that row the uid so the
+  // upsert below updates it instead of inserting a duplicate.
+  if (row.folder_id !== null && row.uid !== null && row.message_id) {
+    getDb()
+      .prepare(
+        `UPDATE messages SET uid = @uid
+         WHERE id = (SELECT id FROM messages
+                     WHERE account_id = @account_id AND folder_id = @folder_id
+                       AND message_id = @message_id AND uid IS NULL
+                     LIMIT 1)
+           AND NOT EXISTS (SELECT 1 FROM messages
+                           WHERE account_id = @account_id AND folder_id = @folder_id
+                             AND uid = @uid)`
+      )
+      .run({
+        uid: row.uid,
+        account_id: row.account_id,
+        folder_id: row.folder_id,
+        message_id: row.message_id
+      })
+  }
   const info = getDb()
     .prepare(
       `INSERT INTO messages (
