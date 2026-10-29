@@ -18,7 +18,8 @@ import {
   exchangeCode,
   getAccessToken,
   onReauthRequired,
-  resetTokenCache
+  resetTokenCache,
+  reviveToken
 } from './oauth.js'
 
 function jwt(claims: object): string {
@@ -128,6 +129,29 @@ describe('getAccessToken', () => {
     await expect(getAccessToken('acct-3', 'google', f.fn)).rejects.toBeInstanceOf(ReauthRequired)
     expect(seen).toEqual(['acct-3'])
     off()
+  })
+
+  it('remembers a dead refresh token: no second request, no second signal', async () => {
+    secrets.set('acct-5', JSON.stringify({ refreshToken: 'dead' }))
+    const seen: string[] = []
+    const off = onReauthRequired((ref) => seen.push(ref))
+    const f = fakeFetch({ error: 'invalid_grant' }, 400)
+    await expect(getAccessToken('acct-5', 'google', f.fn)).rejects.toBeInstanceOf(ReauthRequired)
+    await expect(getAccessToken('acct-5', 'google', f.fn)).rejects.toBeInstanceOf(ReauthRequired)
+    expect(f.calls).toHaveLength(1)
+    expect(seen).toEqual(['acct-5'])
+    off()
+  })
+
+  it('refreshes again after reviveToken (a new sign-in)', async () => {
+    secrets.set('acct-6', JSON.stringify({ refreshToken: 'dead' }))
+    const bad = fakeFetch({ error: 'invalid_grant' }, 400)
+    await expect(getAccessToken('acct-6', 'google', bad.fn)).rejects.toBeInstanceOf(ReauthRequired)
+    secrets.set('acct-6', JSON.stringify({ refreshToken: 'fresh' }))
+    reviveToken('acct-6')
+    const good = fakeFetch({ access_token: 'a-6', expires_in: 3600 })
+    expect(await getAccessToken('acct-6', 'google', good.fn)).toBe('a-6')
+    expect(new URLSearchParams(good.calls[0].body).get('refresh_token')).toBe('fresh')
   })
 
   it('shares one refresh between concurrent callers', async () => {

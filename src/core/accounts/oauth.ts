@@ -144,6 +144,8 @@ export async function exchangeCode(
 
 const cache = new Map<string, { token: string; expiresAt: number }>()
 const inflight = new Map<string, Promise<string>>()
+/** Refs whose refresh token was rejected; only a new sign-in revives them. */
+const dead = new Set<string>()
 const reauthListeners = new Set<(ref: string) => void>()
 
 export function onReauthRequired(fn: (ref: string) => void): () => void {
@@ -161,9 +163,16 @@ export function invalidateAccessToken(ref: string): void {
   cache.delete(ref)
 }
 
+/** A new sign-in stored a fresh refresh token: forget the dead mark and any cached token. */
+export function reviveToken(ref: string): void {
+  dead.delete(ref)
+  cache.delete(ref)
+}
+
 export function resetTokenCache(): void {
   cache.clear()
   inflight.clear()
+  dead.clear()
 }
 
 /** A valid access token for the account behind `ref`, refreshing when close to expiry. */
@@ -172,6 +181,9 @@ export async function getAccessToken(
   provider: OAuthProvider,
   fetchFn: typeof fetch = fetch
 ): Promise<string> {
+  // Without this every IDLE reconnect and poll would re-POST a token the
+  // provider already rejected, and re-fire the re-auth signal each time.
+  if (dead.has(ref)) throw new ReauthRequired(ref)
   const hit = cache.get(ref)
   if (hit && hit.expiresAt - EARLY_MS > Date.now()) return hit.token
   const pending = inflight.get(ref)
@@ -189,7 +201,10 @@ export async function getAccessToken(
     // Only invalid_grant means the refresh token itself is dead. A 400 for
     // invalid_client is a configuration bug, and a new sign-in would not fix it.
     if (body.error === 'invalid_grant') {
-      for (const fn of reauthListeners) fn(ref)
+      if (!dead.has(ref)) {
+        dead.add(ref)
+        for (const fn of reauthListeners) fn(ref)
+      }
       throw new ReauthRequired(ref)
     }
     if (!body.access_token) throw new Error(body.error_description ?? `token refresh failed (${status})`)

@@ -83,7 +83,17 @@ export class ImapPool {
         client = await createClient(this.config)
       } catch (err) {
         this.connecting--
+        // The slot this attempt held is free again; without this a parked
+        // waiter (often failing the same way, e.g. ReauthRequired) hangs forever.
+        if (!this.closed) this.pumpWaiters()
         throw err
+      }
+      if (this.closed) {
+        // close() ran while the token was being fetched. The client has not
+        // connected yet, so dropping it leaks nothing; connecting it would
+        // leave a live session for an account that may have been removed.
+        this.connecting--
+        throw new Error('pool closed')
       }
       const entry: Entry = { client, busy: true }
       // ImapFlow is an EventEmitter: an unhandled 'error' — a socket timeout on
@@ -96,6 +106,7 @@ export class ImapPool {
         await client.connect()
       } catch (err) {
         this.entries = this.entries.filter((e) => e !== entry)
+        if (!this.closed) this.pumpWaiters()
         throw err
       }
       this.startKeepalive()

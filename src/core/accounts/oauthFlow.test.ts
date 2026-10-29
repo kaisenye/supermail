@@ -50,6 +50,28 @@ describe('waitForRedirect', () => {
     ).rejects.toThrow(/access_denied/)
   })
 
+  it('escapes the error it echoes back into the page', async () => {
+    // The flow rejects as soon as the callback lands, before the body is read,
+    // so the page is awaited on its own.
+    let page: Promise<string> = Promise.resolve('')
+    await expect(
+      waitForRedirect({
+        host: '127.0.0.1',
+        buildUrl,
+        openUrl: async (url) => {
+          const u = new URL(url)
+          const err = encodeURIComponent('<img src=x onerror="alert(1)">')
+          page = fetch(
+            `${u.searchParams.get('redirect_uri')}?error=${err}&state=${u.searchParams.get('state')}`
+          ).then((r) => r.text())
+          await page
+        }
+      })
+    ).rejects.toThrow()
+    expect(await page).not.toContain('<img')
+    expect(await page).toContain('&lt;img src=x onerror=&quot;alert(1)&quot;&gt;')
+  })
+
   it('times out if the browser never comes back', async () => {
     await expect(
       waitForRedirect({ host: '127.0.0.1', buildUrl, openUrl: async () => {}, timeoutMs: 50 })

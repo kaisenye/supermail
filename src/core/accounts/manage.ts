@@ -3,6 +3,7 @@ import { getSettings, listAccounts, setSetting, upsertAccount } from '../store/r
 import type { Account } from '../store/types.js'
 import { loadAccountConfig, type AccountConfig } from './config.js'
 import type { MailProvider, OAuthProvider } from './auth.js'
+import { reviveToken } from './oauth.js'
 import { presetFor, providerPreset } from './presets.js'
 import { authRefFor, deletePassword, getPassword, setPassword } from './vault.js'
 
@@ -109,6 +110,8 @@ export function saveOAuthAccount(input: NewOAuthAccountInput): { account: Accoun
   const row = upsertAccount({ ...meta, auth_ref: null })
   const ref = authRefFor(row.id)
   setPassword(ref, JSON.stringify({ refreshToken: input.refreshToken }))
+  // Re-auth after a revoked token: drop the dead mark and any stale access token.
+  reviveToken(ref)
   const account = upsertAccount({ ...meta, auth_ref: ref })
   return { account, config: configForAccount(account, input.name)! }
 }

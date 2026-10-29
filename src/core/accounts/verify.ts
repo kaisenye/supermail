@@ -85,6 +85,8 @@ async function verifyImap(config: AccountConfig): Promise<number> {
     host: config.imapHost,
     port: config.imapPort,
     secure: config.imapPort === 993,
+    // Same rule as createClient: off 993, STARTTLS is mandatory.
+    doSTARTTLS: config.imapPort === 993 ? undefined : true,
     auth: await resolveAuth(config),
     logger: false,
     greetingTimeout: TIMEOUT_MS,
@@ -104,6 +106,8 @@ async function verifySmtp(config: AccountConfig): Promise<void> {
     host: config.smtpHost,
     port: config.smtpPort,
     secure: config.smtpPort === 465,
+    // 587/25 must upgrade with STARTTLS rather than fall back to cleartext.
+    requireTLS: config.smtpPort !== 465,
     auth: await smtpAuth(config),
     connectionTimeout: TIMEOUT_MS,
     greetingTimeout: TIMEOUT_MS

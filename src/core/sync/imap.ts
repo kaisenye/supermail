@@ -17,6 +17,9 @@ export async function createClient(config: AccountConfig): Promise<ImapFlow> {
     // 993 is implicit TLS; 143 upgrades with STARTTLS. Hardcoding true broke
     // any server on 143.
     secure: config.imapPort === 993,
+    // Off 993, require the upgrade: imapflow's default carries on in cleartext
+    // when STARTTLS is not offered, which would expose the password or token.
+    doSTARTTLS: config.imapPort === 993 ? undefined : true,
     auth: await resolveAuth(config),
     logger: false,
     // Exmail can be slow to greet; default 90s is fine but be explicit.

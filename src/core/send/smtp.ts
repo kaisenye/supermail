@@ -37,6 +37,8 @@ export async function sendSmtp(
     host: config.smtpHost,
     port: config.smtpPort,
     secure: config.smtpPort === 465,
+    // 587/25 must upgrade with STARTTLS rather than fall back to cleartext.
+    requireTLS: config.smtpPort !== 465,
     auth: await smtpAuth(config)
   })
 

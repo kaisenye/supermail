@@ -2,9 +2,20 @@ import { createServer } from 'http'
 import type { AddressInfo } from 'net'
 import { randomState } from './oauth.js'
 
+const ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+}
+
+/** The error text comes from the redirect query, which anyone can craft. */
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ESCAPES[c])
+
 const PAGE = (msg: string) =>
   `<!doctype html><meta charset="utf-8"><title>Supermail</title>` +
-  `<body style="font:15px -apple-system,sans-serif;padding:48px">${msg}</body>`
+  `<body style="font:15px -apple-system,sans-serif;padding:48px">${escapeHtml(msg)}</body>`
 
 /**
  * RFC 8252 loopback redirect. Listens on 127.0.0.1 on a random port, opens the
