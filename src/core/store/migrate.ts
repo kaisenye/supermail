@@ -182,7 +182,14 @@ CREATE INDEX IF NOT EXISTS idx_move_jobs_account ON move_jobs (account_id, id);
 
   // v16: the mailbox UIDVALIDITY a move was captured under. A replay after the
   // server renumbered the mailbox would otherwise move an unrelated message.
-  (db) => db.exec('ALTER TABLE move_jobs ADD COLUMN uidvalidity INTEGER')
+  (db) => db.exec('ALTER TABLE move_jobs ADD COLUMN uidvalidity INTEGER'),
+
+  // v17: how an account signs in. Existing rows are password IMAP accounts.
+  (db) =>
+    db.exec(`
+ALTER TABLE accounts ADD COLUMN provider TEXT NOT NULL DEFAULT 'imap';
+ALTER TABLE accounts ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'password';
+`)
 ]
 
 /** `target` stops early — tests use it to stage data at an older version. */

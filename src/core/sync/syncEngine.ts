@@ -70,7 +70,7 @@ export async function syncAccount(
 
   const pendingFlagIds = opts.pendingFlagIds ?? new Set<number>()
   const result: SyncResult = { folders: 0, messages: 0, reconciled: 0, errors: [] }
-  const client: ImapFlow = createClient(config)
+  const client: ImapFlow = await createClient(config)
 
   progress({ phase: 'connect' })
   await client.connect()
@@ -222,7 +222,7 @@ export async function repairThreading(
   config: AccountConfig
 ): Promise<RethreadResult & { skipped: boolean }> {
   if (rethreadDone(accountId)) return { scanned: 0, updated: 0, skipped: true }
-  const client = createClient(config)
+  const client = await createClient(config)
   await client.connect()
   try {
     const folders = listFolders(accountId).map((f) => ({ id: f.id, path: f.path }))
@@ -310,7 +310,7 @@ export async function backfillFolder(
   // Nothing synced yet: the forward pass owns the first page, not this.
   if (oldest === null || oldest <= 1) return { messages: 0, more: false }
 
-  const client: ImapFlow = createClient(config)
+  const client: ImapFlow = await createClient(config)
   await client.connect()
   try {
     const lock = await client.getMailboxLock(folder.path)

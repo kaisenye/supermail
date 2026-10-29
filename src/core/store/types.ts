@@ -8,6 +8,8 @@ export interface Account {
   smtp_host: string | null
   smtp_port: number | null
   auth_ref: string | null
+  provider: 'imap' | 'gmail' | 'microsoft'
+  auth_type: 'password' | 'oauth2'
 }
 
 export interface Folder {

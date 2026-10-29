@@ -30,7 +30,15 @@ export class IdleWatcher {
 
   private async connect(): Promise<void> {
     if (this.stopped) return
-    const client = createClient(this.config)
+    let client: ImapFlow
+    try {
+      client = await createClient(this.config)
+    } catch {
+      // No token (offline, or re-auth needed) — same backoff as a failed connect.
+      this.scheduleReconnect()
+      return
+    }
+    if (this.stopped) return
     this.client = client
 
     // Servers drop IDLE roughly every 29 min — a close is expected, not an error.

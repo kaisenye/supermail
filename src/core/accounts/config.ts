@@ -1,8 +1,11 @@
 import { readFileSync, existsSync } from 'fs'
+import type { AccountAuth, MailProvider } from './auth.js'
 
 export interface AccountConfig {
   email: string
-  pass: string
+  auth: AccountAuth
+  /** Drives provider-specific sync rules (Gmail's duplicate label folders). */
+  provider: MailProvider
   /** Display name for From: header. Falls back to bare email if unset. */
   name: string | null
   imapHost: string
@@ -94,7 +97,8 @@ export function loadAccountConfig(envPath: string): AccountConfig {
 
   return {
     email,
-    pass,
+    auth: { kind: 'password', pass },
+    provider: 'imap',
     name: envGet(env, 'SUPERMAIL_NAME')?.trim() || null,
     imapHost: envGet(env, 'SUPERMAIL_IMAP_HOST') || DEFAULTS.imapHost,
     imapPort: port('SUPERMAIL_IMAP_PORT', DEFAULTS.imapPort),

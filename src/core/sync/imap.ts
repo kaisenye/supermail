@@ -1,6 +1,7 @@
 import { ImapFlow, type ListResponse } from 'imapflow'
 import type { AccountConfig } from '../accounts/config.js'
 import type { RawMessage } from '../pipeline/types.js'
+import { resolveAuth } from '../accounts/auth.js'
 
 export interface MailboxInfo {
   path: string
@@ -9,12 +10,14 @@ export interface MailboxInfo {
   selectable: boolean
 }
 
-export function createClient(config: AccountConfig): ImapFlow {
+export async function createClient(config: AccountConfig): Promise<ImapFlow> {
   const client = new ImapFlow({
     host: config.imapHost,
     port: config.imapPort,
-    secure: true,
-    auth: { user: config.email, pass: config.pass },
+    // 993 is implicit TLS; 143 upgrades with STARTTLS. Hardcoding true broke
+    // any server on 143.
+    secure: config.imapPort === 993,
+    auth: await resolveAuth(config),
     logger: false,
     // Exmail can be slow to greet; default 90s is fine but be explicit.
     greetingTimeout: 30_000,

@@ -1,5 +1,6 @@
 import { ImapFlow } from 'imapflow'
 import nodemailer from 'nodemailer'
+import { resolveAuth, smtpAuth } from './auth.js'
 import type { AccountConfig } from './config.js'
 import { presetFor } from './presets.js'
 
@@ -17,7 +18,7 @@ export interface VerifyResult {
  * password with a bare "AUTHENTICATIONFAILED" and Gmail with a support URL.
  * Translate the common ones into the action the user has to take.
  */
-function explain(err: unknown, stage: 'imap' | 'smtp', config: AccountConfig): string {
+export function explain(err: unknown, stage: 'imap' | 'smtp', config: AccountConfig): string {
   const e = err as {
     message?: string
     code?: string
@@ -28,6 +29,18 @@ function explain(err: unknown, stage: 'imap' | 'smtp', config: AccountConfig): s
   // actual words in responseText, so both have to be considered.
   const raw = [e?.responseText, e?.message].filter(Boolean).join(' ') || String(err ?? '')
   const code = e?.code ?? ''
+  if (config.auth.kind === 'oauth2') {
+    if (config.auth.provider === 'microsoft') {
+      if (stage === 'smtp' && /SmtpClientAuthentication|5\.7\.139|535/i.test(raw)) {
+        return 'Microsoft refused SMTP sign-in. Your organisation has SMTP AUTH turned off for this mailbox — an admin can enable it in the Microsoft 365 admin centre.'
+      }
+      if (e?.authenticationFailed || /AUTHENTICATE failed|AUTHENTICATIONFAILED/i.test(raw)) {
+        return 'Microsoft refused IMAP sign-in. Your organisation may have IMAP turned off for this mailbox — an admin can enable it in the Microsoft 365 admin centre.'
+      }
+    } else if (e?.authenticationFailed || /AUTHENTICATIONFAILED|Invalid credentials/i.test(raw)) {
+      return 'Google refused the sign-in. Sign in again, and make sure you allowed access to Gmail.'
+    }
+  }
   const hint = presetFor(config.email).passwordHint
 
   if (
@@ -72,7 +85,7 @@ async function verifyImap(config: AccountConfig): Promise<number> {
     host: config.imapHost,
     port: config.imapPort,
     secure: config.imapPort === 993,
-    auth: { user: config.email, pass: config.pass },
+    auth: await resolveAuth(config),
     logger: false,
     greetingTimeout: TIMEOUT_MS,
     socketTimeout: TIMEOUT_MS
@@ -91,7 +104,7 @@ async function verifySmtp(config: AccountConfig): Promise<void> {
     host: config.smtpHost,
     port: config.smtpPort,
     secure: config.smtpPort === 465,
-    auth: { user: config.email, pass: config.pass },
+    auth: await smtpAuth(config),
     connectionTimeout: TIMEOUT_MS,
     greetingTimeout: TIMEOUT_MS
   })

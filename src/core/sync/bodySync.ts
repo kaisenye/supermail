@@ -46,7 +46,7 @@ export async function syncBodies(
   if (total === 0) return { fetched: 0 }
 
   let fetched = 0
-  const client = createClient(config)
+  const client = await createClient(config)
   await client.connect()
 
   try {

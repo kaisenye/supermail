@@ -16,12 +16,13 @@ export const LIST_COLS =
 export function upsertAccount(a: Omit<Account, 'id'>): Account {
   const db = getDb()
   db.prepare(
-    `INSERT INTO accounts (email, imap_host, imap_port, smtp_host, smtp_port, auth_ref)
-     VALUES (@email, @imap_host, @imap_port, @smtp_host, @smtp_port, @auth_ref)
+    `INSERT INTO accounts (email, imap_host, imap_port, smtp_host, smtp_port, auth_ref, provider, auth_type)
+     VALUES (@email, @imap_host, @imap_port, @smtp_host, @smtp_port, @auth_ref, @provider, @auth_type)
      ON CONFLICT(email) DO UPDATE SET
        imap_host = excluded.imap_host, imap_port = excluded.imap_port,
        smtp_host = excluded.smtp_host, smtp_port = excluded.smtp_port,
-       auth_ref  = excluded.auth_ref`
+       auth_ref  = excluded.auth_ref,
+       provider  = excluded.provider, auth_type = excluded.auth_type`
   ).run(a)
   return db.prepare('SELECT * FROM accounts WHERE email = ?').get(a.email) as Account
 }

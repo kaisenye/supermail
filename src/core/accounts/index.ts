@@ -20,7 +20,9 @@ export function bootstrapAccount(envPath: string): {
     imap_port: config.imapPort,
     smtp_host: config.smtpHost,
     smtp_port: config.smtpPort,
-    auth_ref: null
+    auth_ref: null,
+    provider: 'imap',
+    auth_type: 'password'
   })
   return { account, config }
 }

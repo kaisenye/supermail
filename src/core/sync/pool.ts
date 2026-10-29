@@ -37,6 +37,7 @@ export class ImapPool {
   private waiters: ((e: Entry) => void)[] = []
   private keepalive: ReturnType<typeof setInterval> | null = null
   private closed = false
+  private connecting = 0
 
   constructor(private config: AccountConfig) {}
 
@@ -73,14 +74,24 @@ export class ImapPool {
     // Drop anything the server hung up on before deciding we are at capacity.
     this.entries = this.entries.filter((e) => e.client.usable || e.busy)
 
-    if (this.entries.length < MAX_CONNECTIONS) {
-      const client = createClient(this.config)
+    if (this.entries.length + this.connecting < MAX_CONNECTIONS) {
+      // Count the slot before the first await: getting an OAuth token is async,
+      // and two acquires racing past the check would open a fourth connection.
+      this.connecting++
+      let client: ImapFlow
+      try {
+        client = await createClient(this.config)
+      } catch (err) {
+        this.connecting--
+        throw err
+      }
       const entry: Entry = { client, busy: true }
       // ImapFlow is an EventEmitter: an unhandled 'error' — a socket timeout on
       // an idle pooled connection, most often — would crash the main process.
       // imapflow only self-recovers these while IDLE, which pooled ones never are.
       client.on('error', () => this.discard(entry))
       this.entries.push(entry)
+      this.connecting--
       try {
         await client.connect()
       } catch (err) {

@@ -55,9 +55,10 @@ const PRESETS: Array<{ match: RegExp; preset: ProviderPreset }> = [
       label: 'Outlook',
       imapHost: 'outlook.office365.com',
       imapPort: 993,
-      smtpHost: 'smtp-mail.outlook.com',
+      smtpHost: 'smtp.office365.com',
       smtpPort: 587,
-      smtpSavesSent: true
+      smtpSavesSent: true,
+      passwordHint: 'Microsoft no longer accepts passwords for IMAP. Use "Continue with Microsoft".'
     }
   },
   {
@@ -145,4 +146,18 @@ export function listPresets(): ProviderPreset[] {
 
 export function presetById(id: string): ProviderPreset | null {
   return PRESETS.find((p) => p.preset.id === id)?.preset ?? null
+}
+
+/** Server settings for an OAuth provider; independent of the address domain (Workspace, M365 tenants). */
+export function providerPreset(provider: 'gmail' | 'microsoft'): ProviderPreset {
+  if (provider === 'gmail') return PRESETS.find((p) => p.preset.id === 'gmail')!.preset
+  return {
+    id: 'microsoft',
+    label: 'Microsoft 365',
+    imapHost: 'outlook.office365.com',
+    imapPort: 993,
+    smtpHost: 'smtp.office365.com',
+    smtpPort: 587,
+    smtpSavesSent: true
+  }
 }

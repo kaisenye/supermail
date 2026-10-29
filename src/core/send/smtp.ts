@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer'
+import { smtpAuth } from '../accounts/auth.js'
 import { formatFromHeader, type AccountConfig } from '../accounts/config.js'
 
 export interface OutboundAttachment {
@@ -36,7 +37,7 @@ export async function sendSmtp(
     host: config.smtpHost,
     port: config.smtpPort,
     secure: config.smtpPort === 465,
-    auth: { user: config.email, pass: config.pass }
+    auth: await smtpAuth(config)
   })
 
   const info = await transport.sendMail({

@@ -2,7 +2,8 @@ import { existsSync } from 'fs'
 import { getSettings, listAccounts, setSetting, upsertAccount } from '../store/repo.js'
 import type { Account } from '../store/types.js'
 import { loadAccountConfig, type AccountConfig } from './config.js'
-import { presetFor } from './presets.js'
+import type { MailProvider, OAuthProvider } from './auth.js'
+import { presetFor, providerPreset } from './presets.js'
 import { authRefFor, deletePassword, getPassword, setPassword } from './vault.js'
 
 /** The From: display name is per-account state, not a connection setting. */
@@ -35,7 +36,8 @@ export interface NewAccountInput {
 export function toConfig(input: NewAccountInput): AccountConfig {
   return {
     email: input.email.trim(),
-    pass: input.pass,
+    auth: { kind: 'password', pass: input.pass },
+    provider: 'imap',
     name: input.name?.trim() || null,
     imapHost: input.imapHost.trim(),
     imapPort: input.imapPort,
@@ -59,43 +61,92 @@ export function saveAccount(input: NewAccountInput): { account: Account; config:
     imap_port: config.imapPort,
     smtp_host: config.smtpHost,
     smtp_port: config.smtpPort,
-    auth_ref: null
+    auth_ref: null,
+    provider: 'imap',
+    auth_type: 'password'
   })
   const ref = authRefFor(row.id)
-  setPassword(ref, config.pass)
+  if (config.auth.kind !== 'password') throw new Error('saveAccount is for password accounts')
+  setPassword(ref, config.auth.pass)
   const account = upsertAccount({
     email: config.email,
     imap_host: config.imapHost,
     imap_port: config.imapPort,
     smtp_host: config.smtpHost,
     smtp_port: config.smtpPort,
-    auth_ref: ref
+    auth_ref: ref,
+    provider: 'imap',
+    auth_type: 'password'
   })
   // Display name is not a connection setting, so it lives in settings.
   return { account, config }
+}
+
+export interface NewOAuthAccountInput {
+  email: string
+  name: string | null
+  provider: Exclude<MailProvider, 'imap'>
+  oauthProvider: OAuthProvider
+  refreshToken: string
+}
+
+/**
+ * Same shape as saveAccount, but the vault holds the refresh token as JSON
+ * instead of a password. Re-signing in to an existing address updates it in
+ * place (upsert by email), which is also how re-auth works.
+ */
+export function saveOAuthAccount(input: NewOAuthAccountInput): { account: Account; config: AccountConfig } {
+  const p = providerPreset(input.provider)
+  const meta = {
+    email: input.email.trim(),
+    imap_host: p.imapHost,
+    imap_port: p.imapPort,
+    smtp_host: p.smtpHost,
+    smtp_port: p.smtpPort,
+    provider: input.provider,
+    auth_type: 'oauth2' as const
+  }
+  const row = upsertAccount({ ...meta, auth_ref: null })
+  const ref = authRefFor(row.id)
+  setPassword(ref, JSON.stringify({ refreshToken: input.refreshToken }))
+  const account = upsertAccount({ ...meta, auth_ref: ref })
+  return { account, config: configForAccount(account, input.name)! }
 }
 
 export function forgetAccount(account: Account): void {
   if (account.auth_ref) deletePassword(account.auth_ref)
 }
 
-/** Null when the keychain has no secret for the row — the user must re-auth. */
-export function configForAccount(
-  account: Account,
-  name: string | null
-): AccountConfig | null {
+/** Null when the vault has no secret for the row — the user must re-auth. */
+export function configForAccount(account: Account, name: string | null): AccountConfig | null {
   const ref = account.auth_ref ?? authRefFor(account.id)
-  const pass = getPassword(ref)
-  if (!pass) return null
+  const secret = getPassword(ref)
+  if (!secret) return null
   const smtpHost = account.smtp_host ?? presetFor(account.email).smtpHost
-  return {
-    email: account.email,
-    pass,
-    name,
+  const hosts = {
     imapHost: account.imap_host ?? presetFor(account.email).imapHost,
     imapPort: account.imap_port ?? 993,
     smtpHost,
-    smtpPort: account.smtp_port ?? 465,
+    smtpPort: account.smtp_port ?? 465
+  }
+  if (account.auth_type === 'oauth2') {
+    const provider = account.provider === 'microsoft' ? 'microsoft' : 'gmail'
+    return {
+      email: account.email,
+      name,
+      ...hosts,
+      provider,
+      auth: { kind: 'oauth2', provider: provider === 'gmail' ? 'google' : 'microsoft', ref },
+      // Gmail and Exchange both file SMTP submissions into Sent themselves.
+      smtpSavesSent: true
+    }
+  }
+  return {
+    email: account.email,
+    name,
+    ...hosts,
+    provider: 'imap',
+    auth: { kind: 'password', pass: secret },
     smtpSavesSent: /\.qq\.com$/i.test(smtpHost) || presetFor(account.email).smtpSavesSent
   }
 }
@@ -125,7 +176,9 @@ export function migrateEnvAccount(envPath: string): { account: Account; config: 
     const live = configForAccount(existing, displayNameFor(existing.id) ?? config.name)
     return live ? { account: existing, config: live } : null
   }
-  const saved = saveAccount({ ...config, smtpSavesSent: config.smtpSavesSent })
+  // .env.local only ever holds a password account.
+  if (config.auth.kind !== 'password') return null
+  const saved = saveAccount({ ...config, pass: config.auth.pass, smtpSavesSent: config.smtpSavesSent })
   rememberDisplayName(saved.account.id, config.name)
   return saved
 }
