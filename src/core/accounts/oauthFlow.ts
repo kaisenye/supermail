@@ -66,7 +66,12 @@ export function waitForRedirect(opts: {
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address() as AddressInfo
       redirectUri = `http://${opts.host}:${port}/callback`
-      opts.openUrl(opts.buildUrl(redirectUri, state)).catch((e: Error) => finish(e))
+      // buildUrl throws synchronously when the provider has no client id; inside
+      // this listen callback that escaped as an uncaught exception and left the
+      // sign-in waiting out the full timeout.
+      Promise.resolve()
+        .then(() => opts.openUrl(opts.buildUrl(redirectUri, state)))
+        .catch((e: Error) => finish(e))
     })
   })
 }

@@ -72,6 +72,21 @@ describe('waitForRedirect', () => {
     expect(await page).toContain('&lt;img src=x onerror=&quot;alert(1)&quot;&gt;')
   })
 
+  it('fails at once when the auth URL cannot be built (provider not configured)', async () => {
+    const t0 = Date.now()
+    await expect(
+      waitForRedirect({
+        host: '127.0.0.1',
+        buildUrl: () => {
+          throw new Error('Google sign-in is not configured')
+        },
+        openUrl: async () => {},
+        timeoutMs: 5_000
+      })
+    ).rejects.toThrow(/not configured/)
+    expect(Date.now() - t0).toBeLessThan(1_000)
+  })
+
   it('times out if the browser never comes back', async () => {
     await expect(
       waitForRedirect({ host: '127.0.0.1', buildUrl, openUrl: async () => {}, timeoutMs: 50 })
