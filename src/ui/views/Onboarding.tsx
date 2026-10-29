@@ -37,6 +37,7 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [stageField, setStageField] = useState<'imap' | 'smtp' | null>(null)
+  const [oauthBusy, setOauthBusy] = useState<'google' | 'microsoft' | null>(null)
   const emailRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -93,6 +94,23 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
     onConnected()
   }, [valid, busy, email, pass, name, hosts, preset, onConnected])
 
+  const signIn = useCallback(
+    async (provider: 'google' | 'microsoft') => {
+      if (oauthBusy) return
+      setOauthBusy(provider)
+      setError(null)
+      const res = await window.api.accountOAuth(provider)
+      setOauthBusy(null)
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      setStage('syncing')
+      onConnected()
+    },
+    [oauthBusy, onConnected]
+  )
+
   if (stage === 'welcome') {
     return (
       <div className="onboard">
@@ -120,6 +138,40 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
             <span className="onboard-provider">{preset.label}</span>
           )}
         </header>
+
+        <div className="onboard-providers">
+          <button
+            type="button"
+            className="onboard-provider-btn"
+            disabled={!!oauthBusy || busy}
+            onClick={() => void signIn('google')}
+          >
+            {oauthBusy === 'google' ? (
+              <Loader2 size={14} strokeWidth={2} className="onboard-spin" />
+            ) : null}
+            Continue with Google
+          </button>
+          <button
+            type="button"
+            className="onboard-provider-btn"
+            disabled={!!oauthBusy || busy}
+            onClick={() => void signIn('microsoft')}
+          >
+            {oauthBusy === 'microsoft' ? (
+              <Loader2 size={14} strokeWidth={2} className="onboard-spin" />
+            ) : null}
+            Continue with Microsoft
+          </button>
+          {oauthBusy && <p className="onboard-note">Finish signing in in your browser…</p>}
+          {error && !email && (
+            <p className="onboard-error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="onboard-divider">
+            <span>or any IMAP mailbox</span>
+          </div>
+        </div>
 
         <form
           className="onboard-form"
@@ -232,7 +284,7 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
             </div>
           )}
 
-          {error && (
+          {error && email && (
             <p className="onboard-error" role="alert">
               {error}
             </p>

@@ -3298,3 +3298,17 @@ button.sidebar-account svg {
     background: var(--surface-hover);
   }
 }
+
+.onboard-providers { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
+.onboard-provider-btn {
+  display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+  height: 36px; border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong); background: var(--bg-raised); color: var(--text-primary);
+  font: inherit; font-size: var(--text-base); cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+.onboard-provider-btn:hover:not(:disabled) { background: var(--surface-hover); }
+.onboard-provider-btn:disabled { opacity: 0.6; cursor: default; }
+.onboard-note { margin: 0; color: var(--text-tertiary); font-size: var(--text-sm); text-align: center; }
+.onboard-divider { display: flex; align-items: center; gap: var(--space-2); color: var(--text-tertiary); font-size: var(--text-sm); }
+.onboard-divider::before, .onboard-divider::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
