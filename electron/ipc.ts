@@ -9,6 +9,7 @@ import {
   syncAccount
 } from '../src/core/sync/syncEngine.js'
 import { ensureBody } from '../src/core/sync/fetchBody.js'
+import { shouldSyncFolder } from '../src/core/sync/folderFilter.js'
 import { syncBodies } from '../src/core/sync/bodySync.js'
 import { FlagWriter } from '../src/core/sync/flagWriter.js'
 import { MoveWriter } from '../src/core/sync/moveWriter.js'
@@ -454,9 +455,13 @@ export function registerIpc(): void {
     return { ok: true as const, restored: batch.jobs.map((j) => j.id) }
   })
 
+  // Gmail labels and All Mail are not synced, so listing them would show
+  // folders that stay empty forever.
   ipcMain.handle('folders:list', () => {
     const s = getBootState()
-    return s.ok ? listFolders(s.accountId) : []
+    return s.ok
+      ? listFolders(s.accountId).filter((f) => shouldSyncFolder(s.config.provider, f))
+      : []
   })
 
   ipcMain.handle('settings:get', () => getSettings())
