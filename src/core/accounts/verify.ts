@@ -31,7 +31,7 @@ export function explain(err: unknown, stage: 'imap' | 'smtp', config: AccountCon
   const code = e?.code ?? ''
   if (config.auth.kind === 'oauth2') {
     if (config.auth.provider === 'microsoft') {
-      if (stage === 'smtp' && /SmtpClientAuthentication|5\.7\.139|535/i.test(raw)) {
+      if (stage === 'smtp' && /SmtpClientAuthentication|5\.7\.139/i.test(raw)) {
         return 'Microsoft refused SMTP sign-in. Your organisation has SMTP AUTH turned off for this mailbox — an admin can enable it in the Microsoft 365 admin centre.'
       }
       if (e?.authenticationFailed || /AUTHENTICATE failed|AUTHENTICATIONFAILED/i.test(raw)) {

@@ -26,6 +26,11 @@ describe('explain', () => {
     expect(msg).toMatch(/SMTP AUTH/)
   })
 
+  it('does not blame SMTP AUTH for a generic Microsoft 535', () => {
+    const msg = explain({ responseText: '535 5.7.3 Authentication unsuccessful' }, 'smtp', ms)
+    expect(msg).not.toMatch(/SMTP AUTH/)
+  })
+
   it('tells a Google user to sign in again rather than fix a password', () => {
     const g: AccountConfig = { ...ms, provider: 'gmail', auth: { kind: 'oauth2', provider: 'google', ref: 'a' } }
     expect(explain({ authenticationFailed: true }, 'imap', g)).toMatch(/sign in again/i)

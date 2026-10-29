@@ -4,7 +4,9 @@ import type { AccountConfig } from '../accounts/config.js'
 // The real createClient resolves auth and builds an ImapFlow; the pool only
 // needs something that connects, logs out and reports `usable`.
 vi.mock('./imap.js', () => ({ createClient: vi.fn() }))
+vi.mock('../accounts/oauth.js', () => ({ invalidateAccessToken: vi.fn() }))
 
+import { invalidateAccessToken } from '../accounts/oauth.js'
 import { createClient } from './imap.js'
 import { ImapPool } from './pool.js'
 
@@ -42,6 +44,7 @@ afterEach(async () => {
   await pool?.close()
   pool = null
   mocked.mockReset()
+  vi.mocked(invalidateAccessToken).mockReset()
 })
 
 describe('ImapPool', () => {
@@ -101,5 +104,32 @@ describe('ImapPool', () => {
 
     await expect(lease).rejects.toThrow('pool closed')
     expect(late.connect).not.toHaveBeenCalled()
+  })
+
+  it('forgets a rejected OAuth access token so the next connect refreshes', async () => {
+    const authFail = Object.assign(new Error('AUTHENTICATE failed'), { authenticationFailed: true })
+    const c = fakeClient()
+    c.connect.mockRejectedValueOnce(authFail)
+    mocked.mockResolvedValue(c as never)
+    const oauth = {
+      email: 'me@gmail.com',
+      auth: { kind: 'oauth2', provider: 'google', ref: 'r1' }
+    } as AccountConfig
+    pool = new ImapPool(oauth)
+    await expect(pool.withConnection(async () => {})).rejects.toBe(authFail)
+    expect(invalidateAccessToken).toHaveBeenCalledWith('r1')
+  })
+
+  it('leaves the token cache alone for other connect failures', async () => {
+    const c = fakeClient()
+    c.connect.mockRejectedValueOnce(new Error('ETIMEDOUT'))
+    mocked.mockResolvedValue(c as never)
+    const oauth = {
+      email: 'me@gmail.com',
+      auth: { kind: 'oauth2', provider: 'google', ref: 'r1' }
+    } as AccountConfig
+    pool = new ImapPool(oauth)
+    await expect(pool.withConnection(async () => {})).rejects.toThrow('ETIMEDOUT')
+    expect(invalidateAccessToken).not.toHaveBeenCalled()
   })
 })

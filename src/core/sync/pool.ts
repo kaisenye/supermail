@@ -106,6 +106,15 @@ export class ImapPool {
         await client.connect()
       } catch (err) {
         this.entries = this.entries.filter((e) => e !== entry)
+        // The server rejected a cached access token (revoked, or clock skew
+        // around expiry). Drop it so the next attempt refreshes instead of
+        // replaying the same token until it ages out. Dynamic import keeps
+        // the vault (and Electron) out of this module's static graph.
+        const auth = this.config.auth
+        if (auth?.kind === 'oauth2' && (err as { authenticationFailed?: boolean }).authenticationFailed) {
+          const { invalidateAccessToken } = await import('../accounts/oauth.js')
+          invalidateAccessToken(auth.ref)
+        }
         if (!this.closed) this.pumpWaiters()
         throw err
       }
