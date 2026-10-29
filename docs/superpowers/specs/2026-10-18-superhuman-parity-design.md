@@ -10,6 +10,10 @@ generic IMAP/SMTP accounts we already handle.
 Superhuman was benchmarked from public sources only: the help center, the official shortcut PDF (v8), their
 engineering blog, and talks. We did not unpack their app.
 
+Scape (Gmail-only AI client, YC S24) was also studied from the outside on 2026-10-29: the app used read-only, process
+and storage inspection, and public sources. See `docs/research/2026-10-29-scape-teardown.md`. Items taken from it
+are marked *(Scape)* below.
+
 ## Decisions (2026-10-18)
 
 | Question | Decision |
@@ -94,10 +98,18 @@ Each phase gets its own implementation plan and ships on its own. The order is s
 
 ### Phase 2 — Superhuman triage core
 
+**List read model first** *(Scape)*. Splits, filter chips and per-view counts all need one cheap way to list rows.
+- Add a `list_rows` table: one row per (account, view, thread), holding the newest message id, date, unread count and message count.
+- Mark rows dirty on message upsert, flag change or move, and rebuild only dirty rows.
+- A drift check repairs counts that go stale; Scape's schema has `readModelDriftState` for this.
+- This replaces the per-page GROUP BY in `listInbox` (`repo.ts`), so a view becomes a single indexed read.
+
 | Feature | Key | Notes |
 |---|---|---|
 | Done / Not done | `E` / `⇧E` | Move to the archive role. Exmail has no Archive folder, so it is created once only after the user confirms in Settings (this avoids the snooze mistake). `g e` opens the Done view. |
-| Undo anything | `Z` | 10s, built on the Phase 0 queue. Replaces the separate send/trash toasts. |
+| Undo anything | `Z` | Built on the Phase 0 queue. Replaces the separate send/trash toasts. The window is adjustable in Settings (3s, 5s, 10s, 20s) *(Scape)*; the undo-move hold in main and the toast read the same setting. |
+| Filter chips | `⇧U` `⇧R` | Chips above the list *(Scape)*: Unread, Needs reply (last message is from someone else and you haven't answered), Waiting (last message is yours). Each is a saved `search.ts` query, so it also works as a split. |
+| Grouping | `⇧D` | Group the list by date ("Today", "Last week", month) *(Scape)*. Section headers live in the virtual list; no new query. Scape also groups by unread with `⇧U`; here `⇧U` stays the unread filter. |
 | Remind me | `H`, `⌘⇧H` in compose | **Local only.** A `reminders` table keyed by account + Message-ID, with `remind_at` and `if_no_reply`. The message is hidden from the local inbox while pending and nothing is moved on the server. Natural-language time picker. `g h` opens the Reminders view. |
 | Split inbox | `Tab` / `⇧Tab` | Splits are saved `search.ts` queries. Built in: Important / Other (Other = `List-Unsubscribe` / bulk headers or senders you never replied to), VIP, plus custom splits. Each shows a count. |
 | Get me to zero | palette | Bulk Done for mail older than N days, optionally keeping unread or starred mail. Undo is available. |
@@ -106,19 +118,29 @@ Each phase gets its own implementation plan and ships on its own. The order is s
 | Mute | `⇧M` | A local rule: new replies in the thread skip the inbox. |
 | Unsubscribe | `⌘U` | `List-Unsubscribe`: RFC 8058 one-click POST, or mailto. Always confirms first. |
 | Spam | `!` | Move to the junk role. |
-| Filters / select | `⇧U` `⇧S` · `⌘A` `⇧J/⇧K` | — |
+| Starred filter / select | `⇧S` · `⌘A` `⇧J/⇧K` | `⇧U` and `⇧R` are the filter chips above. |
 
 ### Phase 3 — Read / write power, and beating Superhuman
 
+- **Workspace tabs and history** *(Scape)*:
+  - Each tab holds a view (a folder, split, search or thread). `⌘T` opens a tab, `⌘W` closes it, `⌘1–9` jumps to one, and `⌃Tab` / `⌃⇧Tab` cycles.
+  - Each tab keeps its own back/forward history, driven by `⌘[` / `⌘]`.
+  - Tabs and history are renderer state, persisted per window. Every entry is a registry command.
+  - `⌘1–9` is no longer free for accounts, so account switching stays on `Ctrl+1–9` (below).
 - **Thread:**
   - Expand one message or all (`O` / `⇧O`), next and previous message (`N` / `P`), page with `Space` / `⇧Space`.
   - `⌘O` opens links and attachments; `Tab` cycles through links.
+  - `↵` in a thread replies all *(Scape, also Superhuman)*. `r` stays as reply.
+  - A position counter ("15 / 201") with up/down buttons in the thread header *(Scape)*.
 - **Compose:**
   - Snippets with variables, inserted with `;` inline or the `⌘;` picker, from a local `snippets` table.
   - Instant Intro (`⌘⇧I`).
   - Send + Done (`⌘⇧↵`) and send later (`⌘⇧L`).
   - Field jumps (`⌘⇧O/C/B/S`).
-- **Search:** add `OR`, `-term`, `"phrase"`, `in:`, `label:` and `before:` / `after:` to `search.ts`. Gmail accounts fall back to `X-GM-RAW` on the server.
+  - **Cancel a scheduled send when someone replies** *(Scape)*. This is a per-send toggle, with the default set in Settings. When the pipeline stores an inbound message whose References / In-Reply-To match a pending outbox row's thread, that row is cancelled and a notice is shown. Local only, like the rest of the outbox.
+- **Search:**
+  - Add `OR`, `-term`, `"phrase"`, `in:`, `label:` and `before:` / `after:` to `search.ts`. Gmail accounts fall back to `X-GM-RAW` on the server.
+  - **Unified search** *(Scape)*: one search page with Emails / Contacts / Tasks scopes. Contacts come from the existing `searchContacts`. Tasks need an FTS index over `tasks`.
 - **Contact pane:** recent mail with this person and how often you've replied, all from the local DB with no third-party enrichment.
 - **Where we beat Superhuman:**
   - A **unified inbox** across accounts (needs Phase 0.2).
@@ -132,8 +154,12 @@ Each phase gets its own implementation plan and ships on its own. The order is s
 - Features, each opt-in:
   - Write with AI (`⌘J`: draft, shorten, fix, tone).
   - Instant Reply (3 suggestions).
+    - **Precomputed** *(Scape)*: a background processor writes the suggestions to a `reply_options` table for new inbound mail that needs a reply, so they are already there when the thread opens.
+    - Skip bulk and notification mail. Respect a daily budget cap set in Settings, because the user pays for the key.
   - Auto-summary line, generated on demand and cached in `messages.summary`.
   - Auto-labels / Important classifier feeding the splits, as a pipeline processor.
+    - Store the model's one-line reason next to the label *(Scape: `emailClassificationReasoning`)*, so the user can see why a mail landed in Other.
+  - **Ask AI from ⌘K** *(Scape)*: `Tab` in the palette switches from commands to a question about the mail, answered over local FTS results.
 - A privacy note in Settings: message content goes to the provider you chose.
 
 ## Out of scope (for now)
@@ -161,6 +187,8 @@ Each phase gets its own implementation plan and ships on its own. The order is s
   - Folder-role resolution.
   - The command registry (no duplicate keys, the shortcut sheet is generated).
   - The split-query parser.
+  - `list_rows` stays equal to a fresh GROUP BY after random upserts, flag changes and moves (property-style test).
+  - Cancel-on-reply matches only the scheduled send's own thread.
   - Reminder wake logic and natural-language dates.
   - Gmail label mapping.
   - List-Unsubscribe parsing.
