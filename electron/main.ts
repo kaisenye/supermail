@@ -11,6 +11,8 @@ import {
   migrateEnvAccount
 } from '../src/core/accounts/manage.js'
 import { initVault } from '../src/core/accounts/vault.js'
+import { onReauthRequired } from '../src/core/accounts/oauth.js'
+import { listAccounts as storedAccounts } from '../src/core/store/repo.js'
 import { startOutboxWorker } from '../src/core/send/flush.js'
 import { stopIdleWatcher } from '../src/core/sync/idle.js'
 import { closePool } from '../src/core/sync/pool.js'
@@ -152,6 +154,14 @@ app.whenReady().then(() => {
   setDevDockIcon()
   boot()
   registerIpc()
+  // Google's Testing-mode refresh tokens expire after 7 days, and either
+  // provider can revoke one. Tell the renderer which address needs a new
+  // sign-in instead of letting sync fail silently.
+  onReauthRequired((ref) => {
+    const acct = storedAccounts().find((a) => a.auth_ref === ref)
+    if (!acct) return
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.send('account:reauth', acct.email)
+  })
   startOutboxWorker(
     (accountId) => getAccount(accountId)?.config ?? null,
     undefined,
