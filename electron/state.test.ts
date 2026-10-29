@@ -4,9 +4,11 @@ import {
   addAccount,
   clearNeedsReauth,
   getBootStatus,
+  getActiveAccount,
   listAccounts,
   markNeedsReauth,
-  removeAccount
+  removeAccount,
+  setActiveAccount
 } from './state.js'
 
 function config(email: string): AccountConfig {
@@ -36,5 +38,18 @@ describe('needsReauth', () => {
     markNeedsReauth('a@gmail.com')
     clearNeedsReauth('A@Gmail.com')
     expect(getBootStatus().accounts[0]?.needsReauth).toBe(false)
+  })
+})
+
+describe('addAccount', () => {
+  it('replacing a live account keeps its sidebar slot and the active account', () => {
+    addAccount({ accountId: 1, email: 'a@gmail.com', config: config('a@gmail.com') })
+    addAccount({ accountId: 2, email: 'b@gmail.com', config: config('b@gmail.com') })
+    setActiveAccount(2)
+    const fresh = config('a@gmail.com')
+    addAccount({ accountId: 1, email: 'a@gmail.com', config: fresh })
+    expect(listAccounts().map((a) => a.accountId)).toEqual([1, 2])
+    expect(listAccounts()[0]?.config).toBe(fresh)
+    expect(getActiveAccount()?.accountId).toBe(2)
   })
 })

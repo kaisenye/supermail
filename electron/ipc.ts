@@ -343,13 +343,15 @@ export function registerIpc(): void {
         return { ok: false as const, error: check.message ?? 'connection failed' }
       }
       // A re-auth replaces the live config so pools pick up the new token ref.
-      if (getAccount(account.id)) {
-        stopAccountWorkers(account.email)
-        removeAccountFromState(account.id)
-      }
+      // Overwriting in place keeps the sidebar order and the active account;
+      // remove-then-add would hand "active" to whichever account is first.
+      if (getAccount(account.id)) stopAccountWorkers(account.email)
       addAccountToState({ accountId: account.id, email: account.email, config })
       clearNeedsReauth(account.email)
-      setActiveAccount(account.id)
+      // Only a new account becomes active. A re-auth must not retarget
+      // compose/send (getBootState) away from the account the renderer shows,
+      // since nothing reloads the window here.
+      if (!existing) setActiveAccount(account.id)
       startAccountWorkers(config)
       return { ok: true as const, accountId: account.id, email: account.email }
     } catch (e) {
