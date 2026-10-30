@@ -99,6 +99,9 @@ async function verifyImap(config: AccountConfig): Promise<number> {
     greetingTimeout: TIMEOUT_MS,
     socketTimeout: TIMEOUT_MS
   })
+  // Same as createClient: a late socket timeout is emitted as 'error', and
+  // with no listener it becomes an uncaught exception in main.
+  client.on('error', () => {})
   await client.connect()
   try {
     return (await client.list()).length
