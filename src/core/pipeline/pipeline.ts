@@ -3,6 +3,7 @@ import { getDb } from '../store/db.js'
 import { setMessageLabels } from '../store/labels.js'
 import { upsertMessage } from '../store/repo.js'
 import { cancelAndNotify } from '../send/cancelOnReply.js'
+import { enqueueForMessage } from '../ai/queue.js'
 import type { MsgCtx, Processor, RawMessage } from './types.js'
 
 export interface PipelineResult {
@@ -88,6 +89,16 @@ export async function runPipeline(
       cancelAndNotify(id)
     } catch (e) {
       errors.push({ processor: 'cancelOnReply', message: (e as Error).message })
+    }
+  }
+
+  // Opt-in AI (Phase 4): queue new Inbox mail for the background worker
+  // (electron/aiWorker.ts). Reads settings only; never calls a provider here.
+  if (id !== null && raw.folderId !== null) {
+    try {
+      enqueueForMessage(id)
+    } catch (e) {
+      errors.push({ processor: 'aiQueue', message: (e as Error).message })
     }
   }
 

@@ -140,3 +140,40 @@ describe('migration v20 (phase 3)', () => {
     db.close()
   })
 })
+
+describe('migration v21 (AI)', () => {
+  it('adds the AI tables and the verdict columns on list rows', () => {
+    const db = new Database(join(mkdtempSync(join(tmpdir(), 'migrate-')), 't.db'))
+    db.pragma('foreign_keys = ON')
+    migrate(db, 20)
+    db.prepare("INSERT INTO accounts (id,email) VALUES (1,'me@x.test')").run()
+    db.prepare("INSERT INTO folders (id,account_id,name,path,role) VALUES (1,1,'INBOX','INBOX','inbox')").run()
+    db.prepare(
+      `INSERT INTO messages (account_id, folder_id, uid, message_id, thread_id, from_addr, to_addrs, cc_addrs, date, flags)
+       VALUES (1, 1, 1, '<a@t>', 't1', 'x@y.test', '[]', '[]', 10, '[]')`
+    ).run()
+
+    expect(migrate(db)).toBeGreaterThanOrEqual(21)
+
+    const cols = (t: string) =>
+      (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)
+    expect(cols('list_rows')).toEqual(expect.arrayContaining(['ai_important', 'ai_category']))
+    expect(cols('ai_classifications')).toEqual(
+      expect.arrayContaining(['account_id', 'message_id', 'important', 'category', 'reason', 'model'])
+    )
+    expect(cols('reply_options')).toEqual(expect.arrayContaining(['account_id', 'message_id', 'options']))
+    expect(cols('ai_jobs')).toEqual(
+      expect.arrayContaining(['account_id', 'message_id', 'kind', 'status', 'attempts', 'next_at'])
+    )
+    expect(cols('ai_usage')).toEqual(
+      expect.arrayContaining(['day', 'provider', 'model', 'feature', 'calls', 'cost_micros'])
+    )
+    // One job per message and kind.
+    const ins = db.prepare(
+      "INSERT OR IGNORE INTO ai_jobs (account_id, message_id, kind, created_at) VALUES (1, '<a@t>', 'classify', 1)"
+    )
+    expect(ins.run().changes).toBe(1)
+    expect(ins.run().changes).toBe(0)
+    db.close()
+  })
+})

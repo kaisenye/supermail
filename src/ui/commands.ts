@@ -67,6 +67,7 @@ export type CommandId =
   | 'msg.select'
   | 'undo'
   | 'triage.zero'
+  | 'ai.ask'
   | 'split.next'
   | 'split.prev'
   | 'filter.unread'
@@ -92,6 +93,8 @@ export type CommandId =
   | 'thread.prevLink'
   | 'thread.open'
   | 'thread.contactPane'
+  | 'thread.summarize'
+  | `reply.option${'1' | '2' | '3'}`
   | 'compose.send'
   | 'compose.remind'
   | 'compose.sendDone'
@@ -102,6 +105,7 @@ export type CommandId =
   | 'compose.focusBcc'
   | 'compose.focusSubject'
   | 'compose.snippet'
+  | 'compose.ai'
   | 'format.bold'
   | 'format.italic'
   | 'format.underline'
@@ -212,6 +216,8 @@ export const COMMANDS: Command[] = [
   { id: 'msg.select', title: 'Select', group: 'Message', keys: [{ kind: 'key', key: 'x', modes: ['list'] }] },
   { id: 'undo', title: 'Undo', group: 'Message', palette: true, keys: [{ kind: 'key', key: 'z', modes: LIST_THREAD }] },
   { id: 'triage.zero', title: 'Get me to zero…', group: 'General', palette: true, keys: [] },
+  // Inside ⌘K, ⇥ switches to Ask AI (palette-local); ⌘J opens the palette there directly.
+  { id: 'ai.ask', title: 'Ask AI about your mail', group: 'General', keys: [{ kind: 'mod', key: 'j', modes: NAV_MODES }] },
 
   // R stays Reply all in a thread; a key may mean different things in different modes.
   { id: 'split.next', title: 'Next split', group: 'List', keys: [{ kind: 'key', key: 'Tab', modes: ['list'] }] },
@@ -247,6 +253,17 @@ export const COMMANDS: Command[] = [
   { id: 'thread.prevLink', title: 'Previous link', group: 'In a thread', keys: [{ kind: 'key', key: 'Shift+Tab', modes: ['thread'] }] },
   { id: 'thread.open', title: 'Open link or attachment', group: 'In a thread', keys: [{ kind: 'mod', key: 'o', modes: ['thread'] }] },
   { id: 'thread.contactPane', title: 'Show / hide contact pane', group: 'In a thread', palette: true, keys: [{ kind: 'key', key: 'i', modes: ['thread'] }] },
+  { id: 'thread.summarize', title: 'Summarize conversation', group: 'In a thread', palette: true, keys: [] },
+  // Instant Reply (Phase 4): bare digits are free in a thread (⌃ / ⌘ digits are accounts and tabs).
+  ...(['1', '2', '3'] as const).map(
+    (d): Command => ({
+      id: `reply.option${d}`,
+      title: `Instant reply ${d}`,
+      group: 'In a thread',
+      keys: [{ kind: 'key', key: d, modes: ['thread'] }],
+      sheet: d === '1' ? { label: 'Instant reply 1–3', keys: ['1–3'] } : false
+    })
+  ),
 
   { id: 'compose.send', title: 'Send', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'Enter', modes: ['compose'] }] },
   { id: 'compose.sendDone', title: 'Send and mark done', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'Enter', shift: true, modes: ['compose'] }] },
@@ -257,6 +274,7 @@ export const COMMANDS: Command[] = [
   { id: 'compose.focusBcc', title: 'Go to Bcc', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'b', shift: true, modes: ['compose'] }] },
   { id: 'compose.focusSubject', title: 'Go to Subject', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 's', shift: true, modes: ['compose'] }] },
   { id: 'compose.snippet', title: 'Insert snippet…', group: 'Compose', external: true, keys: [{ kind: 'mod', key: ';', modes: ['compose'] }] },
+  { id: 'compose.ai', title: 'Write with AI…', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'j', modes: ['compose'] }] },
   { id: 'compose.remind', title: 'Remind me if no reply', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'h', shift: true, modes: ['compose'] }] },
   { id: 'format.bold', title: 'Bold', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'b', modes: ['compose'] }] },
   { id: 'format.italic', title: 'Italic', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'i', modes: ['compose'] }] },

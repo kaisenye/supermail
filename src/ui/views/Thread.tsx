@@ -13,9 +13,12 @@ import {
 import type { Attachment } from '../../../electron/preload'
 import type { Message } from '../../core/store/types'
 import { decodeEntities, formatDate, senderLabel } from '../format'
+import { replyPick, type ReplyPick } from '../aiInsights'
+import { useAiInsights } from '../hooks/useAiInsights'
 import { cycleIndex, openActiveTarget, stepIndex, toggleAllExpanded } from '../threadNav'
 import { previewKind } from './AttachmentPreview'
 import { MessageBody } from './MessageBody'
+import { ReplySuggestions, ThreadInsightsBar } from './ThreadInsights'
 
 interface Props {
   threadId: string
@@ -28,6 +31,8 @@ interface Props {
   onNextConversation: () => void
   onBack: () => void
   onReply: (all: boolean) => void
+  /** An Instant Reply: App opens Reply with this text, addressed to the message it answers. */
+  onReplyWith: (pick: ReplyPick) => void
   onForward: () => void
   onDone: () => void
   onTrash: () => void
@@ -48,6 +53,9 @@ export interface ThreadHandle {
   page(dir: 1 | -1): void
   cycleLink(delta: number): void
   openActive(): void
+  summarize(): void
+  /** Instant Reply `i` (0-based) with the message it answers, or null when there is none. */
+  replyOption(i: number): ReplyPick | null
 }
 
 export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
@@ -60,6 +68,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     onNextConversation,
     onBack,
     onReply,
+    onReplyWith,
     onForward,
     onDone,
     onTrash,
@@ -80,6 +89,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   const scrollRef = useRef<HTMLDivElement>(null)
   const onLoadedRef = useRef(onLoaded)
   onLoadedRef.current = onLoaded
+  const ai = useAiInsights(threadId, accountId)
 
   useEffect(() => {
     let cancelled = false
@@ -141,9 +151,11 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
         if (!t) return
         if (t.kind === 'link') void window.api.openExternal(t.url)
         else onAttachment(t.attachment, t.kind === 'preview')
-      }
+      },
+      summarize: () => void ai.summarize(),
+      replyOption: (i: number) => replyPick(ai.insights, i)
     }
-  }, [messages, focused, expanded, activeLink, onAttachment])
+  }, [messages, focused, expanded, activeLink, onAttachment, ai.summarize, ai.insights])
 
   if (!messages) return <div className="thread-loading" />
   if (!messages.length)
@@ -214,6 +226,8 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
         </div>
       </header>
 
+      <ThreadInsightsBar insights={ai.insights} busy={ai.busy} error={ai.error} note={ai.note} />
+
       <div className="thread-scroll" ref={scrollRef}>
         {messages.map((m, i) => {
           const open = expanded.has(m.id)
@@ -253,12 +267,17 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
                 <MessageBody
                   messageId={m.id}
                   activeLink={i === focused ? activeLink : null}
-                  onLoaded={(info) => loaded.current.set(m.id, info)}
+                  onLoaded={(info) => {
+                    loaded.current.set(m.id, info)
+                    ai.bodyLoaded()
+                  }}
                 />
               )}
             </article>
           )
         })}
+
+        <ReplySuggestions insights={ai.insights} busy={ai.busy} onUse={onReplyWith} />
 
         {/* Reply lives at the end of the conversation, where you finish reading. */}
         <div className="thread-reply-bar">

@@ -48,15 +48,17 @@ import { ContactPane } from './views/ContactPane'
 import { PenSquare, Plus } from 'lucide-react'
 import { folderLabel, isFlagged, isUnread } from './format'
 import { goDoneTarget, reloadFolders } from './folders'
-import { doneAction, undoRepaint, viewKey, type ViewKey } from './viewScope'
+import { doneAction, pushSyncTarget, undoRepaint, viewKey, type ViewKey } from './viewScope'
 import { appMode, baseMode } from './appMode'
 import { openThreadTarget } from './threadTarget'
 import { positionLabel } from './threadNav'
+import { replySourceId, type ReplyPick } from './aiInsights'
 import { viewQuery, type ChipId } from './chips'
 import { nextSplitId, resolveSplitId } from './splitNav'
 import { dayKey, isInboxZero, nextStreak } from './streak'
 import type { FolderRole, MoveTarget } from '../core/store/folderRoles'
-import { buildForwardBody, buildReplyBody } from './quote'
+import { buildForwardBody, buildReplyBody, signatureBlock } from './quote'
+import { textToHtml } from './aiText'
 import { namedAddress, replyAllCc } from './intro'
 import { applyTheme, isTheme, type Theme } from './theme'
 import { latestOnly } from './latest'
@@ -156,6 +158,7 @@ export default function App() {
     setSyncedOnce,
     hasSyncedOnce,
     paletteOpen,
+    paletteAsk,
     openPalette,
     closePalette,
     compose,
@@ -555,7 +558,17 @@ export default function App() {
     window.addEventListener('focus', onFocus)
     // IDLE push is the fast path; the timer stays as the fallback for when the
     // connection drops or the server never pushes.
-    const offNewMail = window.api.onNewMail(() => void backgroundSync())
+    // A push from another account syncs that account; runSync would only
+    // sync the one on screen and leave this mail for the 60 s poll.
+    const offNewMail = window.api.onNewMail((email) => {
+      if (!email || pushSyncTarget(email, useStore.getState(), UNIFIED_VIEW_ID) === 'view') {
+        void backgroundSync()
+        return
+      }
+      void window.api.runSyncAccount(email).then((res) => {
+        if (res.ok && !res.skipped && res.messages > 0) void refreshUnread()
+      })
+    })
     // Sent gets no IDLE push (the watcher holds INBOX), so the main process
     // tells us when the just-sent copy has landed locally.
     const offSentStored = window.api.onSentStored(() => {
@@ -575,6 +588,12 @@ export default function App() {
       const id = useStore.getState().activeFolderId
       if (id) void loadRows(id, true)
     })
+    // New verdicts move threads between Important and Other.
+    const offAi = window.api.onAiUpdated((p) => {
+      if (!p.kinds.includes('classify')) return
+      const id = useStore.getState().activeFolderId
+      if (id) void loadRows(id, true)
+    })
     // The compose window is long gone by the time a send fails, so this banner
     // is the only thing standing between a failure and silence.
     const offSendFailed = window.api.onSendFailed((f) => {
@@ -591,6 +610,7 @@ export default function App() {
     })
     return () => {
       offReminders()
+      offAi()
       offRethread()
       offSentStored()
       clearInterval(timer)
@@ -1208,7 +1228,7 @@ export default function App() {
 
   /** Signature sits above any quoted text, which is where people expect it. */
   const withSignature = useCallback(
-    (body: string): string => (signature ? `${body}<p><br></p>${signature}` : body),
+    (body: string): string => (signature ? `${body}<p><br></p>${signatureBlock(signature)}` : body),
     [signature]
   )
 
@@ -1217,10 +1237,12 @@ export default function App() {
   }, [openCompose, withSignature])
 
   const startReply = useCallback(
-    async (all: boolean) => {
+    async (all: boolean, prefill?: ReplyPick) => {
       const { openThread: ot, email: activeEmail } = useStore.getState()
       if (!ot) return
-      const msg = await window.api.getMessage(ot.messageId)
+      // An Instant Reply answers the message it was written for, not the opened row.
+      const sourceId = replySourceId(ot.messageId, prefill)
+      const msg = await window.api.getMessage(sourceId)
       if (!msg) return
       // Reply all leaves out the address that received the mail, which in
       // All inboxes need not be the active account's.
@@ -1236,11 +1258,14 @@ export default function App() {
         subject: replySubject(msg.subject),
         inReplyTo: msg.message_id,
         references: [msg.in_reply_to, msg.message_id].filter(Boolean).join(' ') || null,
-        body: signature
-          ? `<p><br></p>${signature}${buildReplyBody(msg)}`
-          : buildReplyBody(msg),
+        // An Instant Reply fills the line you would type on.
+        body: (() => {
+          const top = prefill ? textToHtml(prefill.text) : '<p><br></p>'
+          if (signature) return `${top}${signatureBlock(signature)}${buildReplyBody(msg)}`
+          return prefill ? `${top}${buildReplyBody(msg)}` : buildReplyBody(msg)
+        })(),
         accountId: msg.account_id,
-        sourceMessageId: ot.messageId
+        sourceMessageId: sourceId
       })
     },
     [openCompose, signature, accounts]
@@ -1258,7 +1283,7 @@ export default function App() {
       // A forward starts a new conversation for the recipient, so it carries
       // no In-Reply-To/References — threading it into the original would be wrong.
       body: signature
-        ? `<p><br></p>${signature}${buildForwardBody(msg)}`
+        ? `<p><br></p>${signatureBlock(signature)}${buildForwardBody(msg)}`
         : buildForwardBody(msg),
       accountId: msg.account_id,
       sourceMessageId: ot.messageId
@@ -1331,6 +1356,10 @@ export default function App() {
         // reads as 'modal', and ⌘K must still do nothing while composing.
         'palette.open': () => {
           if (!useStore.getState().compose) openPalette()
+        },
+        // Same rule as ⌘K: nothing opens over compose.
+        'ai.ask': () => {
+          if (!useStore.getState().compose) openPalette(true)
         },
         'compose.new': startCompose,
         'settings.open': () => setSettingsOpen(true),
@@ -1454,6 +1483,20 @@ export default function App() {
             void window.api.setSettings({ contact_pane: on ? '0' : '1' })
             return !on
           })
+        },
+        'thread.summarize': () => threadRef.current?.summarize(),
+        // Instant Reply answers the sender only, like r.
+        'reply.option1': () => {
+          const pick = threadRef.current?.replyOption(0)
+          if (pick) void startReply(false, pick)
+        },
+        'reply.option2': () => {
+          const pick = threadRef.current?.replyOption(1)
+          if (pick) void startReply(false, pick)
+        },
+        'reply.option3': () => {
+          const pick = threadRef.current?.replyOption(2)
+          if (pick) void startReply(false, pick)
         },
         undo: () => runUndo(),
         'split.next': () => cycleSplit(1),
@@ -1754,6 +1797,7 @@ export default function App() {
               onNextConversation={() => stepConversation(1)}
               onBack={closeThread}
               onReply={(all) => void startReply(all)}
+              onReplyWith={(pick) => void startReply(false, pick)}
               onForward={() => void startForward()}
               onTrash={() => void triageFromThread(triageSelected)}
               onDone={() => void triageFromThread(doneSelected)}
@@ -1931,6 +1975,7 @@ export default function App() {
       </main>
       <CommandPalette
         open={paletteOpen}
+        startInAsk={paletteAsk}
         actions={paletteActions}
         onClose={closePalette}
         onOpenMessage={openThreadAndRead}

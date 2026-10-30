@@ -78,3 +78,11 @@ export function buildForwardBody(msg: QuoteSource): string {
     `<p>${rows.join('<br>')}</p>${inner}</div>`
   )
 }
+
+/**
+ * The signature, marked so Write with AI can stop above it. The saved draft
+ * keeps the class; main strips it on queueSend, so the mail carries no marker.
+ */
+export function signatureBlock(signature: string): string {
+  return `<div class="supermail-signature">${signature}</div>`
+}

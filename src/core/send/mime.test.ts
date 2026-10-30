@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { encodeAddressList, encodeHeaderWord, htmlToPlainText } from './mime.js'
+import { encodeAddressList, encodeHeaderWord, htmlToPlainText, stripComposeMarkers } from './mime.js'
 
 describe('encodeHeaderWord', () => {
   it('strips CRLF so a subject cannot inject a header', () => {
@@ -56,5 +56,19 @@ describe('htmlToPlainText', () => {
 
   it('drops script and style content', () => {
     expect(htmlToPlainText('<style>p{color:red}</style>hi')).toBe('hi')
+  })
+})
+
+describe('stripComposeMarkers', () => {
+  it('drops the signature and quote markers from the wire copy', () => {
+    const draft =
+      '<p>Hi</p><div class="supermail-signature"><p>Kai</p></div>' +
+      '<div class="supermail-quote"><blockquote>q</blockquote></div>'
+    expect(stripComposeMarkers(draft)).toBe('<p>Hi</p><div><p>Kai</p></div><div><blockquote>q</blockquote></div>')
+  })
+
+  it('leaves typed text that only reads like a marker', () => {
+    const typed = '<p>class="supermail-quote" &lt;div class="supermail-quote"&gt;</p>'
+    expect(stripComposeMarkers(typed)).toBe(typed)
   })
 })

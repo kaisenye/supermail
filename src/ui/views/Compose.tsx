@@ -7,17 +7,19 @@ import {
   type ClipboardEvent,
   type KeyboardEvent as ReactKeyboardEvent
 } from 'react'
-import { Link2, List, ListOrdered, Paperclip, X } from 'lucide-react'
+import { Link2, List, ListOrdered, Paperclip, Sparkles, X } from 'lucide-react'
 import { useCommandChord } from '../hooks/useCommandChord'
-import { applyLink, captureCaret, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
+import { aiTargetRange, aiWriteRange, applyLink, captureCaret, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
+import { latestOnly, rangeText, textToHtml } from '../aiText'
 import { expandSnippet, shortcutBeforeCaret, snippetHtml, snippetVars } from '../snippetVars'
+import { AiWriteMenu } from './AiWriteMenu'
 import { LinkPrompt } from './LinkPrompt'
 import { Picker } from './Picker'
 import { RemindPicker } from './RemindPicker'
 import { RecipientField } from './RecipientField'
 import { instantIntro } from '../intro'
 import { useStore, type ComposeState } from '../store'
-import type { Snippet } from '../../../electron/preload'
+import type { Snippet, WriteAction } from '../../../electron/preload'
 
 interface Props {
   compose: ComposeState
@@ -113,6 +115,64 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent }: 
     void window.api.listSnippets().then(setSnippets)
   }, [])
 
+  const [aiOpen, setAiOpen] = useState(false)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [aiScope, setAiScope] = useState<'selection' | 'message'>('message')
+  const aiRange = useRef<Range | null>(null)
+  const [aiFocus, setAiFocus] = useState(0)
+  // Closing the menu or Compose cancels the in-flight request, so a late reply
+  // never rewrites a range the user walked away from (or another compose).
+  const aiReq = useRef(latestOnly())
+  useEffect(() => () => aiReq.current.cancel(), [])
+
+  // Captured before the menu's input takes focus, which clears the selection.
+  // The chord and the toolbar button (mousedown prevented) both run before
+  // focus moves, so captureSelection still sees what the user picked.
+  const openAi = useCallback(() => {
+    // ⌘J again must not re-capture the range; it only brings focus back to the menu.
+    if (aiOpen) return setAiFocus((n) => n + 1)
+    const el = editorRef.current
+    const picked = captureSelection(el)
+    aiRange.current = picked ?? aiTargetRange(el)
+    setAiScope(picked ? 'selection' : 'message')
+    setAiError(null)
+    setAiOpen(true)
+  }, [aiOpen])
+
+  const runAi = useCallback(
+    async (action: WriteAction, instruction?: string) => {
+      const el = editorRef.current
+      const range = aiRange.current
+      if (!el || !range) return
+      const current = aiReq.current.start()
+      setAiBusy(true)
+      setAiError(null)
+      try {
+        const r = await window.api.aiWrite({
+          action,
+          text: rangeText(range),
+          instruction,
+          scope: aiScope,
+          sourceMessageId: compose.sourceMessageId
+        })
+        if (!current() || !el.isConnected) return
+        if (!r.ok) return setAiError(r.error)
+        el.focus()
+        const sel = window.getSelection()
+        sel?.removeAllRanges()
+        sel?.addRange(aiWriteRange(el, range))
+        // insertHTML keeps the change on the editor's undo stack: ⌘Z takes it back.
+        document.execCommand('insertHTML', false, textToHtml(r.text))
+        updateCompose({ body: el.innerHTML })
+        setAiOpen(false)
+      } finally {
+        if (current()) setAiBusy(false)
+      }
+    },
+    [aiScope, compose.sourceMessageId, updateCompose]
+  )
+
   /** Inserts at the current selection, which the caller has placed. */
   const insertSnippet = useCallback(
     (s: Snippet) => {
@@ -196,8 +256,10 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent }: 
       try {
         // Sanitise on send, not just on paste: contenteditable emits raw
         // newlines that HTML would collapse, and this is the last point where
-        // outbound markup can still be corrected.
-        const body = cleanPastedHtml(editorRef.current?.innerHTML ?? compose.body)
+        // outbound markup can still be corrected. The signature/quote markers
+        // stay so a reopened draft still scopes Write with AI; main strips
+        // them from what actually goes out.
+        const body = cleanPastedHtml(editorRef.current?.innerHTML ?? compose.body, { keepMarkers: true })
         const saved = await window.api.saveDraft({
           draftId: compose.draftId,
           to: compose.to,
@@ -282,22 +344,23 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent }: 
           caretRef.current = captureCaret(editorRef.current)
           setPickingSnippet(true)
         }
-      }
+      },
+      { key: 'j', handler: openAi }
     ],
-    [persistAndQueue, sending, introduce]
+    [persistAndQueue, sending, introduce, openAi]
   )
   useCommandChord(chords)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !laterOpen && !reminding && !pickingSnippet) {
+      if (e.key === 'Escape' && !laterOpen && !reminding && !pickingSnippet && !aiOpen) {
         e.preventDefault()
         onClose()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, laterOpen, reminding, pickingSnippet])
+  }, [onClose, laterOpen, reminding, pickingSnippet, aiOpen])
 
   return (
     <div className="compose">
@@ -442,6 +505,16 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent }: 
         >
           <Link2 size={15} strokeWidth={2} />
         </button>
+        <button
+          type="button"
+          className="compose-tool"
+          title="Write with AI ⌘J"
+          aria-label="Write with AI"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={openAi}
+        >
+          <Sparkles size={15} strokeWidth={2} />
+        </button>
         <span className="compose-toolbar-sep" />
         <button
           type="button"
@@ -460,6 +533,21 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent }: 
           onCancel={() => {
             setLinking(false)
             pendingRange.current = null
+          }}
+        />
+      )}
+      {aiOpen && (
+        <AiWriteMenu
+          scope={aiScope}
+          busy={aiBusy}
+          error={aiError}
+          focusKey={aiFocus}
+          onRun={(action, instruction) => void runAi(action, instruction)}
+          onClose={() => {
+            aiReq.current.cancel()
+            setAiBusy(false)
+            setAiOpen(false)
+            editorRef.current?.focus()
           }}
         />
       )}

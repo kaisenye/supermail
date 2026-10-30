@@ -89,7 +89,8 @@ describe('contactProfile', () => {
     const ms = performance.now() - t0
     expect(p).toMatchObject({ threads: 1500, repliedThreads: 500 })
     expect(ms).toBeLessThan(1000)
-  })
+    // Only the query is timed; seeding 42k rows can pass 5s on a busy machine running the full suite.
+  }, 30_000)
 
   it('returns null without an address or an account', () => {
     expect(contactProfile(1, ' ')).toBeNull()

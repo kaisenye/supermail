@@ -49,7 +49,16 @@ function newlinesToBreaks(doc: Document): void {
   }
 }
 
-export function cleanPastedHtml(html: string): string {
+/** Compose-only markers: where the signature and the quoted original start. */
+export const COMPOSE_MARKERS = new Set(['supermail-signature', 'supermail-quote'])
+
+/**
+ * `keepMarkers` keeps the two compose marker classes on a <div> — and nothing
+ * else — so a saved draft still knows where the signature and quote begin.
+ * Pastes never keep them: a copied marker would plant a false stop mid-body.
+ * Main strips them before the mail goes out (`stripComposeMarkers`).
+ */
+export function cleanPastedHtml(html: string, opts: { keepMarkers?: boolean } = {}): string {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   doc.querySelectorAll('script,style,meta,link,iframe,object,embed,form').forEach((n) =>
     n.remove()
@@ -70,7 +79,11 @@ export function cleanPastedHtml(html: string): string {
               // Dimensions matter for a logo; both are numeric-only.
               ((attr.name === 'width' || attr.name === 'height') &&
                 /^\d{1,4}$/.test(attr.value)) ||
-              attr.name === 'alt'))
+              attr.name === 'alt')) ||
+          (opts.keepMarkers === true &&
+            child.tagName === 'DIV' &&
+            attr.name === 'class' &&
+            COMPOSE_MARKERS.has(attr.value))
         if (!keep) child.removeAttribute(attr.name)
       }
       // An <img> whose src we just stripped would render as a broken icon.
@@ -132,6 +145,86 @@ export function captureSelection(el: HTMLDivElement | null): Range | null {
   // Ignore a selection that lives outside this editor.
   if (el && !el.contains(range.commonAncestorContainer)) return null
   return range.cloneRange()
+}
+
+/**
+ * The first top-level block Write with AI must not touch: the signature or
+ * quote marker, or — for a draft saved before markers survived — anything
+ * holding a <blockquote>, so the quoted original is never rewritten.
+ */
+function aiStop(el: HTMLElement): Element | undefined {
+  return [...el.children].find(
+    (c) =>
+      [...COMPOSE_MARKERS].some((m) => c.classList.contains(m)) ||
+      c.tagName === 'BLOCKQUOTE' ||
+      c.querySelector('blockquote') !== null
+  )
+}
+
+/**
+ * What Write with AI works on: the selection inside `el`, else everything the
+ * user wrote — from the top down to the signature or the quoted original.
+ *
+ * The range ends INSIDE the last node above the stop, never at the element
+ * boundary (el, k): Chromium's insertHTML over a range ending there merges
+ * the next block's first line into the new text and can unwrap the signature.
+ * Blank lines right above the stop are left alone. With nothing written above
+ * them, the first blank line (the caret line of an empty new message) is the
+ * target and the rest stay as the spacer. With only one blank line or none, the
+ * range is collapsed at that spot in `el`; aiWriteRange adds the paragraph to
+ * write into when the text arrives.
+ *
+ * Never edits the editor: opening the menu and cancelling leaves the body as it was.
+ */
+export function aiTargetRange(el: HTMLDivElement | null): Range | null {
+  if (!el) return null
+  const picked = captureSelection(el)
+  if (picked) return picked
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  const stop = aiStop(el)
+  if (!stop) return range
+  // Blank lines just above the stop (the spacer App puts before the signature)
+  // stay outside the range: insertHTML would delete them, and the AI text would
+  // sit directly on the signature.
+  let below: ChildNode = stop
+  while (below.previousSibling && isBlankLine(below.previousSibling)) below = below.previousSibling
+  const prev = below.previousSibling
+  if (prev) {
+    range.setEnd(prev, prev.nodeType === Node.TEXT_NODE ? (prev as Text).length : prev.childNodes.length)
+  } else if (below !== stop && below.nextSibling !== stop && below.nodeType === Node.ELEMENT_NODE) {
+    // Two or more blank lines and nothing above: write into the first one.
+    range.setStart(below, 0)
+    range.setEnd(below, 0)
+  } else {
+    const at = [...el.childNodes].indexOf(below)
+    range.setStart(el, at)
+    range.setEnd(el, at)
+  }
+  return range
+}
+
+/**
+ * The range to insert Write with AI's text into. A range left collapsed at a
+ * spot in `el` itself by aiTargetRange gets an empty paragraph there first, so
+ * the text never lands on the line below. Call it only once the text is in hand.
+ */
+export function aiWriteRange(el: HTMLDivElement, range: Range): Range {
+  if (!range.collapsed || range.startContainer !== el) return range
+  const p = document.createElement('p')
+  p.appendChild(document.createElement('br'))
+  el.insertBefore(p, el.childNodes[range.startOffset] ?? null)
+  const r = document.createRange()
+  r.setStart(p, 0)
+  r.setEnd(p, 0)
+  return r
+}
+
+/** Whitespace text, or a paragraph/div holding nothing but <br>s and whitespace. */
+function isBlankLine(n: Node): boolean {
+  if (n.nodeType === Node.TEXT_NODE) return !/\S/.test(n.textContent ?? '')
+  if (!(n instanceof HTMLElement) || (n.tagName !== 'P' && n.tagName !== 'DIV')) return false
+  return !/\S/.test(n.textContent ?? '') && [...n.children].every((c) => c.tagName === 'BR')
 }
 
 /** The caret or selection inside `el`. captureSelection ignores a bare caret; a snippet goes exactly there. */

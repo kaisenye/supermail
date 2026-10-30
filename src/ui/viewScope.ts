@@ -39,3 +39,18 @@ export function undoRepaint(origin: ViewKey, current: ViewKey): 'restore' | 'rel
 export function doneAction(folderId: number | null, remindersViewId: number): 'dismissReminder' | 'move' {
   return folderId === remindersViewId ? 'dismissReminder' : 'move'
 }
+
+/**
+ * What an IDLE push syncs. A push from the account on screen (or into the
+ * unified inbox, whose refresh syncs every account) refreshes the view; a push
+ * from another account syncs that account, since syncing the active one would
+ * leave its mail waiting for the 60 s poll.
+ */
+export function pushSyncTarget(
+  pushEmail: string | undefined,
+  view: { email: string | null; activeFolderId: number | null },
+  unifiedViewId: number
+): 'view' | 'account' {
+  if (!pushEmail || view.activeFolderId === unifiedViewId) return 'view'
+  return pushEmail.toLowerCase() === view.email?.toLowerCase() ? 'view' : 'account'
+}

@@ -11,3 +11,22 @@ export function latestOnly<T>(apply: (value: T) => void): (read: () => Promise<T
     if (mine === seq) apply(value)
   }
 }
+
+/**
+ * Tickets for one request at a time that can also be called off. `start()`
+ * hands back a check that stays true only until the next `start()` or
+ * `cancel()`, so a reply that lands after its view was closed or switched is
+ * dropped instead of painted.
+ */
+export function requestGate(): { start: () => () => boolean; cancel: () => void } {
+  let seq = 0
+  return {
+    start: () => {
+      const mine = ++seq
+      return () => mine === seq
+    },
+    cancel: () => {
+      seq++
+    }
+  }
+}

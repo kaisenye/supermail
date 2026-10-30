@@ -275,3 +275,14 @@ export function htmlToPlainText(html: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
+
+/**
+ * Drops the compose-only signature/quote markers before mail goes out. The
+ * renderer keeps them on the saved draft (so Write with AI can still find the
+ * signature after a reopen) but the recipient should never see them. Anchored
+ * to `<div` because serialised HTML escapes `<` in text, so typed text that
+ * merely reads `class="supermail-quote"` is left alone.
+ */
+export function stripComposeMarkers(html: string): string {
+  return html.replace(/<div class="supermail-(?:signature|quote)"/g, '<div')
+}

@@ -339,6 +339,39 @@ describe('command registry', () => {
       keys: [{ kind: 'mod', key: ';', modes: ['compose'] }]
     })
   })
+
+  it('declares ⌘J in compose as an editor-owned chord', () => {
+    const c = COMMANDS.find((x) => x.id === 'compose.ai')
+    expect(c?.external).toBe(true)
+    expect(c?.keys).toEqual([{ kind: 'mod', key: 'j', modes: ['compose'] }])
+    expect(buildChords('list', { 'compose.ai': () => {} })).toEqual([])
+  })
+
+  it('offers Summarize conversation in ⌘K only', () => {
+    const c = COMMANDS.find((x) => x.id === 'thread.summarize')
+    expect(c?.keys).toEqual([])
+    expect(buildPaletteActions('thread', { 'thread.summarize': () => {} }).map((a) => a.id)).toEqual(['thread.summarize'])
+  })
+
+  it('binds 1–3 to the Instant Replies in a thread only, shown as one sheet row', () => {
+    const h = { 'reply.option1': () => {}, 'reply.option2': () => {}, 'reply.option3': () => {} }
+    expect(buildBindings('thread', h).map((b) => [b.key, b.modes])).toEqual([
+      ['1', ['thread']],
+      ['2', ['thread']],
+      ['3', ['thread']]
+    ])
+    expect(buildBindings('list', h).filter((b) => b.modes?.includes('list'))).toEqual([])
+    const rows = shortcutGroups().find((g) => g.title === 'In a thread')!.items
+    expect(rows.filter((r) => r.label.startsWith('Instant reply'))).toEqual([{ label: 'Instant reply 1–3', keys: ['1–3'] }])
+  })
+
+  it('opens Ask AI with ⌘J outside compose, and keeps ⌘J for Write with AI in compose', () => {
+    const h = { 'ai.ask': () => {} }
+    expect(buildChords('list', h).map((c) => c.key)).toEqual(['j'])
+    expect(buildChords('search', h).map((c) => c.key)).toEqual(['j'])
+    expect(buildChords('compose', h)).toEqual([])
+    expect(buildPaletteActions('list', h)).toEqual([])
+  })
 })
 
 describe('withTiming', () => {

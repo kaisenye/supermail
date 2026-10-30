@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { clearClassifications, saveClassification } from './ai.js'
 import { closeDb, getDb, initDb } from './db.js'
 import { countView, listView } from './listRows.js'
 import { upsertMessage } from './repo.js'
@@ -83,5 +84,23 @@ describe('split views', () => {
     deleteSplit(s.id)
     expect(listSplits()).toHaveLength(4)
     expect(() => saveSplit({ name: ' ', query: 'x' })).toThrow()
+  })
+
+  it('lets the classifier overrule the heuristic both ways, and drops back when cleared', () => {
+    // Message ids follow insertion: <m2@t> is friend's Inbox mail, <m4@t> stranger's.
+    saveClassification(1, '<m4@t>', { important: true, category: 'work', reason: 'Asks you a question', model: 'm' })
+    saveClassification(1, '<m2@t>', { important: false, category: 'newsletter', reason: 'Automated digest', model: 'm' })
+    expect(subjects('is:important')).toEqual(['stranger', 'mine'])
+    expect(subjects('is:other')).toEqual(['news', 'friend'])
+    expect(subjects('ai:work')).toEqual(['stranger'])
+    clearClassifications()
+    expect(subjects('is:important')).toEqual(['friend', 'mine'])
+    expect(subjects('ai:work')).toEqual([])
+  })
+
+  it('keeps a VIP in Important whatever the classifier says', () => {
+    getDb().prepare("INSERT INTO vip_senders (account_id,address) VALUES (1,'new@x.test')").run()
+    saveClassification(1, '<m4@t>', { important: false, category: 'marketing', reason: 'Promotion', model: 'm' })
+    expect(subjects('is:important')).toContain('stranger')
   })
 })

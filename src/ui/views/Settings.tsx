@@ -6,6 +6,7 @@ import { LinkPrompt } from './LinkPrompt'
 import { TriageSettings } from './TriageSettings'
 import { ShortcutSettings } from './ShortcutSettings'
 import { SnippetSettings } from './SnippetSettings'
+import { AiSettings } from './AiSettings'
 import type { Theme } from '../theme'
 
 interface Props {
@@ -184,6 +185,8 @@ export function Settings({
           <ShortcutSettings />
 
           <SnippetSettings />
+
+          <AiSettings />
 
           <section className="settings-section">
             <h3>Signature</h3>

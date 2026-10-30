@@ -411,6 +411,68 @@ CREATE TRIGGER tasks_fts_au AFTER UPDATE OF title, description ON tasks BEGIN
   VALUES ('delete', old.id, old.title, old.description);
   INSERT INTO tasks_fts (rowid, title, description) VALUES (new.id, new.title, new.description);
 END;
+`),
+
+  // v21: Phase 4 AI (bring your own key). Local and opt-in.
+  // - ai_classifications / reply_options: precomputed results keyed by
+  //   account + Message-ID, like reminders, so a move or a rethread cannot
+  //   orphan them.
+  // - ai_jobs: the background queue (classify, replies). Finished rows are kept
+  //   a week (status <> 'pending'), so a re-synced envelope is never queued twice.
+  // - ai_usage: tokens and cost per day, provider, model and feature; the daily
+  //   budget reads it.
+  // - list_rows.ai_important / ai_category: the thread's newest verdict, so the
+  //   Important / Other splits stay one indexed read.
+  (db) =>
+    db.exec(`
+CREATE TABLE ai_classifications (
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  important INTEGER NOT NULL,
+  category TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  model TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (account_id, message_id)
+) WITHOUT ROWID;
+
+CREATE TABLE reply_options (
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  options TEXT NOT NULL,
+  model TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (account_id, message_id)
+) WITHOUT ROWID;
+
+CREATE TABLE ai_jobs (
+  id INTEGER PRIMARY KEY,
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_at INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  UNIQUE (account_id, message_id, kind)
+);
+CREATE INDEX idx_ai_jobs_due ON ai_jobs (status, next_at);
+
+CREATE TABLE ai_usage (
+  day TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  feature TEXT NOT NULL,
+  calls INTEGER NOT NULL DEFAULT 0,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_micros INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, provider, model, feature)
+) WITHOUT ROWID;
+
+ALTER TABLE list_rows ADD COLUMN ai_important INTEGER;
+ALTER TABLE list_rows ADD COLUMN ai_category TEXT;
 `)
 ]
 

@@ -76,7 +76,7 @@ import {
 import { countView, listView, repairListDrift, unreadCounts } from '../src/core/store/listRows.js'
 import type { MoveTarget } from '../src/core/store/folderRoles.js'
 import { sanitizeEmailHtml, textToHtml } from '../src/core/render/sanitize.js'
-import { htmlToPlainText } from '../src/core/send/mime.js'
+import { htmlToPlainText, stripComposeMarkers } from '../src/core/send/mime.js'
 import {
   cancelOutbox,
   enqueueOutbox,
@@ -756,6 +756,8 @@ export function registerIpc(): void {
       if (remindErr) return { ok: false as const, error: remindErr }
       const html = payload.body ?? ''
       const text = htmlToPlainText(html)
+      // The draft keeps the compose markers; the wire copy does not.
+      const wireHtml = stripComposeMarkers(html)
       updateDraft(payload.draftId, {
         to_addrs: payload.to.trim(),
         cc_addrs: payload.cc?.trim() || null,
@@ -777,7 +779,7 @@ export function registerIpc(): void {
         bcc_addrs: payload.bcc?.trim() || null,
         subject: payload.subject ?? '',
         body_text: text,
-        body_html: html || null,
+        body_html: wireHtml || null,
         in_reply_to: payload.inReplyTo ?? null,
         references_header: payload.references ?? null,
         attachments: payload.attachments?.length
@@ -964,6 +966,13 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('sync:run', () => runSyncFor(getBootState()))
+
+  // An IDLE push from an account that is not on screen syncs that account.
+  ipcMain.handle('sync:runAccount', (_e, email: string) => {
+    const a = listAccounts().find((x) => x.email.toLowerCase() === String(email).toLowerCase())
+    if (!a) return { ok: false as const, error: 'no such account' }
+    return runSyncFor({ ok: true, accountId: a.accountId, email: a.email, config: a.config })
+  })
 
   // The unified inbox shows every account, so its refresh syncs every account.
   ipcMain.handle('sync:runAll', () =>

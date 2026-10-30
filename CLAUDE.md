@@ -5,13 +5,13 @@ Fast local-first mail client (IMAP/SMTP, Gmail, Outlook). North star: Superhuman
 ## Stages
 
 - **Stage 1** — Local-first reader + write path (sync, search, compose, schedule). Current focus.
-- **Stage 2** — AI (embed / summarize / classify) via pipeline processors + `src/core/services` registry. UI never imports AI modules.
+- **Stage 2** — AI (Phase 4, done): bring-your-own key for Anthropic or OpenAI. Write with AI, Instant Reply, summary line, Important / Other classifier, Ask AI. UI never imports AI modules.
 
 ## Architecture
 
 | Process | Owns |
 |---------|------|
-| Main (`electron/`, `src/core/`) | SQLite, IMAP, SMTP, HTML sanitize, sync/outbox workers |
+| Main (`electron/`, `src/core/`) | SQLite, IMAP, SMTP, HTML sanitize, sync/outbox workers, AI service (`src/core/services/ai`), background AI worker |
 | Renderer (`src/ui/`) | React UI, Zustand, hotkeys |
 
 - Talk only through `window.api` (preload `contextBridge`).
@@ -30,12 +30,24 @@ Fast local-first mail client (IMAP/SMTP, Gmail, Outlook). North star: Superhuman
 6. Lists read `list_rows` (`src/core/store/listRows.ts`), one row per (folder, thread). Triggers on `messages` mark threads dirty in `list_dirty`; `refreshListRows()` rebuilds them before every list read, and `repairListDrift()` runs after each sync. Never GROUP BY messages for a list. List headers (`list_unsubscribe`, `bulk`) for pre-v18 mail are filled by `backfillListHeaders` (header lines only).
 7. Remind me and mute are local: they set `list_rows.hidden` for Inbox rows and never move anything on the server. Exmail's Archive folder is only created from Settings → Done folder.
 8. Navigation is recorded, not pushed: a store subscription in App turns every change of folder / split / chip / thread / search query into a workspace history step (`src/ui/workspace.ts`). Back, forward and tab switches call `applyView`, which must change the store before its first await.
-9. The unified inbox (`UNIFIED_VIEW_ID`) reads `list_rows` with `(lr.account_id = ? AND lr.folder_id = ?) OR …` (`src/core/store/unified.ts`). Every list row carries `account_id`; thread reads, read/unread and compose pass the row's account to main. Anything that spans a mixed selection or every account checks each owner: `sync:runAll` keeps going past a failed account (`electron/syncAll.ts`), labels offer only what every owner has (`sharedLabelChoices`), and the scheduled list reads every account (`listScheduledOutbox`).
+9. The unified inbox (`UNIFIED_VIEW_ID`) reads `list_rows` with `(lr.account_id = ? AND lr.folder_id = ?) OR …` (`src/core/store/unified.ts`). Every list row carries `account_id`; thread reads, read/unread and compose pass the row's account to main. Anything that spans a mixed selection or every account checks each owner: `sync:runAll` keeps going past a failed account (`electron/syncAll.ts`), labels offer only what every owner has (`sharedLabelChoices`), and the scheduled list reads every account (`listScheduledOutbox`). An IDLE push (`mail:new`) carries its account's email; one from an account not on screen syncs that account (`pushSyncTarget`, `sync:runAccount`).
 10. Full offline history (`electron/historyWorker.ts`) backfills one 500-header page per account per minute, folder order from `nextHistoryFolder`, until each synced folder has `history_complete`. A folder counts as synced once the forward pass has run (`forwardSynced`: local rows or `last_uid > 0`). `backfillFolder` is gap-aware (`backfillPlan`): it fetches the newest server uids missing locally at or below max(newest local uid, `last_uid`), so a Gmail server-search hit stored far below the window leaves no hole. With full history on the forward pass has no date floor (`forwardCutoff`); with it off, mail it drops reopens the folder's history (`reopenHistory`). It shares `runBackfillExclusive` (`electron/backfillLock.ts`) with Load older, so the two never run at once for an account; Load older waits for a worker page instead of failing. Each account is tried on its own (`createHistoryTick`), and a folder that throws sits out 15 minutes. `backfillFolder` stores nothing when the live UIDVALIDITY differs from `folders.uidvalidity`, and `setHistoryComplete` only sets the flag if the uidvalidity it read is still current. Off when `settings.full_history` is `'0'`.
 
 ## Pipeline
 
-Ordered `Processor[]` mutate `MsgCtx.draft`. Failures skip except `parse`. FTS5 syncs via SQL triggers — not a processor. Stage 2 appends processors; do not couple AI to UI.
+Ordered `Processor[]` mutate `MsgCtx.draft`. Failures skip except `parse`. FTS5 syncs via SQL triggers — not a processor. After a message is stored the pipeline queues background AI jobs (`enqueueForMessage`); provider calls never run inside `runPipeline`. Do not couple AI to UI.
+
+## AI rules
+
+- Keys live in the vault under `ai-anthropic` / `ai-openai`. Never SQLite, settings, logs, or an IPC reply; `ai:setKey` is write-only and the renderer only learns `hasKey`.
+- All provider calls go through `Ai.run(feature, req)` (main passes `getAi()`; features take the `Ai` as a parameter so tests inject `fakeAi`), which checks the switch, the key and the daily budget (background work stops at 80 %) and records usage. Never call an SDK directly from a feature.
+- Mail features live in `src/core/ai/`; prompts wrap mail in `<message>` tags with `asData()` and include `MAIL_IS_DATA`. Output is only shown, inserted into a draft the user edits, or stored as a label.
+- Results are keyed by account + Message-ID (`ai_classifications`, `reply_options`); the summary lives in `messages.summary` of the thread's newest message, so a new reply makes it stale.
+- Background AI is queued by the pipeline (`enqueueForMessage`) and run by `electron/aiWorker.ts`; only fresh (≤ 48 h), non-bulk Inbox mail; replies also skip notification senders and mail not addressed to the account. A run stopped by `auth` / `rate` pauses the queue 10 min, `budget` until local midnight (`electron/aiPause.ts`); a saved key or setting resumes it.
+- Compose marks its signature and quote with `supermail-signature` / `supermail-quote` divs so Write with AI can find them. Drafts keep the markers; `stripComposeMarkers` removes them from the wire copy.
+- The renderer never imports SDKs or `src/core/services/ai` / `src/core/ai` runtime code (`src/ui/aiBoundary.test.ts`). New `ai:*` handlers go in `electron/ipcAi.ts`.
+- Tests use `fakeAi` or the mock server (`mockServer.ts`, `pnpm ai:mock`); nothing may call a real provider. `SUPERMAIL_ANTHROPIC_BASE_URL` / `SUPERMAIL_OPENAI_BASE_URL` are dev-only (ignored when packaged).
+- Prices for the budget are in `src/core/services/ai/pricing.ts`; update them when a provider changes prices.
 
 ## Keyboard
 
@@ -53,6 +65,7 @@ Central dispatcher: `src/ui/hooks/useHotkeys.ts`. Modes: `list` | `thread` | `co
 - Modes include `search` (the search page). Tab and history chords use `NAV_MODES` (list, thread, search) and stay off in compose.
 - `⌘W` is close-tab: `electron/menu.ts` moves Close Window to `⇧⌘W`. Check `menu.ts` before taking any ⌘ chord the default menu might own.
 - Thread keys drive `ThreadHandle` (`src/ui/views/Thread.tsx`); App holds no thread reading state.
+- `⌘J` is AI everywhere: `compose.ai` (Write with AI, `external`, handled in `Compose.tsx`) in compose, `ai.ask` elsewhere. `⇥` inside ⌘K switches Commands ↔ Ask AI and is palette-local, not a command. `1`–`3` in a thread are `reply.option1–3` (Instant Reply).
 
 ## Schema
 
@@ -69,6 +82,8 @@ Central dispatcher: `src/ui/hooks/useHotkeys.ts`. Modes: `list` | `thread` | `co
 - One undo window: `settings.undo_seconds` (3/5/10/20), read by main through `undoWindowMs`; IPC results carry `holdMs` and the renderer's single `UndoEntry` (`z`) uses it.
 - `snippets` (global, plain text with `{variables}`), `tasks_fts` (trigger-kept), `outbox.cancel_on_reply` (the pipeline's `cancelAndNotify` cancels a pending scheduled reply when its thread gets a reply), `folders.history_complete` (full-history worker; `resetFolder` clears it).
 - Settings keys added in Phase 3: `keymap`, `workspace`, `cancel_on_reply_default`, `contact_pane`, `full_history`.
+- v21: AI tables (`ai_classifications`, `reply_options`, `ai_jobs`, `ai_usage`); `list_rows.ai_important` / `ai_category` feed `is:important` / `is:other` and `ai:<category>`. Turning the classifier off deletes verdicts.
+- Settings keys added in Phase 4 (non-secret): `ai_provider`, `ai_model_anthropic`, `ai_model_openai`, `ai_daily_budget_usd`, `ai_write`, `ai_replies`, `ai_summary`, `ai_classify`, `ai_ask`.
 
 ## Commands / env
 
@@ -92,7 +107,8 @@ pnpm typecheck
 | D | Done | Selection + action bar; flags; archive/trash |
 | Phase 2 | Done | Triage: list read model, Done, undo window, splits/chips, Remind me, mute, labels, unsubscribe, zero |
 | Phase 3 | Done | Tabs + history, unified inbox, ⌃1–9, remappable keys, thread keys, snippets, send later / Send + Done / intro, cancel-on-reply, search operators + search page, contact pane, full history |
-| Later | — | AI triage |
+| Phase 4 | Done (live providers untested) | AI: write, instant reply, summary, classifier, ask |
+| Later | — | Semantic search (embeddings) |
 
 ## Code map
 
@@ -102,9 +118,12 @@ pnpm typecheck
 - `src/core/sync/` — IMAP sync, body fetch, flag writer (pools/watchers keyed per account)
 - `src/core/send/` — SMTP, outbox flush
 - `src/core/pipeline/` — parse + processors
+- `src/core/services/ai/` — AI service and providers (gates, budget, keys, mock server)
+- `src/core/ai/` — AI mail features (write, summary, classify, replies, ask, queue)
 - `src/core/triage/` — move planning, reminders, local rules, unsubscribe, zero
 - `electron/ipcTriage.ts` — Phase 2 handlers
 - `electron/ipcPower.ts` — Phase 3 handlers
+- `electron/ipcAi.ts` — Phase 4 `ai:*` wiring (bodies in `aiHandlers.ts`, Electron-free); `electron/aiWorker.ts` + `aiPause.ts` — background AI queue tick and pause
 - `electron/menu.ts` — app menu
 - `electron/historyWorker.ts`, `historyTick.ts`, `backfillLock.ts` — full history, one backfill per account
 - `electron/syncAll.ts` — sync every account for the unified inbox

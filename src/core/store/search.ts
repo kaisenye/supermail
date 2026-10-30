@@ -33,8 +33,12 @@ const VIP_SQL =
   'EXISTS (SELECT 1 FROM vip_senders v WHERE v.account_id = lr.account_id AND v.address = lr.sender)'
 const REPLIED_SQL =
   'EXISTS (SELECT 1 FROM replied_senders rs WHERE rs.account_id = lr.account_id AND rs.address = lr.sender)'
-/** VIPs, plus non-bulk mail from people you have written to. Other is its exact complement. */
-const IMPORTANT_SQL = `(${VIP_SQL} OR (lr.bulk = 0 AND ${REPLIED_SQL}))`
+/**
+ * VIPs; else the classifier's verdict on the thread when there is one
+ * (list_rows.ai_important, v21); else non-bulk mail from people you have
+ * written to. Other is its exact complement.
+ */
+const IMPORTANT_SQL = `(${VIP_SQL} OR COALESCE(lr.ai_important = 1, lr.bulk = 0 AND ${REPLIED_SQL}))`
 
 /** `is:` values that read thread state from list_rows. List context only. */
 const LIST_IS: Record<string, string> = {
@@ -134,6 +138,8 @@ function operatorPred(field: string, value: string, ctx: QueryContext): Pred | n
                      WHERE ml.message_id = m.id AND l.account_id = m.account_id AND lower(l.name) = ?)`,
       params: [v]
     }
+  // The classifier's category (Phase 4). List context only: it reads list_rows.
+  if (field === 'ai' && ctx === 'list') return { sql: 'lr.ai_category = ?', params: [v] }
   if (field === 'before' || field === 'after') {
     const t = parseDay(value)
     if (t === null) return null

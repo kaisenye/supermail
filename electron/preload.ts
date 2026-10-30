@@ -5,6 +5,12 @@ import type { SyncProgress } from '../src/core/sync/syncEngine.js'
 import type { MailProvider } from '../src/core/accounts/auth.js'
 import type { ReminderSnapshot } from '../src/core/triage/reminders.js'
 import type { ContactProfile } from '../src/core/store/contacts.js'
+import type { AiStatus } from '../src/core/services/ai/service.js'
+import type { AiConfigInput } from '../src/core/services/ai/settings.js'
+import type { AiErrorCode, AiFeature, AiProviderId } from '../src/core/services/ai/types.js'
+import type { WriteAction } from '../src/core/ai/write.js'
+import type { ThreadInsights } from '../src/core/ai/insights.js'
+import type { AskSource } from '../src/core/ai/ask.js'
 
 export interface ScheduledSend {
   id: number
@@ -161,6 +167,14 @@ export interface TaskQuery {
 }
 
 type TaskResult = { ok: true; task: Task } | { ok: false; error: string }
+
+export type { AiConfigInput, AiFeature, AiProviderId, AiStatus, AskSource, WriteAction }
+
+/** Every AI call fails the same way; `code` tells the UI whether to point at Settings. */
+export type AiFailure = { ok: false; code: AiErrorCode; error: string }
+type AiStatusResult = { ok: true; status: AiStatus } | AiFailure
+/** What the thread view shows, plus which features are on. */
+export type AiInsights = ThreadInsights & { features: Record<AiFeature, boolean> }
 
 const api = {
   listTasks: (query?: TaskQuery): Promise<Task[]> => ipcRenderer.invoke('tasks:list', query),
@@ -401,6 +415,39 @@ const api = {
   > => ipcRenderer.invoke('settings:pickLogo'),
   setSettings: (patch: Record<string, string>): Promise<{ ok: true }> =>
     ipcRenderer.invoke('settings:set', patch),
+  aiStatus: (): Promise<AiStatus> => ipcRenderer.invoke('ai:status'),
+  /** Write-only: the key goes to the vault in main and is never sent back. */
+  aiSetKey: (provider: AiProviderId, key: string): Promise<AiStatusResult> =>
+    ipcRenderer.invoke('ai:setKey', provider, key),
+  aiClearKey: (provider: AiProviderId): Promise<AiStatusResult> => ipcRenderer.invoke('ai:clearKey', provider),
+  aiSetConfig: (input: AiConfigInput): Promise<AiStatusResult> => ipcRenderer.invoke('ai:setConfig', input),
+  /** Draft or rewrite compose text. Main reads the replied-to thread itself from `sourceMessageId`. */
+  aiWrite: (input: {
+    action: WriteAction
+    text: string
+    instruction?: string
+    scope?: 'selection' | 'message'
+    sourceMessageId?: number | null
+  }): Promise<{ ok: true; text: string } | AiFailure> => ipcRenderer.invoke('ai:write', input),
+  aiInsights: (threadId: string, accountId?: number): Promise<AiInsights> =>
+    ipcRenderer.invoke('ai:insights', threadId, accountId),
+  aiSummarize: (threadId: string, accountId?: number): Promise<{ ok: true; summary: string | null } | AiFailure> =>
+    ipcRenderer.invoke('ai:summarize', threadId, accountId),
+  /** Instant Reply on demand: null when the conversation has nothing to answer. */
+  aiSuggestReplies: (
+    threadId: string,
+    accountId?: number
+  ): Promise<{ ok: true; replies: { messageRowId: number; options: string[] } | null } | AiFailure> =>
+    ipcRenderer.invoke('ai:suggestReplies', threadId, accountId),
+  /** Ask AI over the local mail of every account; sources are what the answer cites as [n]. */
+  aiAsk: (question: string): Promise<{ ok: true; answer: string; sources: AskSource[] } | AiFailure> =>
+    ipcRenderer.invoke('ai:ask', question),
+  /** The background worker stored new verdicts or reply suggestions. */
+  onAiUpdated: (cb: (p: { kinds: ('classify' | 'replies')[] }) => void): (() => void) => {
+    const h = (_e: unknown, p: { kinds: ('classify' | 'replies')[] }): void => cb(p)
+    ipcRenderer.on('ai:updated', h)
+    return () => ipcRenderer.off('ai:updated', h)
+  },
   saveDraft: (
     payload: DraftPayload
   ): Promise<{ ok: true; draftId: number } | { ok: false; error: string }> =>
@@ -418,6 +465,8 @@ const api = {
   listScheduled: (): Promise<ScheduledSend[]> => ipcRenderer.invoke('compose:listScheduled'),
   runSync: (): Promise<SyncRunResult> => ipcRenderer.invoke('sync:run'),
   runSyncAll: (): Promise<SyncRunResult> => ipcRenderer.invoke('sync:runAll'),
+  /** Syncs one account by email, active or not (an IDLE push from it). */
+  runSyncAccount: (email: string): Promise<SyncRunResult> => ipcRenderer.invoke('sync:runAccount', email),
   runBodySync: (): Promise<{ ok: boolean; fetched?: number; error?: string }> =>
     ipcRenderer.invoke('bodySync:run'),
   onBodySyncProgress: (
@@ -455,8 +504,9 @@ const api = {
     ipcRenderer.on('reminders:fired', h)
     return () => ipcRenderer.off('reminders:fired', h)
   },
-  onNewMail: (cb: () => void): (() => void) => {
-    const h = (): void => cb()
+  /** IDLE push: new mail for the account with this email. */
+  onNewMail: (cb: (email: string | undefined) => void): (() => void) => {
+    const h = (_e: unknown, email?: string): void => cb(email)
     ipcRenderer.on('mail:new', h)
     return () => ipcRenderer.off('mail:new', h)
   },

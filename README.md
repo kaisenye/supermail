@@ -13,6 +13,7 @@
   <a href="#install">Install</a> ·
   <a href="#why">Why</a> ·
   <a href="#shortcuts">Shortcuts</a> ·
+  <a href="#ai-bring-your-own-key">AI</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#roadmap">Roadmap</a>
 </p>
@@ -210,6 +211,8 @@ pnpm build       # production bundle
 | `i` | Contact pane (in thread) |
 | `/` | Search page |
 | `⌘K` | Command palette |
+| `⌘J` / `⌘K` then `⇥` | Ask AI (Write with AI in compose) |
+| `1` / `2` / `3` | Instant Reply (in thread) |
 | `⌘T` / `⌘W` | New tab / close tab (`⇧⌘W` closes the window) |
 | `⌘1`–`⌘9` | Jump to tab (`⌘9` = last) |
 | `⌃Tab` / `⌃⇧Tab` | Next / previous tab |
@@ -224,6 +227,45 @@ pnpm build       # production bundle
 | `⌘⇧H` | Remind me if no reply (in compose) |
 | `g` then `i`/`a`/`s`/`t`/`d`/`j`/`e`/`h` | Jump Inbox / All inboxes / Sent / Trash / Drafts / Junk / Done / Reminders |
 | `Esc` | Clear selection · close thread · close palette |
+
+---
+
+## AI (bring your own key)
+
+Optional, and off until you save a key in **Settings → AI**. Pick Anthropic or
+OpenAI (each keeps its own key and model), then switch on the features you want.
+
+| Feature | Key | What it does |
+|---------|-----|--------------|
+| Write with AI | `⌘J` (in compose) | Draft from a note, shorten, fix spelling and grammar, make it friendlier or more formal. Replaces the selection, or the text above the signature; `⌘Z` undoes it. |
+| Instant Reply | `1` / `2` / `3` (in thread) | Three short replies, prepared in the background for new mail that needs one. Opens a reply to the sender with the text filled in; nothing is sent until you press Send. |
+| Summary line | automatic, or ⌘K → Summarize conversation | One line at the top of a conversation when it opens, cached until a new message arrives. |
+| Important / Other | — | Sorts new mail into the Important and Other splits and shows the reason in the thread. `ai:<category>` works in a custom split. |
+| Ask AI | `⌘K` then `⇥`, or `⌘J` | A question answered from your local mail, with the messages it used listed as sources. |
+
+- **Keys** are encrypted with the OS keychain (`safeStorage`), like account passwords, and never
+  written to SQLite, settings or logs. The app only ever reports whether a key is saved.
+- **Daily budget** in US dollars (default $1.00, up to $100), counted from the
+  tokens each call uses. When it runs out AI stops until tomorrow; background
+  work (sorting, prepared replies) stops at 80 % of it.
+- **Background work** only looks at Inbox mail from the last 48 hours, skips
+  newsletters and bulk mail, and never back-fills history.
+- **Privacy:** when a feature runs, the sender, subject and text of the messages
+  it works on are sent from this Mac straight to the provider with your key.
+  Supermail has no server of its own. Ask AI sends the few local messages that
+  match your question.
+
+### Testing AI without a provider
+
+A local mock answers both APIs on `127.0.0.1`, so nothing spends money:
+
+```bash
+pnpm ai:mock 4010
+SUPERMAIL_ANTHROPIC_BASE_URL=http://127.0.0.1:4010 SUPERMAIL_OPENAI_BASE_URL=http://127.0.0.1:4010/v1 pnpm dev
+```
+
+Any key works against the mock; put `MOCK_401` in a prompt to see the rejected-key
+error. A packaged build ignores both variables.
 
 ---
 
@@ -261,7 +303,9 @@ electron/          Main process, IPC, preload
 src/core/store/    SQLite schema, migrations, repo
 src/core/sync/     IMAP sync, IDLE, pool, reconcile, bodies, flag/move writers
 src/core/send/     SMTP + outbox (schedule / undo)
-src/core/pipeline/ Parse + processors (Stage 2 AI hooks)
+src/core/pipeline/ Parse + processors; queues background AI jobs
+src/core/services/ai/ AI service: providers, budget, keys, mock server
+src/core/ai/       AI mail features: write, summary, classify, replies, ask
 src/core/triage/   Move planning, reminders, mute / VIP, unsubscribe, zero
 src/ui/            React app
 ```
@@ -285,7 +329,7 @@ Agent notes for contributors: see [`CLAUDE.md`](./CLAUDE.md).
 - [x] Gmail and Outlook sign-in (OAuth2 on IMAP/SMTP)
 - [x] Triage: Done, undo, split inbox, filter chips, Remind me, mute, labels, unsubscribe, Get me to zero
 - [x] Power: tabs + history, unified inbox, remappable keys, thread keys, snippets, send later, cancel-on-reply, search page, contact pane, full offline history
-- [ ] AI triage (summaries, labels) — Stage 2 pipeline
+- [x] AI, bring your own Anthropic or OpenAI key: write, Instant Reply, summary, Important / Other, Ask AI
 
 PRs welcome. Keep the surface small.
 

@@ -55,6 +55,8 @@ interface AppState {
   hasSyncedOnce: boolean
   openThread: { threadId: string; messageId: number; accountId?: number } | null
   paletteOpen: boolean
+  /** The palette opened in Ask AI mode (⌘J). */
+  paletteAsk: boolean
   compose: ComposeState | null
   undo: UndoEntry | null
   unread: Record<number, number>
@@ -103,7 +105,7 @@ interface AppState {
   actionError: string | null
   setActionError: (error: string | null) => void
   setSyncedOnce: () => void
-  openPalette: () => void
+  openPalette: (ask?: boolean) => void
   closePalette: () => void
   openCompose: (state: ComposeState) => void
   updateCompose: (patch: Partial<ComposeState>) => void
@@ -164,6 +166,7 @@ export const useStore = create<AppState>((set, get) => ({
   hasSyncedOnce: false,
   openThread: null,
   paletteOpen: false,
+  paletteAsk: false,
   compose: null,
   undo: null,
   unread: {},
@@ -293,7 +296,7 @@ export const useStore = create<AppState>((set, get) => ({
   setSyncError: (syncError) => set({ syncError }),
   setActionError: (actionError) => set({ actionError }),
   setSyncedOnce: () => set({ hasSyncedOnce: true }),
-  openPalette: () => set({ paletteOpen: true }),
+  openPalette: (ask = false) => set({ paletteOpen: true, paletteAsk: ask }),
   closePalette: () => set({ paletteOpen: false }),
   openCompose: (compose) => set({ compose, paletteOpen: false }),
   updateCompose: (patch) => {

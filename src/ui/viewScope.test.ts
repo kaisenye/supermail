@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { REMINDERS_VIEW_ID } from './store'
-import { doneAction, undoRepaint, viewKey } from './viewScope'
+import { REMINDERS_VIEW_ID, UNIFIED_VIEW_ID } from './store'
+import { doneAction, pushSyncTarget, undoRepaint, viewKey } from './viewScope'
 
 const app = readFileSync(join(__dirname, 'App.tsx'), 'utf8')
 const body = (name: string): string => {
@@ -68,5 +68,22 @@ describe('Done in the Reminders view', () => {
     expect(undo.indexOf('window.api.restoreReminders(cleared.cleared)')).toBeGreaterThan(undo.indexOf('await undoSend()'))
     expect(undo).toContain('repaintAfterUndo(origin, removed)')
     expect(dismiss.match(/pushUndo\(/g)).toHaveLength(1)
+  })
+})
+
+describe('IDLE push routing', () => {
+  const view = { email: 'qa@x.com', activeFolderId: 3 }
+  it('refreshes the view for a push from the account on screen', () => {
+    expect(pushSyncTarget('qa@x.com', view, UNIFIED_VIEW_ID)).toBe('view')
+    expect(pushSyncTarget('QA@x.com', view, UNIFIED_VIEW_ID)).toBe('view')
+    expect(pushSyncTarget(undefined, view, UNIFIED_VIEW_ID)).toBe('view')
+  })
+  // Syncing the active account for another account's push left that mail
+  // waiting for the 60 s poll.
+  it('syncs the pushing account itself when it is not on screen', () => {
+    expect(pushSyncTarget('friend@x.com', view, UNIFIED_VIEW_ID)).toBe('account')
+  })
+  it('refreshes the unified inbox, which already syncs every account', () => {
+    expect(pushSyncTarget('friend@x.com', { ...view, activeFolderId: UNIFIED_VIEW_ID }, UNIFIED_VIEW_ID)).toBe('view')
   })
 })

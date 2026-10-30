@@ -60,4 +60,13 @@ describe('the split-query parser, new operators', () => {
   it('reads a negated operator as NOT', () => {
     expect(parseQuery('-is:unread', 'list').predicates).toEqual([{ sql: 'NOT (lr.unread_count > 0)', params: [] }])
   })
+
+  it('reads ai:<category> from the list row, and only in a list', () => {
+    expect(parseQuery('ai:Billing', 'list').predicates).toEqual([{ sql: 'lr.ai_category = ?', params: ['billing'] }])
+    expect(parseQuery('ai:billing').terms).toEqual(['ai:billing'])
+  })
+
+  it('lets the classifier verdict decide Important before the heuristic', () => {
+    expect(parseQuery('is:important', 'list').predicates[0].sql).toContain('COALESCE(lr.ai_important = 1,')
+  })
 })

@@ -122,7 +122,7 @@ export function TriageSettings() {
         <h3>Splits</h3>
         <p className="settings-note">
           Tabs across the Inbox, cycled with Tab. A split is a search: from:, to:, subject:,
-          is:unread, is:needs-reply, is:waiting, is:vip, is:bulk.
+          is:unread, is:needs-reply, is:waiting, is:vip, is:bulk, ai:work (an AI category, when sorting is on).
         </p>
         <ul className="settings-splits">
           {splits.map((s) => (

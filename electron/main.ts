@@ -5,9 +5,11 @@ import { fileURLToPath } from 'url'
 import { flushPendingMoves, registerIpc, resumePendingMoves, runSyncFor } from './ipc.js'
 import { registerTriageIpc } from './ipcTriage.js'
 import { registerPowerIpc } from './ipcPower.js'
+import { registerAiIpc } from './ipcAi.js'
 import { installAppMenu } from './menu.js'
 import { startReminderWorker } from './reminderWorker.js'
 import { startHistoryWorker } from './historyWorker.js'
+import { startAiWorker } from './aiWorker.js'
 import { initDb } from '../src/core/store/db.js'
 import { initAttachmentStore } from '../src/core/store/attachments.js'
 import {
@@ -17,7 +19,12 @@ import {
 } from '../src/core/accounts/manage.js'
 import { initVault } from '../src/core/accounts/vault.js'
 import { onReauthRequired } from '../src/core/accounts/oauth.js'
-import { listAccounts as storedAccounts } from '../src/core/store/repo.js'
+import { getSettings, listAccounts as storedAccounts } from '../src/core/store/repo.js'
+import { recordAiUsage, spentMicros } from '../src/core/store/ai.js'
+import { initAi } from '../src/core/services/ai/index.js'
+import { createAnthropicProvider } from '../src/core/services/ai/anthropic.js'
+import { createOpenAiProvider } from '../src/core/services/ai/openai.js'
+import { aiKey } from '../src/core/services/ai/keys.js'
 import { onScheduledCancelled } from '../src/core/send/cancelOnReply.js'
 import { startOutboxWorker } from '../src/core/send/flush.js'
 import { stopIdleWatcher } from '../src/core/sync/idle.js'
@@ -76,6 +83,24 @@ function boot(): void {
   // No accounts is a normal first-run state, not a crash — the renderer shows
   // onboarding rather than an error.
   if (!stored.length) setBootError('no account connected')
+}
+
+/**
+ * The AI service. Network calls happen only here, in main. The base-URL
+ * overrides exist for QA against `pnpm ai:mock`; a packaged app ignores them.
+ */
+function startAi(): void {
+  const override = (name: string): string | undefined =>
+    app.isPackaged ? undefined : process.env[name] || undefined
+  initAi({
+    settings: getSettings,
+    key: aiKey,
+    usage: { spentMicros, record: recordAiUsage },
+    providers: {
+      anthropic: createAnthropicProvider({ baseURL: override('SUPERMAIL_ANTHROPIC_BASE_URL') }),
+      openai: createOpenAiProvider({ baseURL: override('SUPERMAIL_OPENAI_BASE_URL') })
+    }
+  })
 }
 
 function createWindow(): void {
@@ -159,10 +184,12 @@ installCrashHandlers()
 app.whenReady().then(() => {
   setDevDockIcon()
   boot()
+  startAi()
   installAppMenu()
   registerIpc()
   registerTriageIpc()
   registerPowerIpc()
+  registerAiIpc()
   // Google's Testing-mode refresh tokens expire after 7 days, and either
   // provider can revoke one. Tell the renderer which address needs a new
   // sign-in instead of letting sync fail silently.
@@ -190,6 +217,7 @@ app.whenReady().then(() => {
   )
   startReminderWorker()
   startHistoryWorker()
+  startAiWorker()
   // Every account gets its own warmed pool and parked IDLE connection, so mail
   // pushes for all of them rather than only whichever is on screen.
   for (const a of listAccounts()) {

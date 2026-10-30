@@ -1,8 +1,7 @@
 /**
- * Service registry — AI socket #2. Empty in stage 1.
- *
- * Stage 2 registers summarize/semanticSearch/suggestReply here and the UI
- * resolves them by name, so no UI code imports an AI module directly.
+ * Service registry. The AI service (Phase 4) lives in ./ai: main builds it with
+ * initAi() and the renderer reaches it only through electron/ipcAi.ts. No UI
+ * code imports an AI module directly.
  */
 export type Service<I = unknown, O = unknown> = (input: I) => Promise<O>
 

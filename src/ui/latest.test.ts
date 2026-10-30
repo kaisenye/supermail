@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { latestOnly } from './latest'
+import { latestOnly, requestGate } from './latest'
 
 function deferred<T>() {
   let resolve!: (v: T) => void
@@ -28,5 +28,32 @@ describe('latestOnly', () => {
     older.resolve(38)
     await Promise.all([a, b])
     expect(seen).toEqual([37])
+  })
+})
+
+describe('requestGate', () => {
+  it('keeps a request current until another starts', () => {
+    const gate = requestGate()
+    const q1 = gate.start()
+    expect(q1()).toBe(true)
+    const q2 = gate.start()
+    expect(q1()).toBe(false)
+    expect(q2()).toBe(true)
+  })
+
+  it('drops a request that was cancelled, as when the palette closes mid-ask', async () => {
+    const gate = requestGate()
+    const seen: string[] = []
+    const reply = deferred<string>()
+    const ask = async (): Promise<void> => {
+      const current = gate.start()
+      const r = await reply.promise
+      if (current()) seen.push(r)
+    }
+    const pending = ask()
+    gate.cancel()
+    reply.resolve('Q1 answer')
+    await pending
+    expect(seen).toEqual([])
   })
 })

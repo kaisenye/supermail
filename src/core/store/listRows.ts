@@ -12,6 +12,7 @@ import type { MessageListRow } from './types.js'
  * reminders) is computed over every synced folder of the account, except that
  * Drafts, Trash and Junk never decide the last word or count as a reply;
  * counts and the newest message are per folder.
+ * ai_important / ai_category come from the thread's newest classified message (v21), across folders.
  */
 export const REBUILD_SQL = `
 WITH dm AS (
@@ -48,6 +49,15 @@ ranked AS (
     FROM dm JOIN accounts a ON a.id = dm.account_id
     LEFT JOIN folders f ON f.id = dm.folder_id
 ),
+cls AS (
+  -- The thread's newest classified message decides: a later verdict (a new
+  -- inbound mail) replaces an older one.
+  SELECT ranked.account_id, ranked.thread_key, c.important, c.category,
+         ROW_NUMBER() OVER (PARTITION BY ranked.account_id, ranked.thread_key
+                            ORDER BY COALESCE(ranked.date, 0) DESC, ranked.id DESC) AS c_rank
+    FROM ranked JOIN ai_classifications c
+      ON c.account_id = ranked.account_id AND c.message_id = ranked.message_id
+),
 rem AS (
   SELECT r.account_id, ranked.thread_key, r.created_at, r.fired_at
     FROM ranked JOIN reminders r
@@ -77,7 +87,7 @@ g AS (
 )
 INSERT INTO list_rows (account_id, folder_id, thread_key, newest_id, date, sort_date,
                        msg_count, unread_count, flagged, sender, bulk, last_from_me,
-                       hidden, reminder_fired)
+                       hidden, reminder_fired, ai_important, ai_category)
 SELECT g.account_id, g.folder_id, g.thread_key, g.newest_id, g.date,
        MAX(COALESCE(g.date, 0), COALESCE(
          (SELECT MAX(rem.fired_at) FROM rem
@@ -92,10 +102,12 @@ SELECT g.account_id, g.folder_id, g.thread_key, g.newest_id, g.date,
             AND rem.fired_at IS NULL AND COALESCE(t.last_inbound, 0) <= rem.created_at)),
        EXISTS (SELECT 1 FROM rem
                 WHERE rem.account_id = g.account_id AND rem.thread_key = g.thread_key
-                  AND rem.fired_at IS NOT NULL)
+                  AND rem.fired_at IS NOT NULL),
+       cls.important, cls.category
   FROM g
   JOIN t ON t.account_id = g.account_id AND t.thread_key = g.thread_key
   JOIN folders f ON f.id = g.folder_id
+  LEFT JOIN cls ON cls.account_id = g.account_id AND cls.thread_key = g.thread_key AND cls.c_rank = 1
 `
 
 /** Rebuilds every dirty thread. Returns how many were dirty; 0 costs one count. */

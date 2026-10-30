@@ -10,8 +10,9 @@ import { hasSentCopy, serialPerKey, waitForSentCopy } from '../src/core/send/sen
 export function startAccountWorkers(config: AccountConfig): void {
   // Pay the ~2.7s handshake now, while nothing is waiting on it.
   void getPool(config).warm()
+  // Carries the account: the renderer syncs that one, not whichever is on screen.
   startIdleWatcher(config, () => {
-    for (const w of BrowserWindow.getAllWindows()) w.webContents.send('mail:new')
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.send('mail:new', config.email)
   })
 }
 
