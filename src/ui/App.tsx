@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AccountSummary, ScheduledSend, Split } from '../../electron/preload'
+import type { AccountSummary, Attachment, ScheduledSend, Split } from '../../electron/preload'
 import type { MessageListRow } from '../core/store/types'
-import { emptyCompose, REMINDERS_VIEW_ID, useStore, type ComposeAttachment } from './store'
+import {
+  emptyCompose,
+  REMINDERS_VIEW_ID,
+  SEARCH_VIEW_ID,
+  UNIFIED_VIEW_ID,
+  useStore,
+  type ComposeAttachment
+} from './store'
+import { threadsByAccount } from './accountGroups'
 import { useHotkeys, type Mode } from './hooks/useHotkeys'
 import { useKeySequences } from './hooks/useKeySequences'
 import {
@@ -9,40 +17,69 @@ import {
   buildChords,
   buildPaletteActions,
   buildSequences,
+  COMMANDS,
+  DIGITS,
   withTiming,
   type Handlers
 } from './commands'
+import { applyKeymap, parseKeymap, type Keymap } from './keymap'
 import { useCommandChord } from './hooks/useCommandChord'
 import { MessageList } from './views/MessageList'
 import { ActionBar } from './views/ActionBar'
 import { SplitBar } from './views/SplitBar'
 import { Sidebar } from './views/Sidebar'
-import { Thread } from './views/Thread'
+import { Thread, type ThreadHandle } from './views/Thread'
 import { CommandPalette, type PaletteAction } from './views/CommandPalette'
 import { Compose } from './views/Compose'
 import { UndoToast } from './views/UndoToast'
 import { RemindPicker } from './views/RemindPicker'
 import { Picker, type PickerItem } from './views/Picker'
 import { ConfirmDialog } from './views/ConfirmDialog'
+import { AttachmentPreview } from './views/AttachmentPreview'
 import { ZeroModal } from './views/ZeroModal'
 import { ZeroState } from './views/ZeroState'
 import { Settings } from './views/Settings'
 import { Tasks } from './views/Tasks'
 import { ShortcutHelp } from './views/ShortcutHelp'
 import { Onboarding } from './views/Onboarding'
+import { TabBar } from './views/TabBar'
+import { SearchPage } from './views/SearchPage'
+import { ContactPane } from './views/ContactPane'
 import { PenSquare, Plus } from 'lucide-react'
 import { folderLabel, isFlagged, isUnread } from './format'
 import { goDoneTarget, reloadFolders } from './folders'
 import { doneAction, undoRepaint, viewKey, type ViewKey } from './viewScope'
 import { appMode, baseMode } from './appMode'
 import { openThreadTarget } from './threadTarget'
+import { positionLabel } from './threadNav'
 import { viewQuery, type ChipId } from './chips'
 import { nextSplitId, resolveSplitId } from './splitNav'
 import { dayKey, isInboxZero, nextStreak } from './streak'
 import type { FolderRole, MoveTarget } from '../core/store/folderRoles'
 import { buildForwardBody, buildReplyBody } from './quote'
+import { namedAddress, replyAllCc } from './intro'
 import { applyTheme, isTheme, type Theme } from './theme'
 import { latestOnly } from './latest'
+import {
+  back,
+  backOutOf,
+  canGoBack,
+  canGoForward,
+  closeTab,
+  currentView,
+  cycleTab,
+  forward,
+  initWorkspace,
+  openTab,
+  record,
+  restoreWorkspace,
+  savedWorkspace,
+  selectTab,
+  serializeWorkspace,
+  workspaceKey,
+  type View,
+  type Workspace
+} from './workspace'
 import './styles/app.css'
 
 /** Sentinel from main: no account connected yet, as opposed to a real fault. */
@@ -63,6 +100,12 @@ type Overlay =
   | { kind: 'label'; ids: number[]; items: PickerItem[] }
   | { kind: 'unsubscribe'; id: number; sender: string; description: string }
   | { kind: 'zero'; folderId: number }
+  /** ⌘O on an attachment: the in-app preview, or a confirmation before the OS opens it. */
+  | { kind: 'attachment'; attachment: Attachment; canPreview: boolean }
+
+function threadKeyOf(t: { threadId: string; messageId: number; accountId?: number }): string {
+  return `${t.accountId ?? ''}:${t.threadId}:${t.messageId}`
+}
 
 function replySubject(subject: string | null): string {
   const s = (subject ?? '').trim()
@@ -134,6 +177,8 @@ export default function App() {
     setSplit,
     setChip,
     setGroupByDate,
+    searchQuery,
+    setSearchQuery,
     extendSelection
   } = useStore()
 
@@ -144,7 +189,8 @@ export default function App() {
   }, [paletteOpen])
 
   const refreshUnread = useCallback(async () => {
-    setUnread(await window.api.unreadCounts())
+    // All inboxes keeps its total under its sentinel, next to the folder ids.
+    setUnread({ ...(await window.api.unreadCounts()), [UNIFIED_VIEW_ID]: await window.api.unifiedUnread() })
   }, [setUnread])
 
   /** Offers `run` as the undo for `holdMs`, the window main is holding the action for. */
@@ -210,9 +256,20 @@ export default function App() {
     if (res.ok) window.location.reload()
   }, [])
 
+  /** ⌃1–⌃9: the nth account in sidebar order. */
+  const switchToAccountAt = useCallback(
+    (i: number) => {
+      const a = accounts[i]
+      if (a && a.accountId !== activeAccountId) void switchAccount(a.accountId)
+    },
+    [accounts, activeAccountId, switchAccount]
+  )
+
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [overlay, setOverlay] = useState<Overlay | null>(null)
+  /** threadKeyOf the thread whose messages have loaded; the contact pane waits for it. */
+  const [loadedThread, setLoadedThread] = useState<string | null>(null)
   // Tasks replaces the mail pane rather than overlaying it: it is a separate
   // place to be, not a modal on top of the inbox.
   const [tasksOpen, setTasksOpen] = useState(false)
@@ -229,6 +286,10 @@ export default function App() {
   }, [refreshTaskCount, tasksOpen])
   const [signature, setSignature] = useState('')
   const [theme, setTheme] = useState<Theme>('system')
+  const [keymap, setKeymap] = useState<Keymap>({})
+  const [cancelOnReplyDefault, setCancelOnReplyDefault] = useState(false)
+  const [contactPane, setContactPane] = useState(true)
+  const commands = useMemo(() => applyKeymap(COMMANDS, keymap), [keymap])
 
   useEffect(() => {
     void window.api.getSettings().then((s) => {
@@ -237,6 +298,9 @@ export default function App() {
       setTheme(t)
       applyTheme(t)
       setGroupByDate(s.list_group_by_date === '1')
+      setKeymap(parseKeymap(s.keymap))
+      setCancelOnReplyDefault(s.cancel_on_reply_default === '1')
+      setContactPane(s.contact_pane !== '0')
     })
   }, [setGroupByDate])
 
@@ -264,7 +328,8 @@ export default function App() {
   const splitsRef = useRef<Split[]>([])
   const [splitCounts, setSplitCounts] = useState<Record<string, number>>({})
   const isInbox = useCallback(
-    (fid: number | null) => useStore.getState().folders.find((f) => f.id === fid)?.role === 'inbox',
+    (fid: number | null) =>
+      fid === UNIFIED_VIEW_ID || useStore.getState().folders.find((f) => f.id === fid)?.role === 'inbox',
     []
   )
   const splitCountsRead = useRef(latestOnly(setSplitCounts))
@@ -277,8 +342,9 @@ export default function App() {
   const refreshSplitCounts = useCallback(
     async (folderId: number | null) => {
       if (folderId === null || !isInbox(folderId)) return
+      const extra = viewQuery('', useStore.getState().chip)
       await splitCountsRead.current(() =>
-        window.api.splitCounts(folderId, viewQuery('', useStore.getState().chip))
+        folderId === UNIFIED_VIEW_ID ? window.api.unifiedSplitCounts(extra) : window.api.splitCounts(folderId, extra)
       )
     },
     [isInbox]
@@ -296,9 +362,13 @@ export default function App() {
 
   const fetchPage = useCallback(
     async (folderId: number, page: number): Promise<MessageListRow[]> => {
+      // The search page's own results, so j/k and "15 / 201" work in a thread
+      // opened from it, and a background refresh keeps them.
+      if (folderId === SEARCH_VIEW_ID) return page === 0 ? (useStore.getState().searchCache?.emails ?? []) : []
       // Reminders is one local list, not an IMAP folder: no pages, no server.
       if (folderId === REMINDERS_VIEW_ID) return page === 0 ? window.api.listReminders() : []
       const offset = page * PAGE_SIZE
+      if (folderId === UNIFIED_VIEW_ID) return window.api.listUnified(PAGE_SIZE, offset, currentQuery(folderId))
       return isDraftsFolder(folderId)
         ? window.api.listDrafts(PAGE_SIZE, offset)
         : window.api.listMessages(folderId, PAGE_SIZE, offset, currentQuery(folderId))
@@ -324,9 +394,11 @@ export default function App() {
       let page = keepPage ? useStore.getState().page : 0
       let rows = await fetchPage(folderId, page)
       const total =
-        folderId === REMINDERS_VIEW_ID
+        folderId === REMINDERS_VIEW_ID || folderId === SEARCH_VIEW_ID
           ? rows.length
-          : await window.api.countMessages(folderId, currentQuery(folderId))
+          : folderId === UNIFIED_VIEW_ID
+            ? await window.api.countUnified(currentQuery(folderId))
+            : await window.api.countMessages(folderId, currentQuery(folderId))
       // Emptying a later page (select all, Done) steps back to the last page
       // that still has mail, rather than showing an empty list over a full one.
       if (!rows.length && page > 0 && total > 0) {
@@ -389,6 +461,10 @@ export default function App() {
   // are re-read so they match the new set of splits.
   useEffect(() => {
     if (settingsOpen) return
+    void window.api.getSettings().then((s) => {
+      setKeymap(parseKeymap(s.keymap))
+      setCancelOnReplyDefault(s.cancel_on_reply_default === '1')
+    })
     void window.api.listSplits().then((s) => {
       splitsRef.current = s
       setSplits(s)
@@ -424,7 +500,8 @@ export default function App() {
       setLoadingMore(true)
       try {
         let rows = await fetchPage(folderId, next)
-        if (!rows.length && next > 0 && !isDraftsFolder(folderId) && folderId !== REMINDERS_VIEW_ID) {
+        // Only a real folder can reach further back on the server.
+        if (!rows.length && next > 0 && !isDraftsFolder(folderId) && folderId > 0) {
           const older = await window.api.loadOlder(folderId, PAGE_SIZE)
           if (!older.ok) {
             setSyncError(older.error)
@@ -447,7 +524,7 @@ export default function App() {
   const backgroundSync = useCallback(async () => {
     const before = useStore.getState()
     if (before.syncing || !before.email) return
-    const res = await window.api.runSync()
+    const res = await (before.activeFolderId === UNIFIED_VIEW_ID ? window.api.runSyncAll() : window.api.runSync())
     const after = useStore.getState()
     if (res.ok) {
       // Timer/focus overlapped an in-flight sync — not a failure.
@@ -505,6 +582,13 @@ export default function App() {
         `Send failed — “${f.subject || '(no subject)'}” to ${f.to}: ${f.error}`
       )
     })
+    const offCancelled = window.api.onSendCancelledOnReply((c) => {
+      setActionError(
+        c.length === 1
+          ? `Scheduled reply “${c[0].subject || '(no subject)'}” cancelled: someone replied first`
+          : `${c.length} scheduled replies cancelled: someone replied first`
+      )
+    })
     return () => {
       offReminders()
       offRethread()
@@ -513,8 +597,124 @@ export default function App() {
       window.removeEventListener('focus', onFocus)
       offNewMail()
       offSendFailed()
+      offCancelled()
     }
   }, [backgroundSync, loadRows, refreshUnread, setActionError])
+
+  const openThreadAndRead = useCallback(
+    (threadId: string, messageId: number, accountId?: number) => {
+      openThreadView(threadId, messageId, accountId)
+      void window.api.markThreadRead(threadId, accountId).then((res) => {
+        if (res.ok) for (const id of res.changed) markRowSeen(id)
+      })
+    },
+    [openThreadView, markRowSeen]
+  )
+
+  const [workspace, setWorkspace] = useState<Workspace | null>(null)
+  const workspaceRef = useRef<Workspace | null>(null)
+  const threadRef = useRef<ThreadHandle>(null)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** The account whose tabs these are, fixed at boot: a switch reloads the window. */
+  const workspaceAccount = useRef<number | null>(null)
+  const commitWorkspace = useCallback((ws: Workspace) => {
+    workspaceRef.current = ws
+    setWorkspace(ws)
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      void window.api.setSettings({ [workspaceKey(workspaceAccount.current)]: serializeWorkspace(ws) })
+    }, 500)
+  }, [])
+
+  /** The view on screen, read from the store. Null before the first folder is chosen. */
+  const viewNow = useCallback((): View | null => {
+    const s = useStore.getState()
+    if (s.activeFolderId === null) return null
+    return {
+      folderId: s.activeFolderId,
+      splitId: s.splitId,
+      chip: s.chip,
+      thread: s.openThread
+        ? { threadId: s.openThread.threadId, messageId: s.openThread.messageId, accountId: s.openThread.accountId }
+        : null,
+      query: s.activeFolderId === SEARCH_VIEW_ID ? s.searchQuery : undefined
+    }
+  }, [])
+
+  /**
+   * Puts a view on screen: back / forward and tab switches. Every store change
+   * happens before the first await, so the recorder below sees the target
+   * view, finds it equal to the current entry, and adds no step.
+   */
+  const applyView = useCallback(
+    async (v: View) => {
+      if (v.folderId === SEARCH_VIEW_ID) setSearchQuery(v.query ?? '')
+      const st = useStore.getState()
+      setTasksOpen(false)
+      const listChanged = st.activeFolderId !== v.folderId || st.splitId !== v.splitId || st.chip !== v.chip
+      if (listChanged) {
+        clearChecked()
+        setActiveFolder(v.folderId)
+        setSplit(v.splitId)
+        setChip(v.chip)
+      }
+      if (v.thread) {
+        const ot = st.openThread
+        if (!ot || ot.threadId !== v.thread.threadId || ot.accountId !== v.thread.accountId)
+          openThreadAndRead(v.thread.threadId, v.thread.messageId, v.thread.accountId)
+      } else if (st.openThread) closeThread()
+      if (listChanged) await loadRows(v.folderId)
+    },
+    [setSearchQuery, clearChecked, setActiveFolder, setSplit, setChip, openThreadAndRead, closeThread, loadRows]
+  )
+
+  const showWorkspace = useCallback(
+    (next: Workspace | null) => {
+      if (!next || next === workspaceRef.current) return
+      commitWorkspace(next)
+      void applyView(currentView(next))
+    },
+    [commitWorkspace, applyView]
+  )
+
+  /** Applies a transition to the current workspace. Handlers return void, so no `a && b()` here. */
+  const stepWorkspace = useCallback(
+    (f: (ws: Workspace) => Workspace | null) => {
+      const ws = workspaceRef.current
+      if (ws) showWorkspace(f(ws))
+    },
+    [showWorkspace]
+  )
+
+  // Records every navigation as a history step, whoever caused it (sidebar,
+  // g-keys, opening or closing a thread, auto-advance). Coalesced so a
+  // close-then-open (auto-advance) is one step.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const unsub = useStore.subscribe((s, prev) => {
+      if (
+        s.activeFolderId === prev.activeFolderId &&
+        s.splitId === prev.splitId &&
+        s.chip === prev.chip &&
+        s.openThread === prev.openThread &&
+        s.searchQuery === prev.searchQuery
+      )
+        return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        const ws = workspaceRef.current
+        const v = viewNow()
+        if (!ws || !v) return
+        const next = record(ws, v)
+        if (next !== ws) commitWorkspace(next)
+      }, 120)
+    })
+    return () => {
+      unsub()
+      if (timer) clearTimeout(timer)
+    }
+  }, [viewNow, commitWorkspace])
 
   useEffect(() => {
     let cancelled = false
@@ -542,6 +742,7 @@ export default function App() {
       setBoot(status.email ?? null, status.ok ? null : (status.error ?? 'unknown error'))
       setAccounts(status.accounts ?? [])
       setActiveAccountId(status.activeAccountId ?? null)
+      workspaceAccount.current = status.activeAccountId ?? null
       // A token that died while the app was closed fails before this window
       // subscribes to the reauth event, so boot status carries it too.
       const stale = status.accounts?.find((a) => a.needsReauth)
@@ -554,8 +755,14 @@ export default function App() {
       if (cached.length) {
         setFolders(cached)
         if (inbox) {
-          setActiveFolder(inbox.id)
-          await loadRows(inbox.id)
+          const fallback: View = { folderId: inbox.id, splitId: 'all', chip: null, thread: null }
+          const ids = new Set(cached.map((f) => f.id))
+          const special = [REMINDERS_VIEW_ID, SEARCH_VIEW_ID, ...((status.accounts?.length ?? 0) > 1 ? [UNIFIED_VIEW_ID] : [])]
+          const saved = savedWorkspace(await window.api.getSettings(), workspaceAccount.current)
+          if (cancelled) return
+          const ws = restoreWorkspace(saved, (v) => ids.has(v.folderId) || special.includes(v.folderId), fallback)
+          commitWorkspace(ws)
+          await applyView(currentView(ws))
         }
       }
 
@@ -574,14 +781,15 @@ export default function App() {
       setFolders(fresh)
       // Keep whatever folder the user navigated to while the first sync ran —
       // jumping back to INBOX afterwards looks like the app forgot.
+      // Reminders and All inboxes (say, a restored tab) are views, not folders: a sync keeps them.
       const current = useStore.getState().activeFolderId
-      const stillExists = Boolean(current && fresh.some((f) => f.id === current))
-      const target = stillExists
-        ? fresh.find((f) => f.id === current)!
-        : (fresh.find((f) => f.role === 'inbox') ?? fresh[0])
-      if (target) {
-        if (!stillExists) setActiveFolder(target.id)
-        await loadRows(target.id, stillExists)
+      const stillExists = Boolean(current && (current < 0 || fresh.some((f) => f.id === current)))
+      const targetId = stillExists ? current! : (fresh.find((f) => f.role === 'inbox') ?? fresh[0])?.id
+      if (targetId !== undefined) {
+        if (!stillExists) setActiveFolder(targetId)
+        await loadRows(targetId, stillExists)
+        if (!workspaceRef.current)
+          commitWorkspace(initWorkspace({ folderId: targetId, splitId: 'all', chip: null, thread: null }))
       }
 
       void window.api.runBodySync()
@@ -592,17 +800,7 @@ export default function App() {
       off()
       offBody()
     }
-  }, [setBoot, setFolders, setActiveFolder, setSync, loadRows])
-
-  const openThreadAndRead = useCallback(
-    (threadId: string, messageId: number) => {
-      openThreadView(threadId, messageId)
-      void window.api.markThreadRead(threadId).then((res) => {
-        if (res.ok) for (const id of res.changed) markRowSeen(id)
-      })
-    },
-    [openThreadView, markRowSeen]
-  )
+  }, [setBoot, setFolders, setActiveFolder, setSync, loadRows, commitWorkspace, applyView])
 
   /** Reopen a draft in compose with its stored content. */
   const openDraft = useCallback(
@@ -627,7 +825,8 @@ export default function App() {
         body: msg.body_html ?? msg.body_text ?? '',
         attachments,
         inReplyTo: msg.in_reply_to,
-        references: msg.references_header
+        references: msg.references_header,
+        accountId: msg.account_id
       })
     },
     [openCompose]
@@ -642,7 +841,7 @@ export default function App() {
         void openDraft(row.id)
         return
       }
-      if (row.thread_id) openThreadAndRead(row.thread_id, row.id)
+      if (row.thread_id) openThreadAndRead(row.thread_id, row.id, row.account_id)
       const neighbors = [r[index + 1]?.id, r[index - 1]?.id].filter(
         (id): id is number => typeof id === 'number'
       )
@@ -737,18 +936,21 @@ export default function App() {
    */
   const setThreadsRead = useCallback(
     async (read: boolean) => {
-      const targets = targetRows()
-      const threadIds = targets.map((row) => row.thread_id).filter((t): t is string => !!t)
-      if (!threadIds.length) return
-      if (read) {
-        for (const threadId of threadIds) {
-          const res = await window.api.markThreadRead(threadId)
+      // All inboxes can mix accounts in one selection, and thread ids collide
+      // across accounts, so each call names the account that owns its rows.
+      const groups = threadsByAccount(targetRows())
+      if (!groups.size) return
+      for (const [accountId, threadIds] of groups) {
+        if (read) {
+          for (const threadId of threadIds) {
+            const res = await window.api.markThreadRead(threadId, accountId)
+            if (!res.ok) return setActionError(res.error)
+            for (const id of res.changed) markRowSeen(id)
+          }
+        } else {
+          const res = await window.api.markThreadsUnread(threadIds, accountId)
           if (!res.ok) return setActionError(res.error)
-          for (const id of res.changed) markRowSeen(id)
         }
-      } else {
-        const res = await window.api.markThreadsUnread(threadIds)
-        if (!res.ok) return setActionError(res.error)
       }
       await refreshRows()
       void refreshUnread()
@@ -930,12 +1132,26 @@ export default function App() {
     if (!ot?.threadId) return
     // Opening the thread marked every message read, so this un-reads all of
     // them — clearing only the newest would leave the thread read.
-    const res = await window.api.markThreadsUnread([ot.threadId])
+    const res = await window.api.markThreadsUnread([ot.threadId], ot.accountId)
     if (!res.ok) return setActionError(res.error)
     await refreshRows()
     void refreshUnread()
     closeThread()
   }, [setActionError, refreshRows, refreshUnread, closeThread])
+
+  /** j / k and the header arrows: open the neighbouring row of the list behind the thread. */
+  const stepConversation = useCallback(
+    (delta: number) => {
+      const st = useStore.getState()
+      if (!st.openThread) return
+      const { index } = openThreadTarget(st.rows, st.openThread)
+      const next = index + delta
+      if (index < 0 || next < 0 || next >= st.rows.length) return
+      setSelectedIndex(next)
+      openRow(next)
+    },
+    [setSelectedIndex, openRow]
+  )
 
   const onToggleCheck = useCallback(
     (id: number, index: number, shiftKey: boolean) => {
@@ -1002,24 +1218,16 @@ export default function App() {
 
   const startReply = useCallback(
     async (all: boolean) => {
-      const { openThread: ot, email: me } = useStore.getState()
+      const { openThread: ot, email: activeEmail } = useStore.getState()
       if (!ot) return
       const msg = await window.api.getMessage(ot.messageId)
       if (!msg) return
-      const to = msg.from_addr ?? ''
-      let cc = ''
-      if (all) {
-        const addrs = new Set<string>()
-        for (const part of [msg.to_addrs, msg.cc_addrs]) {
-          if (!part) continue
-          for (const a of part.split(/[,;]/)) {
-            const t = a.trim()
-            if (t && t.toLowerCase() !== me?.toLowerCase()) addrs.add(t)
-          }
-        }
-        addrs.delete(to)
-        cc = [...addrs].join(', ')
-      }
+      // Reply all leaves out the address that received the mail, which in
+      // All inboxes need not be the active account's.
+      const me = accounts.find((a) => a.accountId === msg.account_id)?.email ?? activeEmail
+      const from = msg.from_addr ?? ''
+      const to = namedAddress(msg.from_name, from)
+      const cc = all ? replyAllCc(msg.to_addrs, msg.cc_addrs, [me, from]) : ''
       openCompose({
         ...emptyCompose(),
         mode: all ? 'replyAll' : 'reply',
@@ -1030,10 +1238,12 @@ export default function App() {
         references: [msg.in_reply_to, msg.message_id].filter(Boolean).join(' ') || null,
         body: signature
           ? `<p><br></p>${signature}${buildReplyBody(msg)}`
-          : buildReplyBody(msg)
+          : buildReplyBody(msg),
+        accountId: msg.account_id,
+        sourceMessageId: ot.messageId
       })
     },
-    [openCompose, signature]
+    [openCompose, signature, accounts]
   )
 
   const startForward = useCallback(async () => {
@@ -1049,7 +1259,9 @@ export default function App() {
       // no In-Reply-To/References — threading it into the original would be wrong.
       body: signature
         ? `<p><br></p>${signature}${buildForwardBody(msg)}`
-        : buildForwardBody(msg)
+        : buildForwardBody(msg),
+      accountId: msg.account_id,
+      sourceMessageId: ot.messageId
     })
   }, [openCompose, signature])
 
@@ -1076,12 +1288,12 @@ export default function App() {
     })
   }, [actionIds, setActionError, closeThread, clearChecked, loadRows, pushUndo, repaintAfterUndo])
 
-  /** Gmail only: the account's user labels, checked where the targets already carry them. */
+  /** Gmail only: the user labels the targets' accounts share, checked where the targets already carry them. */
   const openLabelPicker = useCallback(async () => {
     const ids = actionIds()
     if (!ids.length) return
-    const choices = await window.api.labelChoices()
-    if (!choices.length) return setActionError('Labels are Gmail only')
+    const choices = await window.api.labelChoices(ids)
+    if (!choices.length) return setActionError('No Gmail labels these messages can share')
     const current = new Set(Object.values(await window.api.labelsFor(ids)).flat())
     setOverlay({
       kind: 'label',
@@ -1104,7 +1316,7 @@ export default function App() {
 
   // Tasks counts as 'modal': it replaces the mail pane, and list keys (e, !,
   // ⌘A, Tab, …) would otherwise act on the hidden mail list.
-  const surface = { compose: !!compose, tasksOpen, openThread: !!openThread }
+  const surface = { compose: !!compose, tasksOpen, openThread: !!openThread, searchOpen: activeFolderId === SEARCH_VIEW_ID }
   const mode: Mode = appMode({
     ...surface,
     overlayOpen: !!(paletteOpen || settingsOpen || shortcutsOpen || overlay)
@@ -1125,7 +1337,16 @@ export default function App() {
         'shortcuts.open': () => setShortcutsOpen(true),
         escape: ({ mode: m }) => {
           if (m === 'thread') closeThread()
-          else if (useStore.getState().checkedIds.length) clearChecked()
+          else if (m === 'search') {
+            // Back to wherever the search was opened from; the Inbox if nowhere.
+            const prev = workspaceRef.current && backOutOf(workspaceRef.current, SEARCH_VIEW_ID)
+            if (prev) showWorkspace(prev)
+            else gotoFolder('inbox')
+          } else if (useStore.getState().checkedIds.length) clearChecked()
+        },
+        'search.open': () => {
+          setSearchQuery('')
+          void onFolder(SEARCH_VIEW_ID)
         },
         'sync.now': () => backgroundSync(),
         'account.add': () => setAddingAccount(true),
@@ -1133,6 +1354,9 @@ export default function App() {
         'nav.up': () => moveSelection(-1),
         'nav.open': openSelected,
         'go.inbox': () => gotoFolder('inbox'),
+        'go.unified': () => {
+          if (accounts.length > 1) void onFolder(UNIFIED_VIEW_ID)
+        },
         'go.sent': () => gotoFolder('sent'),
         'go.drafts': () => gotoFolder('drafts'),
         'go.trash': () => gotoFolder('trash'),
@@ -1144,6 +1368,19 @@ export default function App() {
           else setActionError(t.message)
         },
         'go.reminders': () => void onFolder(REMINDERS_VIEW_ID),
+        'tab.new': () => {
+          const ws = workspaceRef.current
+          const v = viewNow()
+          if (ws && v) showWorkspace(openTab(ws, { ...v, thread: null }))
+        },
+        'tab.close': () => stepWorkspace((w) => closeTab(w)),
+        'tab.next': () => stepWorkspace((w) => cycleTab(w, 1)),
+        'tab.prev': () => stepWorkspace((w) => cycleTab(w, -1)),
+        ...(Object.fromEntries(
+          DIGITS.map((d, i) => [`tab.${d}`, () => stepWorkspace((w) => selectTab(w, i))])
+        ) as Handlers),
+        'history.back': () => stepWorkspace(back),
+        'history.forward': () => stepWorkspace(forward),
         'msg.star': ({ mode: m }) => (m === 'thread' ? starFromThread() : starSelected()),
         // In a thread, u un-reads and leaves, since staying would re-mark it read.
         'msg.read': ({ mode: m }) => (m === 'thread' ? unreadFromThread() : toggleReadSelected()),
@@ -1189,6 +1426,7 @@ export default function App() {
         },
         'triage.zero': () => {
           const fid = useStore.getState().activeFolderId
+          if (fid === UNIFIED_VIEW_ID) return setActionError('Get me to zero works on one account’s Inbox')
           if (fid && isInbox(fid)) setOverlay({ kind: 'zero', folderId: fid })
           else setActionError('Get me to zero works on the Inbox')
         },
@@ -1200,6 +1438,23 @@ export default function App() {
         'thread.reply': () => startReply(false),
         'thread.replyAll': () => startReply(true),
         'thread.forward': () => startForward(),
+        'thread.nextConv': () => stepConversation(1),
+        'thread.prevConv': () => stepConversation(-1),
+        'thread.nextMsg': () => threadRef.current?.step(1),
+        'thread.prevMsg': () => threadRef.current?.step(-1),
+        'thread.expand': () => threadRef.current?.toggleFocused(),
+        'thread.expandAll': () => threadRef.current?.toggleAll(),
+        'thread.pageDown': () => threadRef.current?.page(1),
+        'thread.pageUp': () => threadRef.current?.page(-1),
+        'thread.nextLink': () => threadRef.current?.cycleLink(1),
+        'thread.prevLink': () => threadRef.current?.cycleLink(-1),
+        'thread.open': () => threadRef.current?.openActive(),
+        'thread.contactPane': () => {
+          setContactPane((on) => {
+            void window.api.setSettings({ contact_pane: on ? '0' : '1' })
+            return !on
+          })
+        },
         undo: () => runUndo(),
         'split.next': () => cycleSplit(1),
         'split.prev': () => cycleSplit(-1),
@@ -1214,7 +1469,10 @@ export default function App() {
         },
         'select.all': () => setCheckedAll(useStore.getState().rows.map((r) => r.id)),
         'select.extendDown': () => extendSelection(1),
-        'select.extendUp': () => extendSelection(-1)
+        'select.extendUp': () => extendSelection(-1),
+        ...(Object.fromEntries(
+          DIGITS.map((d, i) => [`account.${d}`, () => switchToAccountAt(i)])
+        ) as Handlers)
       }),
     [
       openPalette,
@@ -1248,25 +1506,31 @@ export default function App() {
       cycleSplit,
       toggleChip,
       setGroupByDate,
+      setSearchQuery,
       setCheckedAll,
       extendSelection,
       isInbox,
       accounts,
       activeAccountId,
-      repaintAfterUndo
+      repaintAfterUndo,
+      switchToAccountAt,
+      viewNow,
+      showWorkspace,
+      stepWorkspace,
+      stepConversation
     ]
   )
 
-  const bindings = useMemo(() => buildBindings(mode, handlers), [mode, handlers])
+  const bindings = useMemo(() => buildBindings(mode, handlers, commands), [mode, handlers, commands])
   useHotkeys(mode, bindings)
-  const chords = useMemo(() => buildChords(mode, handlers), [mode, handlers])
+  const chords = useMemo(() => buildChords(mode, handlers, commands), [mode, handlers, commands])
   useCommandChord(chords)
-  const sequences = useMemo(() => buildSequences(mode, handlers), [mode, handlers])
+  const sequences = useMemo(() => buildSequences(mode, handlers, commands), [mode, handlers, commands])
   useKeySequences(sequences)
 
   const paletteActions = useMemo<PaletteAction[]>(
     () => [
-      ...buildPaletteActions(paletteMode, handlers),
+      ...buildPaletteActions(paletteMode, handlers, commands),
       {
         id: 'scheduled',
         label: scheduled.length
@@ -1279,25 +1543,70 @@ export default function App() {
       ...scheduled.map((r) => ({
         id: `cancel-${r.id}`,
         label: `Cancel: ${r.subject || '(no subject)'} → ${r.to_addrs}`,
-        hint: new Date(r.send_at).toLocaleString(),
+        hint: [r.from_addr, new Date(r.send_at).toLocaleString()].filter(Boolean).join(' · '),
         run: async () => {
           await window.api.cancelSend(r.id)
           setScheduled(await window.api.listScheduled())
         }
       }))
     ],
-    [paletteMode, handlers, scheduled]
+    [paletteMode, handlers, commands, scheduled]
   )
 
   const onSent = useCallback(
-    (outboxId: number, subject: string, undoMs: number, immediate: boolean) => {
-      // A scheduled send is cancelled from ⌘K, not undone.
-      if (!immediate) return
-      pushUndo(`Sending “${subject}”`, undoMs, async () => {
+    async (outboxId: number, subject: string, undoMs: number, immediate: boolean, doneId: number | null) => {
+      const undoSend = async (): Promise<void> => {
         await window.api.cancelSend(outboxId)
-      })
+      }
+      if (doneId == null) {
+        // A scheduled send is cancelled from ⌘K, not undone.
+        if (immediate) pushUndo(`Sending “${subject}”`, undoMs, undoSend)
+        return
+      }
+      // Send + Done. There is one undo slot, so one entry takes back both.
+      const origin = viewKey(useStore.getState())
+      const doneLabel = immediate ? `Sent “${subject}” and marked done` : `Scheduled “${subject}”, marked done`
+      if (doneAction(origin.folderId, REMINDERS_VIEW_ID) === 'dismissReminder') {
+        // From Reminders the open row is the reminder's keyed message — for
+        // remind-on-send, the user's own Sent copy. Done dismisses the
+        // reminder there; archiving would file away Sent mail (see doneSelected).
+        const cleared = await window.api.clearReminders([doneId])
+        const removed = dropRows([doneId])
+        if (useStore.getState().openThread) closeThread()
+        pushUndo(
+          doneLabel,
+          immediate ? Math.min(undoMs, cleared.holdMs) : cleared.holdMs,
+          async () => {
+            if (immediate) await undoSend()
+            if (cleared.cleared.length) await window.api.restoreReminders(cleared.cleared)
+            repaintAfterUndo(origin, removed)
+          }
+        )
+        return
+      }
+      const res = await window.api.moveMessages([doneId], { role: 'archive' })
+      if (!res.ok) {
+        setActionError(res.error === 'no archive folder' ? NO_ARCHIVE : res.error)
+        if (immediate) pushUndo(`Sending “${subject}”`, undoMs, undoSend)
+        return
+      }
+      const removed = dropRows(res.moved)
+      if (useStore.getState().openThread) closeThread()
+      void refreshUnread()
+      pushUndo(
+        doneLabel,
+        immediate ? Math.min(undoMs, res.holdMs) : res.holdMs,
+        async () => {
+          if (immediate) await undoSend()
+          if (res.batchId) {
+            const r = await window.api.undoMove(res.batchId)
+            if (!r.ok) return setActionError(r.error)
+          }
+          repaintAfterUndo(origin, removed)
+        }
+      )
     },
-    [pushUndo]
+    [pushUndo, dropRows, closeThread, refreshUnread, setActionError, repaintAfterUndo]
   )
 
   // No account is the normal first-run state; anything else is a real fault
@@ -1331,6 +1640,15 @@ export default function App() {
     : null
   const openStarred = isFlagged(openRowFlags)
 
+  const viewLabel = (v: View): string => {
+    if (v.thread) return rows.find((r) => r.id === v.thread!.messageId)?.subject || 'Conversation'
+    if (v.folderId === UNIFIED_VIEW_ID) return 'All inboxes'
+    if (v.folderId === REMINDERS_VIEW_ID) return 'Reminders'
+    if (v.folderId === SEARCH_VIEW_ID) return v.query ? `Search: ${v.query}` : 'Search'
+    const f = folders.find((x) => x.id === v.folderId)
+    return f ? folderLabel(f) : 'Mail'
+  }
+
   return (
     <div className="app">
       <div className="titlebar-drag" />
@@ -1349,11 +1667,32 @@ export default function App() {
         onSettings={() => setSettingsOpen(true)}
         onShortcuts={() => setShortcutsOpen(true)}
         onTasks={() => setTasksOpen((v) => !v)}
+        onSearch={() => {
+          setSearchQuery('')
+          void onFolder(SEARCH_VIEW_ID)
+        }}
         tasksActive={tasksOpen}
         openTasks={openTasks}
         unread={unread}
+        showUnified={accounts.length > 1}
       />
       <main className="main">
+        {workspace && (
+          <TabBar
+            tabs={workspace.tabs.map((t) => ({ id: t.id, label: viewLabel(t.history[t.index]) }))}
+            active={workspace.active}
+            canBack={canGoBack(workspace)}
+            canForward={canGoForward(workspace)}
+            onSelect={(i) => showWorkspace(selectTab(workspace, i))}
+            onClose={(i) => showWorkspace(closeTab(workspace, i))}
+            onNew={() => {
+              const v = viewNow()
+              if (v) showWorkspace(openTab(workspace, { ...v, thread: null }))
+            }}
+            onBack={() => showWorkspace(back(workspace))}
+            onForward={() => showWorkspace(forward(workspace))}
+          />
+        )}
         {reauthEmail && (
           <div className="reauth-banner" role="alert">
             <span>{reauthEmail} needs you to sign in again.</span>
@@ -1370,7 +1709,16 @@ export default function App() {
           </div>
         )}
         {compose ? (
-          <Compose compose={compose} onClose={closeCompose} onSent={onSent} />
+          <Compose
+            compose={compose}
+            me={(() => {
+              const a = accounts.find((x) => x.accountId === (compose.accountId ?? activeAccountId))
+              return { name: a?.name ?? null, email: a?.email ?? email }
+            })()}
+            cancelOnReplyDefault={cancelOnReplyDefault}
+            onClose={closeCompose}
+            onSent={onSent}
+          />
         ) : tasksOpen ? (
           <>
             <header className="list-header">
@@ -1395,27 +1743,62 @@ export default function App() {
             />
           </>
         ) : openThread ? (
-          <Thread
-            threadId={openThread.threadId}
-            focusMessageId={openThread.messageId}
-            onBack={closeThread}
-            onReply={(all) => void startReply(all)}
-            onForward={() => void startForward()}
-            onTrash={() => void triageFromThread(triageSelected)}
-            onDone={() => void triageFromThread(doneSelected)}
-            onStar={() => void starFromThread()}
-            onToggleRead={() => void unreadFromThread()}
-            starred={openStarred}
+          <div className="thread-layout">
+            <Thread
+              ref={threadRef}
+              threadId={openThread.threadId}
+              focusMessageId={openThread.messageId}
+              accountId={openThread.accountId}
+              position={positionLabel(openThreadTarget(rows, openThread).index, page, PAGE_SIZE, totalRows)}
+              onPrevConversation={() => stepConversation(-1)}
+              onNextConversation={() => stepConversation(1)}
+              onBack={closeThread}
+              onReply={(all) => void startReply(all)}
+              onForward={() => void startForward()}
+              onTrash={() => void triageFromThread(triageSelected)}
+              onDone={() => void triageFromThread(doneSelected)}
+              onStar={() => void starFromThread()}
+              onToggleRead={() => void unreadFromThread()}
+              onAttachment={(attachment, canPreview) => setOverlay({ kind: 'attachment', attachment, canPreview })}
+              onLoaded={() => setLoadedThread(threadKeyOf(openThread))}
+              starred={openStarred}
+            />
+            {contactPane && (
+              <ContactPane
+                threadId={openThread.threadId}
+                accountId={openThread.accountId}
+                ready={loadedThread === threadKeyOf(openThread)}
+                onOpen={openThreadAndRead}
+              />
+            )}
+          </div>
+        ) : activeFolderId === SEARCH_VIEW_ID ? (
+          <SearchPage
+            query={searchQuery}
+            onQuery={setSearchQuery}
+            hasGmail={accounts.some((a) => a.provider === 'gmail')}
+            onOpenMessage={(r, emails) => {
+              if (!r.thread_id) return
+              // The results become the list under the thread, like a folder's rows.
+              setPageRows(emails)
+              setPage(0)
+              setTotalRows(emails.length)
+              setSelectedIndex(Math.max(0, emails.indexOf(r)))
+              openThreadAndRead(r.thread_id, r.id, r.account_id)
+            }}
+            onOpenTasks={() => setTasksOpen(true)}
           />
         ) : (
           <>
             <header className="list-header">
               <h1 className="list-title">
-                {activeFolderId === REMINDERS_VIEW_ID
-                  ? 'Reminders'
-                  : active
-                    ? folderLabel(active)
-                    : 'Supermail'}
+                {activeFolderId === UNIFIED_VIEW_ID
+                  ? 'All inboxes'
+                  : activeFolderId === REMINDERS_VIEW_ID
+                    ? 'Reminders'
+                    : active
+                      ? folderLabel(active)
+                      : 'Supermail'}
               </h1>
               <span className="list-meta">
                 {rows.length}
@@ -1458,9 +1841,9 @@ export default function App() {
                 </button>
               </div>
             )}
-            {active && active.role !== 'drafts' && (
+            {((active && active.role !== 'drafts') || activeFolderId === UNIFIED_VIEW_ID) && (
               <SplitBar
-                splits={active.role === 'inbox' ? splits : null}
+                splits={active?.role === 'inbox' || activeFolderId === UNIFIED_VIEW_ID ? splits : null}
                 counts={splitCounts}
                 activeSplit={splitId}
                 chip={chip}
@@ -1503,15 +1886,18 @@ export default function App() {
                 emptySub={
                   syncError
                     ? 'Check your connection and try again.'
-                    : chip || (active?.role === 'inbox' && splitId !== 'all')
+                    : chip || ((active?.role === 'inbox' || activeFolderId === UNIFIED_VIEW_ID) && splitId !== 'all')
                       ? 'Nothing matches this view'
-                      : active
-                        ? `${folderLabel(active)} is empty`
-                        : ''
+                      : activeFolderId === UNIFIED_VIEW_ID
+                        ? 'Every inbox is empty'
+                        : active
+                          ? `${folderLabel(active)} is empty`
+                          : ''
                 }
                 emptyNode={
                   isInboxZero({
-                    plainInbox: active?.role === 'inbox' && splitId === 'all' && !chip,
+                    plainInbox:
+                      (active?.role === 'inbox' || activeFolderId === UNIFIED_VIEW_ID) && splitId === 'all' && !chip,
                     total: totalRows,
                     hasSyncedOnce,
                     syncError
@@ -1522,6 +1908,11 @@ export default function App() {
                 // Reminders sorts by due time, not received date, so date
                 // headers there would be out of order.
                 groupByDate={groupByDate && activeFolderId !== REMINDERS_VIEW_ID}
+                accountLabel={
+                  activeFolderId === UNIFIED_VIEW_ID
+                    ? (id) => accounts.find((a) => a.accountId === id)?.email
+                    : undefined
+                }
                 rows={rows}
                 selectedIndex={selectedIndex}
                 checkedIds={checkedIds}
@@ -1554,7 +1945,7 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
-      {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
+      {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} commands={commands} />}
       {overlay?.kind === 'remind' && (
         <RemindPicker
           onPick={onRemindPick}
@@ -1614,6 +2005,27 @@ export default function App() {
             setOverlay(null)
             const r = await window.api.unsubscribe(id)
             if (!r.ok) setActionError(r.error)
+          }}
+        />
+      )}
+      {overlay?.kind === 'attachment' && overlay.canPreview && (
+        <AttachmentPreview
+          attachment={overlay.attachment}
+          onClose={() => setOverlay(null)}
+          onSave={() => void window.api.saveAttachment(overlay.attachment.id)}
+          onOpen={() => void window.api.openAttachment(overlay.attachment.id)}
+        />
+      )}
+      {overlay?.kind === 'attachment' && !overlay.canPreview && (
+        <ConfirmDialog
+          title={`Open ${overlay.attachment.filename ?? 'untitled'}?`}
+          body="This file came by email and opens in its default app, outside Supermail. Only open files you trust."
+          confirmLabel="Open"
+          onCancel={() => setOverlay(null)}
+          onConfirm={() => {
+            const id = overlay.attachment.id
+            setOverlay(null)
+            void window.api.openAttachment(id)
           }}
         />
       )}

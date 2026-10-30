@@ -1,4 +1,5 @@
 import { getDb } from './db.js'
+import { listFolders } from './repo.js'
 import type { Folder } from './types.js'
 
 /** Gmail system labels (\Inbox, \Important, \Starred…) are folders or flags here, never labels. */
@@ -22,6 +23,38 @@ export function gmailLabelChoices(folders: Pick<Folder, 'path' | 'role'>[]): str
     )
     .map((f) => f.path)
     .sort((a, b) => a.localeCompare(b))
+}
+
+/**
+ * The labels a selection can take: those every owning account has. Empty when
+ * any of them is not Gmail. In All inboxes one selection can span accounts,
+ * and offering one account's labels to another's rows would create a label
+ * the user never made on that other server.
+ */
+export function sharedLabelChoices(accountIds: Iterable<number>, isGmail: (accountId: number) => boolean): string[] {
+  let shared: string[] | null = null
+  for (const id of accountIds) {
+    if (!isGmail(id)) return []
+    const mine = new Set(gmailLabelChoices(listFolders(id)))
+    shared = shared === null ? [...mine] : shared.filter((l) => mine.has(l))
+  }
+  return shared ?? []
+}
+
+/**
+ * Null when `label` may be written to every one of these accounts, else why
+ * not. Checked before anything is written, so a bad request changes nothing.
+ */
+export function labelWriteError(
+  accountIds: Iterable<number>,
+  label: string,
+  isGmail: (accountId: number) => boolean
+): string | null {
+  for (const id of accountIds) {
+    if (!isGmail(id)) return 'Labels are Gmail only'
+    if (!gmailLabelChoices(listFolders(id)).includes(label)) return `No label "${label}" on this account`
+  }
+  return null
 }
 
 function labelId(accountId: number, name: string): number {

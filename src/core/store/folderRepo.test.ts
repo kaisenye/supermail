@@ -6,8 +6,10 @@ import { closeDb, getDb, initDb } from './db.js'
 import {
   folderByRole,
   getFolder,
+  resetFolder,
   setFolderRole,
   setFolderRoles,
+  setHistoryComplete,
   threadMatesInFolder,
   upsertFolder,
   upsertMessage
@@ -80,5 +82,28 @@ describe('threadMatesInFolder', () => {
     expect(threadMatesInFolder(x2)).toEqual([x2, x1])
     expect(threadMatesInFolder(lone)).toEqual([lone])
     expect(threadMatesInFolder(99999)).toEqual([])
+  })
+})
+
+describe('history_complete', () => {
+  it('is set by setHistoryComplete and cleared when the folder is renumbered', () => {
+    const { id } = folder(1, 'INBOX')
+    resetFolder(id, 5)
+    expect(getFolder(id)?.history_complete).toBe(0)
+    setHistoryComplete(id, 5)
+    expect(getFolder(id)?.history_complete).toBe(1)
+    resetFolder(id, 999)
+    expect(getFolder(id)?.history_complete).toBe(0)
+  })
+
+  it('ignores a completion read before the folder was renumbered', () => {
+    const { id } = folder(1, 'INBOX')
+    resetFolder(id, 5)
+    // A backfill read uidvalidity 5; a forward sync renumbered the folder mid-page.
+    resetFolder(id, 6)
+    setHistoryComplete(id, 5)
+    expect(getFolder(id)?.history_complete).toBe(0)
+    setHistoryComplete(id, 6)
+    expect(getFolder(id)?.history_complete).toBe(1)
   })
 })

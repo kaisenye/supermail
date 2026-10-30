@@ -18,6 +18,8 @@ export interface OutboxRow {
   send_at: number
   /** "Remind me if no reply" chosen in compose; the reminder is saved after the send. */
   remind_at: number | null
+  /** 1: cancel this scheduled send if someone replies to its thread first. */
+  cancel_on_reply: number
   status: OutboxStatus
   error: string | null
   created_at: number
@@ -37,6 +39,7 @@ export interface EnqueueOutboxInput {
   attachments?: string | null
   send_at: number
   remind_at?: number | null
+  cancel_on_reply?: number
 }
 
 /**
@@ -71,11 +74,11 @@ export function enqueueOutbox(input: EnqueueOutboxInput): OutboxRow {
       `INSERT INTO outbox (
          account_id, draft_message_id, to_addrs, cc_addrs, bcc_addrs,
          subject, body_text, body_html, in_reply_to, references_header,
-         attachments, send_at, remind_at, status, created_at
+         attachments, send_at, remind_at, cancel_on_reply, status, created_at
        ) VALUES (
          @account_id, @draft_message_id, @to_addrs, @cc_addrs, @bcc_addrs,
          @subject, @body_text, @body_html, @in_reply_to, @references_header,
-         @attachments, @send_at, @remind_at, 'pending', @created_at
+         @attachments, @send_at, @remind_at, @cancel_on_reply, 'pending', @created_at
        )`
     )
     .run({
@@ -92,6 +95,7 @@ export function enqueueOutbox(input: EnqueueOutboxInput): OutboxRow {
       attachments: input.attachments ?? null,
       send_at: input.send_at,
       remind_at: input.remind_at ?? null,
+      cancel_on_reply: input.cancel_on_reply ?? 0,
       created_at
     })
   return getOutbox(Number(info.lastInsertRowid))!
@@ -119,6 +123,24 @@ export function listPendingOutbox(accountId: number): OutboxRow[] {
        ORDER BY send_at ASC`
     )
     .all(accountId) as OutboxRow[]
+}
+
+/**
+ * Scheduled sends still waiting, across every listed account, soonest first.
+ * A reply from the unified inbox queues under the account that received the
+ * mail, so the scheduled list must not stop at the active account.
+ * Rows due at or before `after` (still inside the undo window) are left out.
+ */
+export function listScheduledOutbox(accountIds: number[], after: number): OutboxRow[] {
+  if (accountIds.length === 0) return []
+  return getDb()
+    .prepare(
+      `SELECT * FROM outbox
+       WHERE account_id IN (${accountIds.map(() => '?').join(',')})
+         AND status = 'pending' AND send_at > ?
+       ORDER BY send_at ASC, id ASC`
+    )
+    .all(...accountIds, after) as OutboxRow[]
 }
 
 export function listDueOutbox(now = Date.now()): OutboxRow[] {

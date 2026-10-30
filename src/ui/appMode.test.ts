@@ -22,6 +22,12 @@ describe('appMode', () => {
     expect(appMode({ ...none, compose: true, openThread: true })).toBe('compose')
     expect(appMode({ ...none, openThread: true, overlayOpen: true })).toBe('modal')
   })
+
+  it('reads the search page as its own mode, under any open thread', () => {
+    expect(appMode({ ...none, searchOpen: true })).toBe('search')
+    expect(appMode({ ...none, searchOpen: true, openThread: true })).toBe('thread')
+    expect(appMode({ ...none, searchOpen: true, overlayOpen: true })).toBe('modal')
+  })
 })
 
 describe('palette mode', () => {
@@ -47,9 +53,9 @@ describe('palette mode', () => {
 describe('App wiring', () => {
   const app = readFileSync(join(__dirname, 'App.tsx'), 'utf8')
   it('derives the keyboard mode with Tasks and builds the palette from the base mode', () => {
-    expect(app).toContain('tasksOpen, openThread: !!openThread }')
+    expect(app).toContain('tasksOpen, openThread: !!openThread, searchOpen')
     expect(app).toContain('appMode({')
-    expect(app).toContain('buildPaletteActions(paletteMode, handlers)')
+    expect(app).toContain('buildPaletteActions(paletteMode, handlers, commands)')
     expect(app).not.toContain('buildPaletteActions(mode,')
   })
   it('routes g e through the provider-aware Done target', () => {

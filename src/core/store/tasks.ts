@@ -1,4 +1,5 @@
 import { getDb } from './db.js'
+import { toFtsQuery } from './search.js'
 
 /** Linear's scale: 0 none, 1 urgent … 4 low. Numeric so it sorts directly. */
 export type Priority = 0 | 1 | 2 | 3 | 4
@@ -166,4 +167,18 @@ export function countOpenTasks(accountId: number): number {
       .prepare('SELECT count(*) c FROM tasks WHERE account_id = ? AND done_at IS NULL')
       .get(accountId) as { c: number }
   ).c
+}
+
+/** The search page's Tasks scope: tasks_fts (migration v20) over title and description, open tasks first. */
+export function searchTasks(accountId: number, query: string, limit = 50): Task[] {
+  const fts = toFtsQuery(query)
+  if (!fts) return []
+  return getDb()
+    .prepare(
+      `SELECT t.* FROM tasks_fts JOIN tasks t ON t.id = tasks_fts.rowid
+        WHERE tasks_fts MATCH ? AND t.account_id = ?
+        ORDER BY t.done_at IS NOT NULL, bm25(tasks_fts), t.id
+        LIMIT ?`
+    )
+    .all(fts, accountId, limit) as Task[]
 }

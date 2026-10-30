@@ -8,13 +8,14 @@ import { assignRoles } from '../store/folderRoles.js'
 import {
   deleteFolder,
   listFolders,
-  oldestSyncedUid,
+  newestSyncedUid,
   resetFolder,
   setFolderRoles,
   setLastUid,
   upsertFolder,
   getSettings,
-  setSetting
+  setSetting,
+  reopenHistory
 } from '../store/repo.js'
 import {
   createClient,
@@ -26,6 +27,7 @@ import {
   type MailboxStatus
 } from './imap.js'
 import { shouldSyncFolder } from './folderFilter.js'
+import { gmailSearchUids, liveUidValidity, missingUids } from './serverSearch.js'
 import { reconcileFolder } from './reconcile.js'
 import { rethreadAccount, type RethreadResult } from './rethread.js'
 import { backfillListHeaders, type HeaderBackfillResult } from './headerBackfill.js'
@@ -61,6 +63,26 @@ export interface SyncResult {
 // retention setting), so the cutoff never discards mail the server offers.
 const DEFAULTS = { maxPerFolder: 20000, sinceDays: 760 }
 
+/**
+ * The forward pass's date floor. With full offline history on (the default)
+ * there is none: mail with an old date can still arrive under a new uid (an
+ * archived message moved back into INBOX), and dropping it while last_uid moves
+ * past it would lose it for good once the folder's history is complete.
+ */
+export function forwardCutoff(sinceDays: number, now = Date.now()): number {
+  if (getSettings().full_history !== '0') return 0
+  return now - sinceDays * 86_400_000
+}
+
+/**
+ * Highest uid backfill must cover. last_uid counts too: the forward pass can
+ * move it past mail it skipped, and those uids are still missing locally.
+ */
+export function backfillCeiling(newestLocal: number | null, lastUid: number): number | null {
+  const c = Math.max(newestLocal ?? 0, lastUid)
+  return c > 0 ? c : null
+}
+
 export async function syncAccount(
   accountId: number,
   config: AccountConfig,
@@ -68,7 +90,7 @@ export async function syncAccount(
 ): Promise<SyncResult> {
   const maxPerFolder = opts.maxPerFolder ?? DEFAULTS.maxPerFolder
   const sinceDays = opts.sinceDays ?? DEFAULTS.sinceDays
-  const cutoff = Date.now() - sinceDays * 86_400_000
+  const cutoff = forwardCutoff(sinceDays)
   const progress = opts.onProgress ?? (() => {})
 
   const pendingFlagIds = opts.pendingFlagIds ?? new Set<number>()
@@ -329,45 +351,61 @@ function maxUid(messages: { uid: number | null }[]): number {
 
 export interface BackfillResult {
   messages: number
-  /** False once the oldest uid in the folder is already local. */
+  /** False once every server uid at or below the newest local one is local. */
   more: boolean
 }
 
 /**
- * Fetches the page of mail immediately *older* than what is already synced.
- * The forward pass only ever asks for `uid > last_uid`, so without this the
- * initial 90-day/2000-message window is a permanent floor.
+ * Fetches the newest page of server mail missing locally, at or below the
+ * newest synced uid. The forward pass only ever asks for `uid > last_uid`, so
+ * without this the initial 90-day/2000-message window is a permanent floor.
+ *
+ * Gap-aware rather than "everything below min(uid)": server search stores old
+ * hits far below the synced window, and paging from the lowest local uid would
+ * skip every uid between that hit and the window for good.
  */
 export async function backfillFolder(
   accountId: number,
   config: AccountConfig,
-  folder: { id: number; path: string },
+  folder: { id: number; path: string; uidvalidity: number | null; last_uid: number },
   limit = 200,
   /** Source uids of moves still held for undo; the server has them here until the MOVE runs. */
   held: () => Iterable<number> = () => []
 ): Promise<BackfillResult> {
-  const oldest = oldestSyncedUid(folder.id)
-  // Nothing synced yet: the forward pass owns the first page, not this.
-  if (oldest === null || oldest <= 1) return { messages: 0, more: false }
+  // The forward pass can skip mail (the sinceDays window when full history is
+  // off) yet still advance last_uid over everything it fetched, so search up to
+  // whichever is higher: a folder of nothing but old mail has no local rows yet
+  // a last_uid, and skipped uids above the newest local row are still missing.
+  const ceiling = backfillCeiling(newestSyncedUid(folder.id), folder.last_uid)
+  // Forward pass never ran here: it owns the first page, not this.
+  if (ceiling === null) return { messages: 0, more: false }
 
   const client: ImapFlow = await createClient(config)
   await client.connect()
   try {
     const lock = await client.getMailboxLock(folder.path)
     try {
+      // Renumbered (or never stamped) since the last forward sync: local uids
+      // no longer name these messages, and an upsert would land on rows that
+      // belong to others. The next forward sync resets the folder; until then
+      // report more so nobody marks the history complete.
+      if (folder.uidvalidity == null || liveUidValidity(client) !== folder.uidvalidity)
+        return { messages: 0, more: true }
+      const onServer = (await client.search({ uid: `1:${ceiling}` }, { uid: true })) || []
+      const skip = () => new Set<number>([...held(), ...queuedSourceUids(accountId, folder.path)])
+      const plan = backfillPlan(folder.id, onServer, skip(), limit)
+      if (!plan.uids.length) return { messages: 0, more: plan.more }
       const raw: RawMessage[] = []
       // Same query as the incremental path: ENVELOPE has no References
       // (RFC 3501), and without it backfilled mail cannot be threaded.
-      for await (const msg of client.fetch(`1:${oldest - 1}`, ENVELOPE_QUERY, { uid: true })) {
-        if (msg.uid >= oldest) continue
+      for await (const msg of client.fetch(plan.uids.join(','), ENVELOPE_QUERY, { uid: true })) {
         raw.push(envelopeToRaw(msg, accountId, folder.id))
       }
-      // Read after the fetch, so a move made while it ran is skipped too.
-      const skip = new Set<number>([...held(), ...queuedSourceUids(accountId, folder.path)])
-      const { page, more } = backfillPage(raw, skip, limit)
+      // Re-read after the fetch, so a move made while it ran is skipped too.
+      const { page } = backfillPage(raw, skip(), limit)
       // Backfill is explicit user intent, so the sinceDays cutoff must not apply.
       const messages = await store(page, 0)
-      return { messages, more }
+      return { messages, more: plan.more }
     } finally {
       lock.release()
     }
@@ -377,10 +415,25 @@ export async function backfillFolder(
 }
 
 /**
+ * Which server uids the next backfill page fetches: those with no local row in
+ * the folder, newest first, at most `limit`. Holes anywhere count, including
+ * ones above a low uid that server search stored.
+ */
+export function backfillPlan(
+  folderId: number,
+  serverUids: number[],
+  skip: Iterable<number>,
+  limit: number
+): { uids: number[]; more: boolean } {
+  const missing = missingUids(folderId, serverUids, Infinity, skip)
+  return { uids: missing.slice(0, limit), more: missing.length > limit }
+}
+
+/**
  * The next older page, newest first so paging walks steadily backwards.
- * Messages mid-move are skipped: their local row has a NULL uid (so they sit
- * below oldestSyncedUid's view), and storing them again would duplicate them
- * in the folder they are leaving.
+ * Messages mid-move are skipped: their local row has a NULL uid (so they look
+ * missing to backfillPlan), and storing them again would duplicate them in the
+ * folder they are leaving.
  */
 export function backfillPage<T extends { uid?: number | null }>(
   raw: T[],
@@ -393,17 +446,71 @@ export function backfillPage<T extends { uid?: number | null }>(
   return { page, more: fresh.length > page.length }
 }
 
+/**
+ * Fetches and stores the given uids (server-search hits) over an open
+ * connection. Same envelope query as every other path, so they thread. The
+ * sinceDays window does not apply: the user asked for them. Stores nothing if
+ * the mailbox's UIDVALIDITY is no longer `uidValidity`: the uids would land on
+ * rows that belong to other messages.
+ */
+export async function fetchUids(
+  client: ImapFlow,
+  accountId: number,
+  folder: { id: number; path: string },
+  uids: number[],
+  uidValidity: number
+): Promise<number> {
+  if (!uids.length) return 0
+  const raw: RawMessage[] = []
+  const lock = await client.getMailboxLock(folder.path)
+  try {
+    if (liveUidValidity(client) !== uidValidity) return 0
+    for await (const msg of client.fetch(uids.join(','), ENVELOPE_QUERY, { uid: true })) {
+      raw.push(envelopeToRaw(msg, accountId, folder.id))
+    }
+  } finally {
+    lock.release()
+  }
+  return store(raw, 0)
+}
+
+/**
+ * Gmail server search in one folder: X-GM-RAW, then store up to `limit` hits
+ * with no local row. Skips the folder when its UIDVALIDITY is unknown or has
+ * changed since the last sync: local uids would be compared against, and
+ * overwritten by, a renumbered mailbox. The next full sync resets it.
+ */
+export async function serverSearchFolder(
+  client: ImapFlow,
+  accountId: number,
+  folder: { id: number; path: string; uidvalidity: number | null },
+  raw: string,
+  skip: Iterable<number>,
+  limit = 50
+): Promise<number> {
+  const hits = await gmailSearchUids(client, folder.path, raw)
+  if (folder.uidvalidity == null || folder.uidvalidity !== hits.uidValidity) return 0
+  const want = missingUids(folder.id, hits.uids, limit, skip)
+  return fetchUids(client, accountId, folder, want, hits.uidValidity)
+}
+
 async function store(
   messages: Parameters<typeof runPipeline>[0][],
   cutoff: number
 ): Promise<number> {
   let n = 0
+  const dropped = new Set<number>()
   for (const raw of messages) {
     const date = raw.envelope?.date
-    if (date && date.getTime() < cutoff) continue
+    if (date && date.getTime() < cutoff) {
+      if (raw.folderId != null) dropped.add(raw.folderId)
+      continue
+    }
     const r = await runPipeline(raw, processors)
     if (r.id !== null) n++
   }
+  // The caller still moves last_uid past dropped mail; leave it to backfill.
+  for (const id of dropped) reopenHistory(id)
   return n
 }
 
@@ -421,7 +528,7 @@ export async function refreshFolderNow(
   folder: { id: number; path: string; last_uid: number },
   opts: { sinceDays?: number } = {}
 ): Promise<number> {
-  const cutoff = Date.now() - (opts.sinceDays ?? DEFAULTS.sinceDays) * 86_400_000
+  const cutoff = forwardCutoff(opts.sinceDays ?? DEFAULTS.sinceDays)
   const { status, messages } = await fetchEnvelopes(client, folder.path, {
     sinceUid: folder.last_uid,
     limit: 50,

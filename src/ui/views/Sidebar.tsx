@@ -1,11 +1,11 @@
-import { CheckSquare, Clock, Keyboard, Settings as SettingsIcon } from 'lucide-react'
+import { CheckSquare, Clock, Inbox, Keyboard, Search, Settings as SettingsIcon } from 'lucide-react'
 import type { AccountSummary } from '../../../electron/preload'
 import { AccountSwitcher } from './AccountSwitcher'
 import type { Folder } from '../../core/store/types'
 import type { FolderRole } from '../../core/store/folderRoles'
 import { folderLabel } from '../format'
 import { folderIcon } from '../folderIcons'
-import { REMINDERS_VIEW_ID } from '../store'
+import { REMINDERS_VIEW_ID, SEARCH_VIEW_ID, UNIFIED_VIEW_ID } from '../store'
 
 interface Props {
   email: string | null
@@ -19,9 +19,12 @@ interface Props {
   onSettings: () => void
   onShortcuts: () => void
   onTasks: () => void
+  onSearch: () => void
   tasksActive: boolean
   openTasks: number
   unread?: Record<number, number>
+  /** All inboxes: offered only with two or more accounts. */
+  showUnified?: boolean
 }
 
 /** Special-use folders first, in the order a human expects them. */
@@ -44,9 +47,11 @@ export function Sidebar({
   onSettings,
   onShortcuts,
   onTasks,
+  onSearch,
   tasksActive,
   openTasks,
-  unread
+  unread,
+  showUnified
 }: Props) {
   const sorted = [...folders].sort(
     (a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path)
@@ -69,6 +74,24 @@ export function Sidebar({
         </div>
       )}
       <ul className="folder-list">
+        {showUnified && (
+          <li>
+            <button
+              className="folder-item"
+              aria-current={activeFolderId === UNIFIED_VIEW_ID}
+              onClick={(e) => {
+                e.currentTarget.blur()
+                onSelect(UNIFIED_VIEW_ID)
+              }}
+            >
+              <Inbox className="folder-icon" size={15} strokeWidth={1.75} />
+              <span className="folder-name">All inboxes</span>
+              {(unread?.[UNIFIED_VIEW_ID] ?? 0) > 0 && (
+                <span className="folder-count">{unread?.[UNIFIED_VIEW_ID]}</span>
+              )}
+            </button>
+          </li>
+        )}
         {sorted.map((f) => {
           const Icon = folderIcon(f)
           const count = unread?.[f.id] ?? 0
@@ -93,6 +116,18 @@ export function Sidebar({
       </ul>
 
       <div className="sidebar-tasks">
+        <button
+          className="folder-item"
+          title="Search (/)"
+          aria-current={activeFolderId === SEARCH_VIEW_ID}
+          onClick={(e) => {
+            e.currentTarget.blur()
+            onSearch()
+          }}
+        >
+          <Search className="folder-icon" size={15} strokeWidth={1.75} />
+          <span className="folder-name">Search</span>
+        </button>
         <button
           className="folder-item"
           aria-current={activeFolderId === REMINDERS_VIEW_ID}

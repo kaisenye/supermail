@@ -1,12 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
-import { shortcutGroups } from '../commands'
+import { shortcutGroups, type Command } from '../commands'
 
-/** Built from the command registry, so it cannot drift from the real bindings. */
-const GROUPS = shortcutGroups()
-
-export function ShortcutHelp({ onClose }: { onClose: () => void }) {
+/** Built from the command registry (with the user's keymap), so it cannot drift from the real bindings. */
+export function ShortcutHelp({ onClose, commands }: { onClose: () => void; commands?: Command[] }) {
   const ref = useRef<HTMLDivElement>(null)
+  const groups = shortcutGroups(commands)
 
   useEffect(() => {
     ref.current?.focus()
@@ -39,7 +38,7 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
         </header>
 
         <div className="shortcut-scroll">
-          {GROUPS.map((g) => (
+          {groups.map((g) => (
             <section key={g.title} className="shortcut-group">
               <h3>{g.title}</h3>
               {g.items.map((s) => (

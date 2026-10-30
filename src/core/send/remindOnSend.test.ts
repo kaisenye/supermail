@@ -9,7 +9,7 @@ vi.mock('./smtp.js', () => ({
 
 import type { AccountConfig } from '../accounts/config.js'
 import { closeDb, getDb, initDb } from '../store/db.js'
-import { flushOutboxRow } from './flush.js'
+import { flushDueOutbox, flushOutboxRow } from './flush.js'
 import { enqueueOutbox, reminderTimeAfterSend, remindAtError } from './outbox.js'
 
 // smtpSavesSent skips the Sent APPEND, so no IMAP connection is needed.
@@ -38,7 +38,7 @@ describe('remind me if no reply, on send', () => {
       send_at: Date.now(),
       remind_at: remindAt
     })
-    expect(await flushOutboxRow(config, row)).toEqual({ ok: true })
+    expect(await flushOutboxRow(config, row)).toEqual({ ok: true, messageId: '<sent-1@x.test>' })
     expect(
       getDb().prepare('SELECT account_id, message_id, subject, remind_at, if_no_reply FROM reminders').all()
     ).toEqual([{ account_id: 1, message_id: '<sent-1@x.test>', subject: 'Quote', remind_at: remindAt, if_no_reply: 1 }])
@@ -74,7 +74,7 @@ describe('remind me if no reply, on send', () => {
       send_at: now,
       remind_at: now - 60_000
     })
-    expect(await flushOutboxRow(config, row)).toEqual({ ok: true })
+    expect(await flushOutboxRow(config, row)).toEqual({ ok: true, messageId: '<sent-1@x.test>' })
     expect(getDb().prepare('SELECT count(*) AS c FROM reminders').get()).toEqual({ c: 0 })
   })
 
@@ -87,10 +87,17 @@ describe('remind me if no reply, on send', () => {
       send_at: now - 3_600_000,
       remind_at: now - 1_800_000
     })
-    expect(await flushOutboxRow(config, row)).toEqual({ ok: true })
+    expect(await flushOutboxRow(config, row)).toEqual({ ok: true, messageId: '<sent-1@x.test>' })
     const r = getDb().prepare('SELECT remind_at FROM reminders').get() as { remind_at: number }
     expect(r.remind_at).toBeGreaterThan(now)
     expect(r.remind_at - Date.now()).toBeLessThanOrEqual(1_800_000)
     expect(r.remind_at - now).toBeGreaterThanOrEqual(1_800_000)
+  })
+
+  it('hands the sent Message-ID to onSent, so the Sent refresh waits for that copy', async () => {
+    enqueueOutbox({ account_id: 1, draft_message_id: null, to_addrs: 'a@x.test', send_at: Date.now() - 1 })
+    const sent: [number, string][] = []
+    expect(await flushDueOutbox(() => config, undefined, (a, id) => void sent.push([a, id]))).toBe(1)
+    expect(sent).toEqual([[1, '<sent-1@x.test>']])
   })
 })

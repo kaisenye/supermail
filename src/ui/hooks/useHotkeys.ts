@@ -1,6 +1,9 @@
 import { useEffect } from 'react'
 
-export type Mode = 'list' | 'thread' | 'compose' | 'modal'
+export type Mode = 'list' | 'thread' | 'compose' | 'modal' | 'search'
+
+/** Every mode, for registry checks. Add a mode here and in `Mode` together. */
+export const MODES: Mode[] = ['list', 'thread', 'compose', 'modal', 'search']
 
 export interface Binding {
   /** Single character or key name (e.g. 'j', 'Enter', 'Escape'). */
@@ -10,9 +13,14 @@ export interface Binding {
   modes?: Mode[]
 }
 
-/** KeyboardEvent.key, except Shift+Tab, which reports 'Tab' but is its own binding. */
+/**
+ * KeyboardEvent.key, except Shift+Tab (reports 'Tab') and Space (reports ' '),
+ * which become 'Shift+Tab', 'Space' and 'Shift+Space' so each is its own binding.
+ */
 export function eventKey(e: { key: string; shiftKey: boolean }): string {
-  return e.key === 'Tab' && e.shiftKey ? 'Shift+Tab' : e.key
+  if (e.key === 'Tab' && e.shiftKey) return 'Shift+Tab'
+  if (e.key === ' ') return e.shiftKey ? 'Shift+Space' : 'Space'
+  return e.key
 }
 
 /** True when focus is in an editable field — typing must not trigger shortcuts. */

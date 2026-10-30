@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'react'
 import { Image as ImageIcon, Link2, Unlink } from 'lucide-react'
 import { applyLink, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
+import { onDialogEscape } from '../keyLayers'
 import { LinkPrompt } from './LinkPrompt'
 import { TriageSettings } from './TriageSettings'
+import { ShortcutSettings } from './ShortcutSettings'
+import { SnippetSettings } from './SnippetSettings'
 import type { Theme } from '../theme'
 
 interface Props {
@@ -120,17 +123,8 @@ export function Settings({
     // Only on open: writing innerHTML on every keystroke would fight the caret.
   }, [signature])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [onClose])
+  // Document capture, so the shortcut recorder (window capture) gets Esc first.
+  useEffect(() => onDialogEscape(onClose), [onClose])
 
   /** Blur flushes immediately rather than waiting out the debounce. */
   const save = (): void => {
@@ -186,6 +180,10 @@ export function Settings({
           </section>
 
           <TriageSettings />
+
+          <ShortcutSettings />
+
+          <SnippetSettings />
 
           <section className="settings-section">
             <h3>Signature</h3>

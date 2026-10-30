@@ -4,6 +4,7 @@ import type { MoveTarget } from '../src/core/store/folderRoles.js'
 import type { SyncProgress } from '../src/core/sync/syncEngine.js'
 import type { MailProvider } from '../src/core/accounts/auth.js'
 import type { ReminderSnapshot } from '../src/core/triage/reminders.js'
+import type { ContactProfile } from '../src/core/store/contacts.js'
 
 export interface ScheduledSend {
   id: number
@@ -11,6 +12,8 @@ export interface ScheduledSend {
   subject: string | null
   send_at: number
   status: string
+  /** The account the send leaves from. */
+  from_addr: string | null
 }
 
 export interface ComposeAttachment {
@@ -101,6 +104,8 @@ export interface DraftPayload {
   inReplyTo?: string | null
   references?: string | null
   attachments?: ComposeAttachment[]
+  /** The account it sends from (a unified-inbox reply); null = the active one. */
+  accountId?: number | null
 }
 
 export interface QueueSendPayload extends DraftPayload {
@@ -110,6 +115,8 @@ export interface QueueSendPayload extends DraftPayload {
   attachments?: ComposeAttachment[]
   /** "Remind me if no reply": main saves the reminder once the mail is sent. */
   remindAt?: number | null
+  /** Scheduled send only: cancel it if someone replies first. */
+  cancelOnReply?: boolean
 }
 
 /** An inbox split: a named list-context query (src/core/store/splits.ts). */
@@ -118,6 +125,16 @@ export interface Split {
   name: string
   query: string
   builtin: boolean
+}
+
+/** A compose snippet: plain text with {variables} (src/core/store/snippets.ts). */
+export interface Snippet {
+  id: number
+  name: string
+  shortcut: string | null
+  body: string
+  created_at: number
+  updated_at: number
 }
 
 export type Priority = 0 | 1 | 2 | 3 | 4
@@ -212,8 +229,29 @@ const api = {
     ipcRenderer.invoke('contacts:search', query, limit),
   countMessages: (folderId: number, query?: string): Promise<number> =>
     ipcRenderer.invoke('messages:count', folderId, query),
+  listUnified: (limit?: number, offset?: number, query?: string): Promise<MessageListRow[]> =>
+    ipcRenderer.invoke('unified:list', limit, offset, query),
+  countUnified: (query?: string): Promise<number> => ipcRenderer.invoke('unified:count', query),
+  unifiedSplitCounts: (extraQuery?: string): Promise<Record<string, number>> =>
+    ipcRenderer.invoke('unified:splitCounts', extraQuery),
+  unifiedUnread: (): Promise<number> => ipcRenderer.invoke('unified:unread'),
   listDrafts: (limit?: number, offset?: number): Promise<MessageListRow[]> =>
     ipcRenderer.invoke('messages:listDrafts', limit, offset),
+  listSnippets: (): Promise<Snippet[]> => ipcRenderer.invoke('snippets:list'),
+  saveSnippet: (input: {
+    id?: number
+    name: string
+    shortcut?: string | null
+    body: string
+  }): Promise<{ ok: true; snippet: Snippet } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('snippets:save', input),
+  deleteSnippet: (id: number): Promise<{ ok: true }> => ipcRenderer.invoke('snippets:delete', id),
+  searchServer: (query: string): Promise<{ ok: true; stored: number } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('search:server', query),
+  searchAll: (query: string, limit?: number): Promise<MessageListRow[]> => ipcRenderer.invoke('search:all', query, limit),
+  searchTasks: (query: string, limit?: number): Promise<Task[]> => ipcRenderer.invoke('tasks:search', query, limit),
+  contactForThread: (threadId: string, accountId?: number): Promise<ContactProfile | null> =>
+    ipcRenderer.invoke('contact:forThread', threadId, accountId),
   listSplits: (): Promise<Split[]> => ipcRenderer.invoke('splits:list'),
   saveSplit: (input: {
     id?: string
@@ -266,7 +304,8 @@ const api = {
     | { ok: true; vip: boolean; changed: number[]; holdMs: number }
     | { ok: false; error: string }
   > => ipcRenderer.invoke('triage:vip', ids, set),
-  labelChoices: (): Promise<string[]> => ipcRenderer.invoke('labels:choices'),
+  /** Labels every account owning these rows shares (empty when any is not Gmail). */
+  labelChoices: (ids: number[]): Promise<string[]> => ipcRenderer.invoke('labels:choices', ids),
   labelsFor: (ids: number[]): Promise<Record<number, string[]>> =>
     ipcRenderer.invoke('labels:forMessages', ids),
   setLabel: (
@@ -301,16 +340,18 @@ const api = {
   > => ipcRenderer.invoke('messages:loadOlder', folderId, limit),
   search: (query: string, limit?: number): Promise<MessageListRow[]> =>
     ipcRenderer.invoke('messages:search', query, limit),
-  getThread: (threadId: string): Promise<Message[]> =>
-    ipcRenderer.invoke('thread:get', threadId),
+  getThread: (threadId: string, accountId?: number): Promise<Message[]> =>
+    ipcRenderer.invoke('thread:get', threadId, accountId),
   markThreadRead: (
-    threadId: string
+    threadId: string,
+    accountId?: number
   ): Promise<{ ok: true; changed: number[] } | { ok: false; error: string }> =>
-    ipcRenderer.invoke('thread:markRead', threadId),
+    ipcRenderer.invoke('thread:markRead', threadId, accountId),
   markThreadsUnread: (
-    threadIds: string[]
+    threadIds: string[],
+    accountId?: number
   ): Promise<{ ok: true; changed: number[] } | { ok: false; error: string }> =>
-    ipcRenderer.invoke('thread:markUnread', threadIds),
+    ipcRenderer.invoke('thread:markUnread', threadIds, accountId),
   getBody: (messageId: number, allowRemoteImages?: boolean): Promise<BodyResult> =>
     ipcRenderer.invoke('message:body', messageId, allowRemoteImages),
   prefetchBodies: (ids: number[]): Promise<void> =>
@@ -376,6 +417,7 @@ const api = {
     ipcRenderer.invoke('compose:pickAttachments'),
   listScheduled: (): Promise<ScheduledSend[]> => ipcRenderer.invoke('compose:listScheduled'),
   runSync: (): Promise<SyncRunResult> => ipcRenderer.invoke('sync:run'),
+  runSyncAll: (): Promise<SyncRunResult> => ipcRenderer.invoke('sync:runAll'),
   runBodySync: (): Promise<{ ok: boolean; fetched?: number; error?: string }> =>
     ipcRenderer.invoke('bodySync:run'),
   onBodySyncProgress: (
@@ -395,6 +437,13 @@ const api = {
     ): void => cb(f)
     ipcRenderer.on('send:failed', h)
     return () => ipcRenderer.off('send:failed', h)
+  },
+  onSendCancelledOnReply: (
+    cb: (c: { outboxId: number; accountId: number; subject: string | null; to: string }[]) => void
+  ): (() => void) => {
+    const h = (_e: unknown, c: { outboxId: number; accountId: number; subject: string | null; to: string }[]): void => cb(c)
+    ipcRenderer.on('send:cancelledOnReply', h)
+    return () => ipcRenderer.off('send:cancelledOnReply', h)
   },
   /**
    * Reminders came due. Threads with an Inbox row are back at its top; one

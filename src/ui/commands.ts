@@ -16,27 +16,42 @@ export type KeySpec =
   | { kind: 'seq'; keys: [string, string]; modes?: Mode[] }
   /** ⌘ (Ctrl off macOS) plus a key, optionally with Shift. Without `modes`, live in every mode. */
   | { kind: 'mod'; key: string; shift?: boolean; modes?: Mode[] }
+  /** The physical Control key plus a key (⌃1, ⌃Tab), on every platform. */
+  | { kind: 'ctrl'; key: string; shift?: boolean; modes?: Mode[] }
 
-export type Group = 'General' | 'Navigation' | 'Message' | 'List' | 'In a thread' | 'Compose'
+export type Group = 'General' | 'Navigation' | 'Tabs' | 'Message' | 'List' | 'In a thread' | 'Compose'
+
+export type Digit = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
+export const DIGITS: Digit[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
 
 export type CommandId =
   | 'palette.open'
+  | 'search.open'
   | 'compose.new'
   | 'settings.open'
   | 'shortcuts.open'
   | 'escape'
   | 'sync.now'
   | 'account.add'
+  | `account.${Digit}`
   | 'nav.down'
   | 'nav.up'
   | 'nav.open'
   | 'go.inbox'
+  | 'go.unified'
   | 'go.sent'
   | 'go.drafts'
   | 'go.trash'
   | 'go.junk'
   | 'go.done'
   | 'go.reminders'
+  | 'tab.new'
+  | 'tab.close'
+  | 'tab.next'
+  | 'tab.prev'
+  | `tab.${Digit}`
+  | 'history.back'
+  | 'history.forward'
   | 'msg.star'
   | 'msg.read'
   | 'msg.trash'
@@ -65,8 +80,28 @@ export type CommandId =
   | 'thread.reply'
   | 'thread.replyAll'
   | 'thread.forward'
+  | 'thread.nextConv'
+  | 'thread.prevConv'
+  | 'thread.nextMsg'
+  | 'thread.prevMsg'
+  | 'thread.expand'
+  | 'thread.expandAll'
+  | 'thread.pageDown'
+  | 'thread.pageUp'
+  | 'thread.nextLink'
+  | 'thread.prevLink'
+  | 'thread.open'
+  | 'thread.contactPane'
   | 'compose.send'
   | 'compose.remind'
+  | 'compose.sendDone'
+  | 'compose.sendLater'
+  | 'compose.intro'
+  | 'compose.focusTo'
+  | 'compose.focusCc'
+  | 'compose.focusBcc'
+  | 'compose.focusSubject'
+  | 'compose.snippet'
   | 'format.bold'
   | 'format.italic'
   | 'format.underline'
@@ -81,17 +116,25 @@ export interface Command {
   palette?: boolean
   /** Bound by another component (the compose editor); listed on the sheet only. */
   external?: boolean
+  /**
+   * How the shortcut sheet shows it: `false` hides it, an object replaces the
+   * row. A numbered family (⌃1–⌃9) shows one row for all nine.
+   */
+  sheet?: false | { label: string; keys: string[] }
 }
 
 const LIST_THREAD: Mode[] = ['list', 'thread']
+/** Where tab and history chords work: the list, a thread and the search page. */
+const NAV_MODES: Mode[] = ['list', 'thread', 'search']
 
 export const COMMANDS: Command[] = [
   {
     id: 'palette.open',
     title: 'Search and command menu',
     group: 'General',
-    keys: [{ kind: 'mod', key: 'k' }, { kind: 'key', key: '/', modes: LIST_THREAD }]
+    keys: [{ kind: 'mod', key: 'k' }]
   },
+  { id: 'search.open', title: 'Search', group: 'General', palette: true, keys: [{ kind: 'key', key: '/', modes: LIST_THREAD }] },
   {
     id: 'compose.new',
     title: 'Compose new message',
@@ -111,21 +154,47 @@ export const COMMANDS: Command[] = [
     id: 'escape',
     title: 'Close · clear selection · go back',
     group: 'General',
-    keys: [{ kind: 'key', key: 'Escape', modes: LIST_THREAD }]
+    keys: [{ kind: 'key', key: 'Escape', modes: ['list', 'thread', 'search'] }]
   },
   { id: 'sync.now', title: 'Sync now', group: 'General', palette: true, keys: [] },
   { id: 'account.add', title: 'Add mailbox…', group: 'General', palette: true, keys: [] },
+  ...DIGITS.map(
+    (d): Command => ({
+      id: `account.${d}`,
+      title: `Switch to account ${d}`,
+      group: 'General',
+      keys: [{ kind: 'ctrl', key: d, modes: LIST_THREAD }],
+      sheet: d === '1' ? { label: 'Switch to account 1–9', keys: ['⌃', '1–9'] } : false
+    })
+  ),
 
   { id: 'nav.down', title: 'Move down', group: 'Navigation', keys: [{ kind: 'key', key: 'j', modes: ['list'] }] },
   { id: 'nav.up', title: 'Move up', group: 'Navigation', keys: [{ kind: 'key', key: 'k', modes: ['list'] }] },
   { id: 'nav.open', title: 'Open message', group: 'Navigation', keys: [{ kind: 'key', key: 'Enter', modes: ['list'] }] },
   { id: 'go.inbox', title: 'Go to Inbox', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'i'], modes: ['list'] }] },
+  { id: 'go.unified', title: 'Go to All inboxes', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'a'], modes: ['list'] }] },
   { id: 'go.sent', title: 'Go to Sent', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 's'], modes: ['list'] }] },
   { id: 'go.drafts', title: 'Go to Drafts', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'd'], modes: ['list'] }] },
   { id: 'go.trash', title: 'Go to Trash', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 't'], modes: ['list'] }] },
   { id: 'go.junk', title: 'Go to Junk', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'j'], modes: ['list'] }] },
   { id: 'go.done', title: 'Go to Done', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'e'], modes: ['list'] }] },
   { id: 'go.reminders', title: 'Go to Reminders', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'h'], modes: ['list'] }] },
+
+  { id: 'tab.new', title: 'New tab', group: 'Tabs', palette: true, keys: [{ kind: 'mod', key: 't', modes: NAV_MODES }] },
+  { id: 'tab.close', title: 'Close tab', group: 'Tabs', palette: true, keys: [{ kind: 'mod', key: 'w', modes: NAV_MODES }] },
+  { id: 'tab.next', title: 'Next tab', group: 'Tabs', keys: [{ kind: 'ctrl', key: 'Tab', modes: NAV_MODES }] },
+  { id: 'tab.prev', title: 'Previous tab', group: 'Tabs', keys: [{ kind: 'ctrl', key: 'Tab', shift: true, modes: NAV_MODES }] },
+  ...DIGITS.map(
+    (d): Command => ({
+      id: `tab.${d}`,
+      title: d === '9' ? 'Go to last tab' : `Go to tab ${d}`,
+      group: 'Tabs',
+      keys: [{ kind: 'mod', key: d, modes: NAV_MODES }],
+      sheet: d === '1' ? { label: 'Go to tab 1–9', keys: ['⌘', '1–9'] } : false
+    })
+  ),
+  { id: 'history.back', title: 'Back', group: 'Tabs', palette: true, keys: [{ kind: 'mod', key: '[', modes: NAV_MODES }] },
+  { id: 'history.forward', title: 'Forward', group: 'Tabs', palette: true, keys: [{ kind: 'mod', key: ']', modes: NAV_MODES }] },
 
   { id: 'msg.star', title: 'Star', group: 'Message', keys: [{ kind: 'key', key: 's', modes: LIST_THREAD }] },
   { id: 'msg.read', title: 'Toggle read / unread', group: 'Message', keys: [{ kind: 'key', key: 'u', modes: LIST_THREAD }] },
@@ -157,10 +226,37 @@ export const COMMANDS: Command[] = [
   { id: 'select.extendUp', title: 'Extend selection up', group: 'List', keys: [{ kind: 'key', key: 'K', modes: ['list'] }] },
 
   { id: 'thread.reply', title: 'Reply', group: 'In a thread', keys: [{ kind: 'key', key: 'r', modes: ['thread'] }] },
-  { id: 'thread.replyAll', title: 'Reply all', group: 'In a thread', keys: [{ kind: 'key', key: 'R', modes: ['thread'] }] },
+  // Scape and Superhuman: ↵ replies all.
+  {
+    id: 'thread.replyAll',
+    title: 'Reply all',
+    group: 'In a thread',
+    keys: [{ kind: 'key', key: 'Enter', modes: ['thread'] }, { kind: 'key', key: 'R', modes: ['thread'] }]
+  },
   { id: 'thread.forward', title: 'Forward', group: 'In a thread', keys: [{ kind: 'key', key: 'f', modes: ['thread'] }] },
+  // j / k are list-only otherwise, so in a thread they are free.
+  { id: 'thread.nextConv', title: 'Next conversation', group: 'In a thread', keys: [{ kind: 'key', key: 'j', modes: ['thread'] }] },
+  { id: 'thread.prevConv', title: 'Previous conversation', group: 'In a thread', keys: [{ kind: 'key', key: 'k', modes: ['thread'] }] },
+  { id: 'thread.nextMsg', title: 'Next message', group: 'In a thread', keys: [{ kind: 'key', key: 'n', modes: ['thread'] }] },
+  { id: 'thread.prevMsg', title: 'Previous message', group: 'In a thread', keys: [{ kind: 'key', key: 'p', modes: ['thread'] }] },
+  { id: 'thread.expand', title: 'Expand / collapse message', group: 'In a thread', keys: [{ kind: 'key', key: 'o', modes: ['thread'] }] },
+  { id: 'thread.expandAll', title: 'Expand / collapse all', group: 'In a thread', keys: [{ kind: 'key', key: 'O', modes: ['thread'] }] },
+  { id: 'thread.pageDown', title: 'Page down', group: 'In a thread', keys: [{ kind: 'key', key: 'Space', modes: ['thread'] }] },
+  { id: 'thread.pageUp', title: 'Page up', group: 'In a thread', keys: [{ kind: 'key', key: 'Shift+Space', modes: ['thread'] }] },
+  { id: 'thread.nextLink', title: 'Next link', group: 'In a thread', keys: [{ kind: 'key', key: 'Tab', modes: ['thread'] }] },
+  { id: 'thread.prevLink', title: 'Previous link', group: 'In a thread', keys: [{ kind: 'key', key: 'Shift+Tab', modes: ['thread'] }] },
+  { id: 'thread.open', title: 'Open link or attachment', group: 'In a thread', keys: [{ kind: 'mod', key: 'o', modes: ['thread'] }] },
+  { id: 'thread.contactPane', title: 'Show / hide contact pane', group: 'In a thread', palette: true, keys: [{ kind: 'key', key: 'i', modes: ['thread'] }] },
 
   { id: 'compose.send', title: 'Send', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'Enter', modes: ['compose'] }] },
+  { id: 'compose.sendDone', title: 'Send and mark done', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'Enter', shift: true, modes: ['compose'] }] },
+  { id: 'compose.sendLater', title: 'Send later…', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'l', shift: true, modes: ['compose'] }] },
+  { id: 'compose.intro', title: 'Instant intro (sender to Bcc)', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'i', shift: true, modes: ['compose'] }] },
+  { id: 'compose.focusTo', title: 'Go to To', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'o', shift: true, modes: ['compose'] }] },
+  { id: 'compose.focusCc', title: 'Go to Cc', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'c', shift: true, modes: ['compose'] }] },
+  { id: 'compose.focusBcc', title: 'Go to Bcc', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'b', shift: true, modes: ['compose'] }] },
+  { id: 'compose.focusSubject', title: 'Go to Subject', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 's', shift: true, modes: ['compose'] }] },
+  { id: 'compose.snippet', title: 'Insert snippet…', group: 'Compose', external: true, keys: [{ kind: 'mod', key: ';', modes: ['compose'] }] },
   { id: 'compose.remind', title: 'Remind me if no reply', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'h', shift: true, modes: ['compose'] }] },
   { id: 'format.bold', title: 'Bold', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'b', modes: ['compose'] }] },
   { id: 'format.italic', title: 'Italic', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'i', modes: ['compose'] }] },
@@ -176,16 +272,19 @@ const NAMED: Record<string, string> = {
   Escape: 'Esc',
   ArrowUp: '↑',
   ArrowDown: '↓',
-  Tab: '⇥'
+  Tab: '⇥',
+  Space: 'Space'
 }
 
 const cap = (k: string): string => NAMED[k] ?? k
 
 export function keyCaps(spec: KeySpec): string[] {
   if (spec.kind === 'seq') return spec.keys.map(cap)
+  if (spec.kind === 'ctrl') return ['⌃', ...(spec.shift ? ['⇧'] : []), cap(spec.key).toUpperCase()]
   if (spec.kind === 'mod') return ['⌘', ...(spec.shift ? ['⇧'] : []), cap(spec.key).toUpperCase()]
   const k = spec.key
   if (k === 'Shift+Tab') return ['⇧', cap('Tab')]
+  if (k === 'Shift+Space') return ['⇧', 'Space']
   // A shifted letter arrives as its capital (R); show the Shift it took.
   if (k.length === 1 && k !== k.toLowerCase()) return ['⇧', k]
   return [cap(k)]
@@ -196,15 +295,15 @@ function hint(spec: KeySpec): string {
 }
 
 /** Commands this component actually handles. */
-function live(handlers: Handlers): { cmd: Command; run: Handler }[] {
-  return COMMANDS.flatMap((cmd) => {
+function live(handlers: Handlers, commands: Command[] = COMMANDS): { cmd: Command; run: Handler }[] {
+  return commands.flatMap((cmd) => {
     const run = handlers[cmd.id]
     return run && !cmd.external ? [{ cmd, run }] : []
   })
 }
 
-export function buildBindings(mode: Mode, handlers: Handlers): Binding[] {
-  return live(handlers).flatMap(({ cmd, run }) =>
+export function buildBindings(mode: Mode, handlers: Handlers, commands: Command[] = COMMANDS): Binding[] {
+  return live(handlers, commands).flatMap(({ cmd, run }) =>
     cmd.keys.flatMap((k) =>
       k.kind === 'key'
         ? [{ key: k.key, modes: k.modes, handler: () => void run({ mode }) }]
@@ -213,11 +312,11 @@ export function buildBindings(mode: Mode, handlers: Handlers): Binding[] {
   )
 }
 
-export function buildChords(mode: Mode, handlers: Handlers): Chord[] {
-  return live(handlers).flatMap(({ cmd, run }) =>
+export function buildChords(mode: Mode, handlers: Handlers, commands: Command[] = COMMANDS): Chord[] {
+  return live(handlers, commands).flatMap(({ cmd, run }) =>
     cmd.keys.flatMap((k) =>
-      k.kind === 'mod' && (!k.modes || k.modes.includes(mode))
-        ? [{ key: k.key, shift: k.shift, handler: () => void run({ mode }) }]
+      (k.kind === 'mod' || k.kind === 'ctrl') && (!k.modes || k.modes.includes(mode))
+        ? [{ key: k.key, shift: k.shift, ctrl: k.kind === 'ctrl' || undefined, handler: () => void run({ mode }) }]
         : []
     )
   )
@@ -226,10 +325,11 @@ export function buildChords(mode: Mode, handlers: Handlers): Chord[] {
 /** First key -> second key -> action, for the sequences allowed in `mode`. */
 export function buildSequences(
   mode: Mode,
-  handlers: Handlers
+  handlers: Handlers,
+  commands: Command[] = COMMANDS
 ): Record<string, Record<string, () => void>> {
   const out: Record<string, Record<string, () => void>> = {}
-  for (const { cmd, run } of live(handlers)) {
+  for (const { cmd, run } of live(handlers, commands)) {
     for (const k of cmd.keys) {
       if (k.kind !== 'seq' || (k.modes && !k.modes.includes(mode))) continue
       const [first, second] = k.keys
@@ -245,9 +345,13 @@ export function buildSequences(
  * and list commands would act on a mail list that is not on screen, so they
  * are left out.
  */
-export function buildPaletteActions(mode: Mode, handlers: Handlers): PaletteAction[] {
+export function buildPaletteActions(
+  mode: Mode,
+  handlers: Handlers,
+  commands: Command[] = COMMANDS
+): PaletteAction[] {
   const mailOnScreen = mode === 'list' || mode === 'thread'
-  return live(handlers)
+  return live(handlers, commands)
     .filter(({ cmd }) => cmd.palette && (mailOnScreen || (cmd.group !== 'Message' && cmd.group !== 'List')))
     .map(({ cmd, run }) => ({
       id: cmd.id,
@@ -276,16 +380,22 @@ export interface SheetRow {
   alt?: string[]
 }
 
-const GROUP_ORDER: Group[] = ['General', 'Navigation', 'Message', 'List', 'In a thread', 'Compose']
+const GROUP_ORDER: Group[] = ['General', 'Navigation', 'Tabs', 'Message', 'List', 'In a thread', 'Compose']
 
-export function shortcutGroups(): { title: Group; items: SheetRow[] }[] {
+export function shortcutGroups(commands: Command[] = COMMANDS): { title: Group; items: SheetRow[] }[] {
   return GROUP_ORDER.map((title) => ({
     title,
-    items: COMMANDS.filter((c) => c.group === title && c.keys.length > 0).map((c) => ({
-      label: c.title,
-      keys: keyCaps(c.keys[0]),
-      then: c.keys[0].kind === 'seq' || undefined,
-      alt: c.keys[1] ? keyCaps(c.keys[1]) : undefined
-    }))
+    items: commands
+      .filter((c) => c.group === title && c.keys.length > 0 && c.sheet !== false)
+      .map((c) =>
+        c.sheet
+          ? { label: c.sheet.label, keys: c.sheet.keys }
+          : {
+              label: c.title,
+              keys: keyCaps(c.keys[0]),
+              then: c.keys[0].kind === 'seq' || undefined,
+              alt: c.keys[1] ? keyCaps(c.keys[1]) : undefined
+            }
+      )
   })).filter((g) => g.items.length > 0)
 }

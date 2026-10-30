@@ -10,6 +10,8 @@ interface Props {
   value: string
   onChange: (value: string) => void
   autoFocus?: boolean
+  /** Lets compose's ⌘⇧O / ⌘⇧C / ⌘⇧B jump straight to this field. */
+  inputId?: string
 }
 
 /** Only the address being typed is completed; earlier ones are left alone. */
@@ -24,7 +26,7 @@ function formatContact(c: Contact): string {
   return c.name ? `${c.name} <${c.address}>` : c.address
 }
 
-export function RecipientField({ label, value, onChange, autoFocus }: Props) {
+export function RecipientField({ label, value, onChange, autoFocus, inputId }: Props) {
   const [matches, setMatches] = useState<Contact[]>([])
   const [active, setActive] = useState(0)
   const [open, setOpen] = useState(false)
@@ -101,6 +103,7 @@ export function RecipientField({ label, value, onChange, autoFocus }: Props) {
       <span>{label}</span>
       <div className="recipient-wrap">
         <input
+          id={inputId}
           value={value}
           autoFocus={autoFocus}
           autoComplete="off"

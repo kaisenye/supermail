@@ -1,24 +1,40 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent as ReactKeyboardEvent
+} from 'react'
 import { Link2, List, ListOrdered, Paperclip, X } from 'lucide-react'
 import { useCommandChord } from '../hooks/useCommandChord'
-import { applyLink, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
+import { applyLink, captureCaret, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
+import { expandSnippet, shortcutBeforeCaret, snippetHtml, snippetVars } from '../snippetVars'
 import { LinkPrompt } from './LinkPrompt'
+import { Picker } from './Picker'
 import { RemindPicker } from './RemindPicker'
 import { RecipientField } from './RecipientField'
+import { instantIntro } from '../intro'
 import { useStore, type ComposeState } from '../store'
+import type { Snippet } from '../../../electron/preload'
 
 interface Props {
   compose: ComposeState
+  /** You, for {my_name} / {my_email}. */
+  me: { name: string | null; email: string | null }
+  /** Settings default for "Cancel if someone replies first" on a scheduled reply. */
+  cancelOnReplyDefault: boolean
   onClose: () => void
-  onSent: (outboxId: number, subject: string, undoMs: number, immediate: boolean) => void
+  /** `doneId` is the replied-to message when the send was ⌘⇧↵ (Send + Done). */
+  onSent: (
+    outboxId: number,
+    subject: string,
+    undoMs: number,
+    immediate: boolean,
+    doneId: number | null
+  ) => void | Promise<void>
 }
-
-const SCHEDULE_OPTS = [
-  { id: 'now', label: 'Send now', offsetMs: 0 },
-  { id: '1h', label: 'In 1 hour', offsetMs: 3_600_000 },
-  { id: 'tomorrow9', label: 'Tomorrow 9am', offsetMs: -1 },
-  { id: 'monday9', label: 'Monday 9am', offsetMs: -2 }
-] as const
 
 // B/I/U stay as letterforms — they read faster than glyphs for text styling.
 const TOOLS = [
@@ -29,32 +45,11 @@ const TOOLS = [
   { cmd: 'insertOrderedList', icon: ListOrdered, title: 'Numbered list' }
 ] as const
 
-/** null = now: main adds the undo window, whose length is a setting it owns. */
-function scheduleAt(id: string): number | null {
-  const now = new Date()
-  if (id === 'now') return null
-  if (id === '1h') return Date.now() + 3_600_000
-  if (id === 'tomorrow9') {
-    const d = new Date(now)
-    d.setDate(d.getDate() + 1)
-    d.setHours(9, 0, 0, 0)
-    return d.getTime()
-  }
-  // next Monday 9am
-  const d = new Date(now)
-  const day = d.getDay()
-  const add = day === 1 ? 7 : (8 - day) % 7 || 7
-  d.setDate(d.getDate() + add)
-  d.setHours(9, 0, 0, 0)
-  return d.getTime()
-}
-
-
-export function Compose({ compose, onClose, onSent }: Props) {
+export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent }: Props) {
   const updateCompose = useStore((s) => s.updateCompose)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showSchedule, setShowSchedule] = useState(false)
+  const [laterOpen, setLaterOpen] = useState(false)
   const [reminding, setReminding] = useState(false)
   const [linking, setLinking] = useState(false)
   const editorRef = useRef<HTMLDivElement>(null)
@@ -111,6 +106,73 @@ export function Compose({ compose, onClose, onSent }: Props) {
     [updateCompose]
   )
 
+  const [snippets, setSnippets] = useState<Snippet[]>([])
+  const [pickingSnippet, setPickingSnippet] = useState(false)
+  const caretRef = useRef<Range | null>(null)
+  useEffect(() => {
+    void window.api.listSnippets().then(setSnippets)
+  }, [])
+
+  /** Inserts at the current selection, which the caller has placed. */
+  const insertSnippet = useCallback(
+    (s: Snippet) => {
+      const text = expandSnippet(s.body, snippetVars({ to: compose.to, me, now: new Date() }))
+      document.execCommand('insertHTML', false, snippetHtml(text))
+      const el = editorRef.current
+      if (el) updateCompose({ body: el.innerHTML })
+    },
+    [compose.to, me, updateCompose]
+  )
+
+  /** `;thx` then ⇥ expands in place. Any other Tab keeps its normal meaning. */
+  const onEditorKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== 'Tab' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
+      const sel = window.getSelection()
+      if (!sel || !sel.rangeCount || !sel.isCollapsed) return
+      const range = sel.getRangeAt(0)
+      const node = range.startContainer
+      if (node.nodeType !== Node.TEXT_NODE || !editorRef.current?.contains(node)) return
+      const shortcut = shortcutBeforeCaret((node.textContent ?? '').slice(0, range.startOffset))
+      if (!shortcut) return
+      const snip = snippets.find((s) => s.shortcut?.toLowerCase() === shortcut.toLowerCase())
+      if (!snip) return
+      e.preventDefault()
+      // Select the typed `;thx` so the snippet replaces it.
+      const typed = document.createRange()
+      typed.setStart(node, range.startOffset - shortcut.length - 1)
+      typed.setEnd(node, range.startOffset)
+      sel.removeAllRanges()
+      sel.addRange(typed)
+      insertSnippet(snip)
+    },
+    [snippets, insertSnippet]
+  )
+
+  // The picker's filter input took focus, so put the caret captured at ⌘;
+  // back first (or the end of the body when there was none).
+  const pickSnippet = useCallback(
+    (id: string) => {
+      setPickingSnippet(false)
+      const snip = snippets.find((s) => String(s.id) === id)
+      const el = editorRef.current
+      if (!snip || !el) return
+      el.focus()
+      const sel = window.getSelection()
+      if (!sel) return
+      sel.removeAllRanges()
+      if (caretRef.current) sel.addRange(caretRef.current)
+      else {
+        const end = document.createRange()
+        end.selectNodeContents(el)
+        end.collapse(false)
+        sel.addRange(end)
+      }
+      insertSnippet(snip)
+    },
+    [snippets, insertSnippet]
+  )
+
   const onPickFiles = useCallback(async () => {
     const picked = await window.api.pickAttachments()
     if (picked.length) {
@@ -118,8 +180,9 @@ export function Compose({ compose, onClose, onSent }: Props) {
     }
   }, [compose.attachments, updateCompose])
 
+  /** `sendAt` null = now: main adds the undo window, whose length is a setting it owns. */
   const persistAndQueue = useCallback(
-    async (sendAt: number | null) => {
+    async (sendAt: number | null, opts: { done?: boolean; cancelOnReply?: boolean } = {}) => {
       if (!compose.to.trim()) {
         setError('Add at least one recipient')
         return
@@ -144,7 +207,8 @@ export function Compose({ compose, onClose, onSent }: Props) {
           body,
           inReplyTo: compose.inReplyTo,
           references: compose.references,
-          attachments: compose.attachments
+          attachments: compose.attachments,
+          accountId: compose.accountId
         })
         if (!saved.ok) {
           setError(saved.error)
@@ -162,7 +226,9 @@ export function Compose({ compose, onClose, onSent }: Props) {
           references: compose.references,
           attachments: compose.attachments,
           sendAt,
-          remindAt: compose.remindAt
+          remindAt: compose.remindAt,
+          accountId: compose.accountId,
+          cancelOnReply: !!opts.cancelOnReply
         })
         if (!queued.ok) {
           setError(queued.error)
@@ -172,7 +238,8 @@ export function Compose({ compose, onClose, onSent }: Props) {
           queued.outboxId,
           compose.subject || '(no subject)',
           Math.max(0, queued.sendAt - Date.now()),
-          sendAt === null
+          sendAt === null,
+          opts.done ? compose.sourceMessageId : null
         )
         onClose()
       } finally {
@@ -183,31 +250,54 @@ export function Compose({ compose, onClose, onSent }: Props) {
     [compose, onClose, onSent, updateCompose]
   )
 
+  const introduce = useCallback(() => {
+    const next = instantIntro({
+      to: compose.to,
+      cc: compose.cc,
+      bcc: compose.bcc,
+      body: editorRef.current?.innerHTML ?? compose.body
+    })
+    if (!next) return setError('Instant intro needs someone left to write to')
+    // The DOM owns the body after the first seed, so write it there too.
+    if (editorRef.current) editorRef.current.innerHTML = next.body
+    updateCompose(next)
+  }, [compose, updateCompose])
+
+  const focusField = (id: string) => () => document.getElementById(id)?.focus()
+  // Each chord is declared in commands.ts (compose.*, external) so the sheet lists it.
   const chords = useMemo(
     () => [
+      { key: 'Enter', handler: () => void (!sending && persistAndQueue(null)) },
+      { key: 'Enter', shift: true, handler: () => void (!sending && persistAndQueue(null, { done: true })) },
+      { key: 'h', shift: true, handler: () => setReminding(true) },
+      { key: 'l', shift: true, handler: () => setLaterOpen(true) },
+      { key: 'i', shift: true, handler: introduce },
+      { key: 'o', shift: true, handler: focusField('compose-to') },
+      { key: 'c', shift: true, handler: focusField('compose-cc') },
+      { key: 'b', shift: true, handler: focusField('compose-bcc') },
+      { key: 's', shift: true, handler: focusField('compose-subject') },
       {
-        key: 'Enter',
+        key: ';',
         handler: () => {
-          if (!sending) void persistAndQueue(scheduleAt('now'))
+          caretRef.current = captureCaret(editorRef.current)
+          setPickingSnippet(true)
         }
-      },
-      // Declared in commands.ts as compose.remind.
-      { key: 'h', shift: true, handler: () => setReminding(true) }
+      }
     ],
-    [persistAndQueue, sending]
+    [persistAndQueue, sending, introduce]
   )
   useCommandChord(chords)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !showSchedule && !reminding) {
+      if (e.key === 'Escape' && !laterOpen && !reminding && !pickingSnippet) {
         e.preventDefault()
         onClose()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, showSchedule, reminding])
+  }, [onClose, laterOpen, reminding, pickingSnippet])
 
   return (
     <div className="compose">
@@ -217,37 +307,20 @@ export function Compose({ compose, onClose, onSent }: Props) {
           <button type="button" className="compose-btn" onClick={onClose} disabled={sending}>
             Discard
           </button>
-          <div className="compose-schedule-wrap">
-            <button
-              type="button"
-              className="compose-btn"
-              onClick={() => setShowSchedule((v) => !v)}
-              disabled={sending}
-            >
-              Later
-            </button>
-            {showSchedule && (
-              <div className="compose-schedule-menu">
-                {SCHEDULE_OPTS.filter((o) => o.id !== 'now').map((o) => (
-                  <button
-                    key={o.id}
-                    type="button"
-                    onClick={() => {
-                      setShowSchedule(false)
-                      void persistAndQueue(scheduleAt(o.id))
-                    }}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            className="compose-btn"
+            onClick={() => setLaterOpen(true)}
+            disabled={sending}
+            title="Send later (⌘⇧L)"
+          >
+            Later
+          </button>
           <button
             type="button"
             className="compose-btn compose-btn-primary"
             disabled={sending}
-            onClick={() => void persistAndQueue(scheduleAt('now'))}
+            onClick={() => void persistAndQueue(null)}
           >
             {sending ? 'Queuing…' : 'Send'}
             <span className="compose-hint">⌘↵</span>
@@ -285,6 +358,29 @@ export function Compose({ compose, onClose, onSent }: Props) {
           onClose={() => setReminding(false)}
         />
       )}
+      {laterOpen && (
+        <RemindPicker
+          title="Send later"
+          // Only a reply has a thread someone could answer before it goes out.
+          showCheck={!!compose.inReplyTo}
+          checkLabel="Cancel if someone replies first"
+          defaultIfNoReply={cancelOnReplyDefault}
+          onPick={(at, cancelOnReply) => {
+            setLaterOpen(false)
+            void persistAndQueue(at, { cancelOnReply })
+          }}
+          onClose={() => setLaterOpen(false)}
+        />
+      )}
+      {pickingSnippet && (
+        <Picker
+          title="Insert snippet"
+          items={snippets.map((s) => ({ id: String(s.id), label: s.shortcut ? `${s.name}  ;${s.shortcut}` : s.name }))}
+          emptyText="No snippets yet. Add them in Settings → Snippets."
+          onPick={pickSnippet}
+          onClose={() => setPickingSnippet(false)}
+        />
+      )}
       {error && (
         <div className="compose-error" role="alert">
           {error}
@@ -295,21 +391,25 @@ export function Compose({ compose, onClose, onSent }: Props) {
           label="To"
           value={compose.to}
           onChange={(to) => updateCompose({ to })}
+          inputId="compose-to"
           autoFocus
         />
         <RecipientField
           label="Cc"
           value={compose.cc}
           onChange={(cc) => updateCompose({ cc })}
+          inputId="compose-cc"
         />
         <RecipientField
           label="Bcc"
           value={compose.bcc}
           onChange={(bcc) => updateCompose({ bcc })}
+          inputId="compose-bcc"
         />
         <label className="compose-field">
           <span>Subject</span>
           <input
+            id="compose-subject"
             value={compose.subject}
             onChange={(e) => updateCompose({ subject: e.target.value })}
           />
@@ -375,6 +475,7 @@ export function Compose({ compose, onClose, onSent }: Props) {
         data-placeholder="Write your message…"
         onInput={(e) => updateCompose({ body: e.currentTarget.innerHTML })}
         onPaste={onPaste}
+        onKeyDown={onEditorKeyDown}
       />
       {compose.attachments.length > 0 && (
         <div className="compose-attachments">

@@ -5,6 +5,9 @@ interface Props {
   title?: string
   /** Compose turns this on: a reminder on your own mail is about the reply. */
   defaultIfNoReply?: boolean
+  /** The checkbox under the presets; send later hides it. */
+  showCheck?: boolean
+  checkLabel?: string
   onPick: (at: number, ifNoReply: boolean) => void
   /** Shown when the target already has a reminder. */
   onClear?: () => void
@@ -23,6 +26,8 @@ const fmt = (d: Date): string =>
 export function RemindPicker({
   title = 'Remind me',
   defaultIfNoReply = false,
+  showCheck = true,
+  checkLabel = 'Only if nobody replies',
   onPick,
   onClear,
   onClose
@@ -93,14 +98,16 @@ export function RemindPicker({
             </li>
           ))}
         </ul>
-        <label className="picker-check">
-          <input
-            type="checkbox"
-            checked={ifNoReply}
-            onChange={(e) => setIfNoReply(e.target.checked)}
-          />
-          Only if nobody replies
-        </label>
+        {showCheck && (
+          <label className="picker-check">
+            <input
+              type="checkbox"
+              checked={ifNoReply}
+              onChange={(e) => setIfNoReply(e.target.checked)}
+            />
+            {checkLabel}
+          </label>
+        )}
         {onClear && (
           <button type="button" className="picker-clear" onClick={onClear}>
             Remove reminder

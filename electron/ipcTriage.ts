@@ -3,16 +3,16 @@ import { doneRole } from '../src/core/store/folderRoles.js'
 import { archiveSetup } from '../src/core/triage/archiveSetup.js'
 import {
   addMessageLabel,
-  gmailLabelChoices,
   labelsForMessages,
-  removeMessageLabel
+  labelWriteError,
+  removeMessageLabel,
+  sharedLabelChoices
 } from '../src/core/store/labels.js'
 import {
   folderByRole,
   getMessage,
   getSettings,
   groupByAccount,
-  listFolders,
   setFolderRole,
   threadMatesInFolder,
   upsertFolder
@@ -33,6 +33,10 @@ import { deleteSplit, listSplits, saveSplit, splitCounts } from '../src/core/sto
 import { getPool } from '../src/core/sync/pool.js'
 import { flagWriterFor, holdMove } from './ipc.js'
 import { getAccount, getBootState } from './state.js'
+
+function isGmailAccount(accountId: number): boolean {
+  return getAccount(accountId)?.config.provider === 'gmail'
+}
 
 /**
  * Phase 2 triage handlers. Kept out of ipc.ts, which owns sync, compose and
@@ -157,10 +161,11 @@ export function registerTriageIpc(): void {
       : { ok: true as const, ...r, holdMs: undoWindowMs(getSettings()) }
   })
 
-  ipcMain.handle('labels:choices', () => {
-    const s = getBootState()
-    return s.ok && s.config.provider === 'gmail' ? gmailLabelChoices(listFolders(s.accountId)) : []
-  })
+  // The labels every account owning these rows shares, not the active account's:
+  // All inboxes mixes accounts in one list.
+  ipcMain.handle('labels:choices', (_e, ids: number[]) =>
+    sharedLabelChoices(groupByAccount(ids).keys(), isGmailAccount)
+  )
 
   ipcMain.handle('labels:forMessages', (_e, ids: number[]) => labelsForMessages(ids))
 
@@ -172,8 +177,14 @@ export function registerTriageIpc(): void {
       own,
       acct: getAccount(accountId)
     }))
-    if (groups.some((g) => g.acct && g.acct.config.provider !== 'gmail'))
-      return { ok: false as const, error: 'Labels are Gmail only' }
+    // A label the owning account lacks would be created on its server by the
+    // STORE, so refuse before anything is written.
+    const err = labelWriteError(
+      groups.filter((g) => g.acct).map((g) => g.accountId),
+      label,
+      isGmailAccount
+    )
+    if (err) return { ok: false as const, error: err }
     for (const { accountId, own, acct } of groups) {
       if (!acct) continue
       const writer = flagWriterFor(accountId, acct.config)

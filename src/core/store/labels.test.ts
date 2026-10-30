@@ -7,9 +7,11 @@ import {
   addMessageLabel,
   gmailLabelChoices,
   labelsForMessages,
+  labelWriteError,
   messageLabels,
   removeMessageLabel,
   setMessageLabels,
+  sharedLabelChoices,
   userLabels
 } from './labels.js'
 
@@ -61,5 +63,32 @@ describe('Gmail label mapping', () => {
     expect(labelsForMessages([msg])).toEqual({ [msg]: ['Work'] })
     expect(removeMessageLabel(msg, 1, 'Work')).toBe(true)
     expect(labelsForMessages([msg])).toEqual({ [msg]: [] })
+  })
+})
+
+describe('labels across accounts (All inboxes)', () => {
+  beforeEach(() => {
+    const db = getDb()
+    db.prepare("INSERT INTO accounts (id,email) VALUES (2,'other@gmail.com'), (3,'me@exmail.test')").run()
+    db.prepare(
+      `INSERT INTO folders (account_id,path,role) VALUES
+         (1,'Work',NULL), (1,'Travel',NULL), (2,'Work',NULL), (2,'Bills',NULL), (3,'Work',NULL)`
+    ).run()
+  })
+  const gmail = (id: number) => id !== 3
+
+  it('offers only the labels every owning account has', () => {
+    expect(sharedLabelChoices([1], gmail)).toEqual(['Travel', 'Work'])
+    expect(sharedLabelChoices([1, 2], gmail)).toEqual(['Work'])
+    expect(sharedLabelChoices([1, 3], gmail)).toEqual([])
+    expect(sharedLabelChoices([], gmail)).toEqual([])
+  })
+
+  it('refuses a label the owning account lacks, so none is created on its server', () => {
+    expect(labelWriteError([1], 'Travel', gmail)).toBeNull()
+    expect(labelWriteError([2], 'Travel', gmail)).toMatch(/No label/)
+    expect(labelWriteError([1, 2], 'Work', gmail)).toBeNull()
+    expect(labelWriteError([1, 3], 'Work', gmail)).toBe('Labels are Gmail only')
+    expect(getDb().prepare("SELECT count(*) c FROM labels WHERE name = 'Travel' AND account_id = 2").get()).toEqual({ c: 0 })
   })
 })

@@ -10,7 +10,7 @@ import type {
 } from './types.js'
 
 export const LIST_COLS =
-  'id, thread_id, from_addr, from_name, to_addrs, subject, date, snippet, flags, has_attachments'
+  'id, account_id, thread_id, from_addr, from_name, to_addrs, subject, date, snippet, flags, has_attachments'
 
 // ---- accounts ----
 
@@ -118,11 +118,30 @@ export function resetFolder(folderId: number, uidvalidity: number): void {
   const db = getDb()
   db.transaction(() => {
     db.prepare('DELETE FROM messages WHERE folder_id = ?').run(folderId)
-    db.prepare('UPDATE folders SET uidvalidity = ?, last_uid = 0 WHERE id = ?').run(
-      uidvalidity,
-      folderId
-    )
+    db.prepare(
+      'UPDATE folders SET uidvalidity = ?, last_uid = 0, history_complete = 0 WHERE id = ?'
+    ).run(uidvalidity, folderId)
   })()
+}
+
+/**
+ * Full-history backfill reached the oldest message of this folder. A no-op if
+ * the folder was renumbered (resetFolder) after `uidvalidity` was read: the
+ * re-fetched folder still needs its history.
+ */
+export function setHistoryComplete(folderId: number, uidvalidity: number): void {
+  getDb()
+    .prepare('UPDATE folders SET history_complete = 1 WHERE id = ? AND uidvalidity = ?')
+    .run(folderId, uidvalidity)
+}
+
+/**
+ * The forward pass skipped mail under the sinceDays cutoff (full history off)
+ * while moving last_uid past it. Only backfill can fetch it now, and backfill
+ * skips complete folders, so reopen the history.
+ */
+export function reopenHistory(folderId: number): void {
+  getDb().prepare('UPDATE folders SET history_complete = 0 WHERE id = ? AND history_complete = 1').run(folderId)
 }
 
 // ---- messages ----
@@ -506,13 +525,15 @@ export function listDrafts(
 }
 
 /**
- * Lowest synced uid in a folder — the anchor for backfilling older mail.
- * Derived rather than stored so no migration is needed; local-only rows
- * (drafts, optimistically moved messages) have a NULL uid and are excluded.
+ * Highest synced uid in a folder — the ceiling for backfilling older mail.
+ * Uids above it are the forward pass's job. Not min(uid): server search stores
+ * old hits far below the synced window, so the lowest uid says nothing about
+ * what is contiguous. Local-only rows (drafts, optimistically moved messages)
+ * have a NULL uid and are excluded.
  */
-export function oldestSyncedUid(folderId: number): number | null {
+export function newestSyncedUid(folderId: number): number | null {
   const row = getDb()
-    .prepare('SELECT min(uid) u FROM messages WHERE folder_id = ? AND uid IS NOT NULL')
+    .prepare('SELECT max(uid) u FROM messages WHERE folder_id = ? AND uid IS NOT NULL')
     .get(folderId) as { u: number | null }
   return row.u
 }

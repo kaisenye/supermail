@@ -1,6 +1,6 @@
 import type { ImapFlow, ListResponse } from 'imapflow'
 import { describe, expect, it, vi } from 'vitest'
-import { parseReferences, storeFlag, toMailboxInfo } from './imap.js'
+import { fetchEnvelopes, parseReferences, storeFlag, toMailboxInfo } from './imap.js'
 
 const list = (o: Record<string, unknown>): ListResponse =>
   ({ path: 'X', name: 'X', flags: new Set<string>(), ...o }) as unknown as ListResponse
@@ -82,5 +82,55 @@ describe('storeFlag', () => {
       responseStatus: 'NO'
     })
     expect(f.raw.messageFlagsRemove).toHaveBeenCalled()
+  })
+})
+
+describe('fetchEnvelopes on an already-selected mailbox', () => {
+  // imapflow skips SELECT when the path is already open and never updates
+  // uidNext afterwards, so a pooled connection that left Sent selected
+  // reports the UIDNEXT from the previous refresh.
+  const pooled = (opts: { selected: boolean }) => {
+    const stale = { path: 'Sent', uidValidity: 7n, uidNext: 11, exists: 10 }
+    const client: Record<string, unknown> = {
+      mailbox: opts.selected ? stale : false,
+      noop: vi.fn(async () => {
+        // The server reports the new message as EXISTS; uidNext stays stale.
+        ;(client.mailbox as typeof stale).exists = 11
+      }),
+      getMailboxLock: vi.fn(async () => {
+        // A fresh SELECT replaces the mailbox object with current values.
+        if (!opts.selected) client.mailbox = { path: 'Sent', uidValidity: 7n, uidNext: 12, exists: 11 }
+        return { release() {} }
+      }),
+      fetch: vi.fn(async function* () {
+        yield { uid: 11, flags: new Set<string>(), envelope: { messageId: '<two@t>', subject: 'two' } }
+      })
+    }
+    return client
+  }
+
+  it('fetches mail that arrived since the last refresh despite a stale uidNext', async () => {
+    const client = pooled({ selected: true })
+    const { messages } = await fetchEnvelopes(client as unknown as ImapFlow, 'Sent', {
+      sinceUid: 10,
+      limit: 50,
+      accountId: 1,
+      folderId: 1
+    })
+    expect(client.noop).toHaveBeenCalled()
+    expect(messages.map((m) => m.uid)).toEqual([11])
+  })
+
+  it('still trusts uidNext from a fresh SELECT', async () => {
+    const client = pooled({ selected: false })
+    const { messages } = await fetchEnvelopes(client as unknown as ImapFlow, 'Sent', {
+      sinceUid: 11,
+      limit: 50,
+      accountId: 1,
+      folderId: 1
+    })
+    expect(client.noop).not.toHaveBeenCalled()
+    expect(client.fetch).not.toHaveBeenCalled()
+    expect(messages).toEqual([])
   })
 })

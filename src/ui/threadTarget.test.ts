@@ -3,7 +3,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { openThreadTarget } from './threadTarget'
 
-const row = (id: number, thread_id: string) => ({ id, thread_id })
+const row = (id: number, thread_id: string, account_id = 1) => ({ id, thread_id, account_id })
 
 describe('openThreadTarget', () => {
   const ot = { threadId: 't-open', messageId: 10 }
@@ -23,6 +23,19 @@ describe('openThreadTarget', () => {
   it('falls back to the open message id, never the cursor row, when the row is gone', () => {
     const rows = [row(5, 't-a'), row(7, 't-b')]
     expect(openThreadTarget(rows, ot)).toEqual({ index: -1, ids: [10] })
+  })
+
+  it("matches the thread id only within the open thread's account", () => {
+    // All inboxes: the same mailing-list thread shows once per account. A new
+    // reply replaced the open row's newest id, so only the thread id is left.
+    const rows = [row(50, 't-open', 1), row(60, 't-open', 2), row(5, 't-a', 2)]
+    expect(openThreadTarget(rows, { ...ot, accountId: 2 })).toEqual({ index: 1, ids: [60] })
+    expect(openThreadTarget(rows, { ...ot, accountId: 1 })).toEqual({ index: 0, ids: [50] })
+  })
+
+  it("falls back to the open message id when only another account's row shares the thread id", () => {
+    const rows = [row(50, 't-open', 1), row(5, 't-a', 2)]
+    expect(openThreadTarget(rows, { ...ot, accountId: 2 })).toEqual({ index: -1, ids: [10] })
   })
 
   it('does not match an empty thread id', () => {

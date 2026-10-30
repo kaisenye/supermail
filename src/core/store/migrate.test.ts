@@ -98,3 +98,45 @@ describe('migration v18 (triage)', () => {
     db.close()
   })
 })
+
+describe('migration v20 (phase 3)', () => {
+  it('adds cancel_on_reply, history_complete, snippets and a task index that stays current', () => {
+    const db = new Database(join(mkdtempSync(join(tmpdir(), 'migrate-')), 't.db'))
+    db.pragma('foreign_keys = ON')
+    migrate(db, 19)
+    db.prepare("INSERT INTO accounts (id,email) VALUES (1,'me@x.test')").run()
+    db.prepare(
+      `INSERT INTO tasks (account_id,title,description,created_at,updated_at,sort_order)
+       VALUES (1,'Call the bank','about the loan',1,1,0)`
+    ).run()
+
+    expect(migrate(db)).toBeGreaterThanOrEqual(20)
+
+    const cols = (t: string) =>
+      (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)
+    expect(cols('outbox')).toContain('cancel_on_reply')
+    expect(cols('folders')).toContain('history_complete')
+    expect(cols('snippets')).toEqual(
+      expect.arrayContaining(['id', 'name', 'shortcut', 'body', 'created_at', 'updated_at'])
+    )
+
+    const hit = (q: string) => db.prepare('SELECT rowid FROM tasks_fts WHERE tasks_fts MATCH ?').all(q)
+    // Existing tasks are indexed, and the index follows updates and deletes.
+    expect(hit('bank')).toEqual([{ rowid: 1 }])
+    db.prepare("UPDATE tasks SET title = 'Call the insurer' WHERE id = 1").run()
+    expect(hit('bank')).toEqual([])
+    expect(hit('insurer')).toEqual([{ rowid: 1 }])
+    db.prepare('DELETE FROM tasks WHERE id = 1').run()
+    expect(hit('insurer')).toEqual([])
+
+    // Snippet shortcuts are unique, ignoring case; a snippet may have none.
+    const ins = db.prepare(
+      'INSERT INTO snippets (name, shortcut, body, created_at, updated_at) VALUES (?, ?, ?, 1, 1)'
+    )
+    ins.run('Thanks', 'thx', 'Thanks!')
+    expect(() => ins.run('Again', 'THX', 'x')).toThrow()
+    ins.run('No key 1', null, 'a')
+    ins.run('No key 2', null, 'b')
+    db.close()
+  })
+})

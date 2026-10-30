@@ -2,6 +2,7 @@ import { clearMessageAttachments, writeAttachment } from '../store/attachments.j
 import { getDb } from '../store/db.js'
 import { setMessageLabels } from '../store/labels.js'
 import { upsertMessage } from '../store/repo.js'
+import { cancelAndNotify } from '../send/cancelOnReply.js'
 import type { MsgCtx, Processor, RawMessage } from './types.js'
 
 export interface PipelineResult {
@@ -79,6 +80,16 @@ export async function runPipeline(
     }
     return msgId
   })()
+
+  // A reply that lands before a scheduled reply goes out cancels it (opt-in
+  // per send). Never allowed to cost the message: errors are recorded only.
+  if (id !== null && raw.folderId !== null) {
+    try {
+      cancelAndNotify(id)
+    } catch (e) {
+      errors.push({ processor: 'cancelOnReply', message: (e as Error).message })
+    }
+  }
 
   return { id, errors }
 }

@@ -22,10 +22,14 @@ export function TriageSettings() {
   const [name, setName] = useState('')
   const [query, setQuery] = useState('')
   const [splitError, setSplitError] = useState<string | null>(null)
+  const [cancelDefault, setCancelDefault] = useState(false)
+  const [fullHistory, setFullHistory] = useState(true)
 
   useEffect(() => {
     void window.api.getSettings().then((s) => {
       if (UNDO_CHOICES.includes(s.undo_seconds)) setUndoSecs(s.undo_seconds)
+      setCancelDefault(s.cancel_on_reply_default === '1')
+      setFullHistory(s.full_history !== '0')
     })
     void window.api.archiveStatus().then((r) => {
       if (r.ok)
@@ -151,6 +155,34 @@ export function TriageSettings() {
           </button>
         </div>
         {splitError && <p className="settings-error">{splitError}</p>}
+      </section>
+      <section className="settings-section">
+        <h3>Scheduled sends</h3>
+        <label className="picker-check">
+          <input
+            type="checkbox"
+            checked={cancelDefault}
+            onChange={(e) => {
+              setCancelDefault(e.target.checked)
+              void window.api.setSettings({ cancel_on_reply_default: e.target.checked ? '1' : '0' })
+            }}
+          />
+          Cancel a scheduled reply when someone replies first
+        </label>
+      </section>
+      <section className="settings-section">
+        <h3>Offline history</h3>
+        <label className="picker-check">
+          <input
+            type="checkbox"
+            checked={fullHistory}
+            onChange={(e) => {
+              setFullHistory(e.target.checked)
+              void window.api.setSettings({ full_history: e.target.checked ? '1' : '0' })
+            }}
+          />
+          Download the whole mailbox in the background (headers only)
+        </label>
       </section>
     </>
   )

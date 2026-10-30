@@ -5,6 +5,8 @@ interface Surface {
   /** Tasks replaces the mail pane, so mail keys must not reach the hidden list. */
   tasksOpen: boolean
   openThread: boolean
+  /** The search page is on screen (an open thread still wins). */
+  searchOpen?: boolean
 }
 
 /**
@@ -15,7 +17,8 @@ interface Surface {
 export function baseMode(s: Surface): Mode {
   if (s.compose) return 'compose'
   if (s.tasksOpen) return 'modal'
-  return s.openThread ? 'thread' : 'list'
+  if (s.openThread) return 'thread'
+  return s.searchOpen ? 'search' : 'list'
 }
 
 /** The keyboard mode: any open palette, dialog or picker owns the keys. */

@@ -34,6 +34,8 @@ import {
 import { authUrl, createPkce, exchangeCode, primeAccessToken } from '../src/core/accounts/oauth.js'
 import { waitForRedirect } from '../src/core/accounts/oauthFlow.js'
 import { startAccountWorkers, stopAccountWorkers } from './workers.js'
+import { syncAllAccounts } from './syncAll.js'
+import { runBackfillExclusive } from './backfillLock.js'
 import {
   countOpenTasks,
   createTask,
@@ -78,7 +80,7 @@ import { htmlToPlainText } from '../src/core/send/mime.js'
 import {
   cancelOutbox,
   enqueueOutbox,
-  listPendingOutbox,
+  listScheduledOutbox,
   remindAtError
 } from '../src/core/send/outbox.js'
 import {
@@ -87,6 +89,7 @@ import {
   getAccount,
   getBootState,
   getBootStatus,
+  listAccounts,
   removeAccount as removeAccountFromState,
   setActiveAccount,
   type LiveAccount
@@ -113,7 +116,6 @@ const syncing = new Set<number>()
 /** Accounts with a one-time header repair running, so a second sync does not start another. */
 const repairing = new Set<number>()
 const bodySyncing = new Set<number>()
-const backfilling = new Set<number>()
 const flagWriters = new Map<number, FlagWriter>()
 const moveWriters = new Map<number, MoveWriter>()
 
@@ -150,6 +152,13 @@ function ownerOf(messageId: number): LiveAccount | null {
   return accountId === null ? null : getAccount(accountId)
 }
 
+/** The account a renderer call names, or the active one when it names none. */
+function accountFor(accountId?: number | null): LiveAccount | null {
+  if (accountId != null) return getAccount(accountId)
+  const s = getBootState()
+  return s.ok ? getAccount(s.accountId) : null
+}
+
 let moveBatchSeq = 0
 const pendingMoves = new Map<
   number,
@@ -163,14 +172,15 @@ const pendingMoves = new Map<
 
 /**
  * Source uids of held moves out of one mailbox. The server still has them
- * there until commitMove, so a backfill must not store them again.
+ * there until commitMove, so a backfill or server search must not store them again.
  */
-function heldSourceUids(accountId: number, fromPath: string): number[] {
+export function heldSourceUids(accountId: number, fromPath: string): number[] {
   const out: number[] = []
   for (const b of pendingMoves.values())
     for (const j of b.jobs) if (j.accountId === accountId && j.fromPath === fromPath) out.push(j.uid)
   return out
 }
+
 
 /** Undo window elapsed — the IMAP MOVE is now safe to issue. */
 function commitMove(batchId: number): void {
@@ -255,6 +265,8 @@ interface DraftPayload {
   inReplyTo?: string | null
   references?: string | null
   attachments?: ComposeAttachment[]
+  /** The account it sends from (a unified-inbox reply); null = the active one. */
+  accountId?: number | null
 }
 
 interface ComposeAttachment {
@@ -271,6 +283,8 @@ interface QueueSendPayload extends DraftPayload {
   attachments?: ComposeAttachment[]
   /** "Remind me if no reply": saved as a reminder once the mail is sent. */
   remindAt?: number | null
+  /** Scheduled send only: cancel it if someone replies first. */
+  cancelOnReply?: boolean
 }
 
 /**
@@ -589,17 +603,16 @@ export function registerIpc(): void {
     if (!s.ok) return { ok: false as const, error: s.error }
     const folder = listFolders(s.accountId).find((f) => f.id === folderId)
     if (!folder) return { ok: false as const, error: 'unknown folder' }
-    if (backfilling.has(s.accountId)) return { ok: false as const, error: 'already loading' }
-    backfilling.add(s.accountId)
     try {
-      const r = await backfillFolder(s.accountId, s.config, folder, limit, () =>
-        heldSourceUids(s.accountId, folder.path)
+      // Waits out a history-worker page rather than failing: the user asked.
+      const r = await runBackfillExclusive(
+        s.accountId,
+        () => backfillFolder(s.accountId, s.config, folder, limit, () => heldSourceUids(s.accountId, folder.path)),
+        { wait: true }
       )
-      return { ok: true as const, ...r }
+      return r ? { ok: true as const, ...r } : { ok: false as const, error: 'already loading' }
     } catch (e) {
       return { ok: false as const, error: (e as Error).message }
-    } finally {
-      backfilling.delete(s.accountId)
     }
   })
 
@@ -608,9 +621,11 @@ export function registerIpc(): void {
     return s.ok ? searchMessages(s.accountId, query, limit) : []
   })
 
-  ipcMain.handle('thread:get', (_e, threadId: string) => {
-    const s = getBootState()
-    return s.ok ? getThread(s.accountId, threadId) : []
+  // Thread ids collide across accounts, so the caller says whose thread it is
+  // (the row's account_id); the active account is only the default.
+  ipcMain.handle('thread:get', (_e, threadId: string, accountId?: number) => {
+    const a = accountFor(accountId)
+    return a ? getThread(a.accountId, threadId) : []
   })
 
   // Mark every message in a thread \Seen. Optimistic: SQLite first, IMAP in the
@@ -620,13 +635,13 @@ export function registerIpc(): void {
    * Whole-thread, mirroring markRead: reading marks every message seen, so
    * un-reading only the newest would be undone the moment it reopens.
    */
-  ipcMain.handle('thread:markUnread', (_e, threadIds: string[]) => {
-    const s = getBootState()
-    if (!s.ok) return { ok: false as const, error: s.error }
-    const writer = flagWriterFor(s.accountId, s.config)
+  ipcMain.handle('thread:markUnread', (_e, threadIds: string[], accountId?: number) => {
+    const a = accountFor(accountId)
+    if (!a) return { ok: false as const, error: 'account not found' }
+    const writer = flagWriterFor(a.accountId, a.config)
     const changed: number[] = []
     for (const threadId of threadIds) {
-      for (const m of getThread(s.accountId, threadId)) {
+      for (const m of getThread(a.accountId, threadId)) {
         const next = removeFlag(m.id, '\\Seen')
         if (!next) continue
         changed.push(m.id)
@@ -636,12 +651,12 @@ export function registerIpc(): void {
     return { ok: true as const, changed }
   })
 
-  ipcMain.handle('thread:markRead', (_e, threadId: string) => {
-    const s = getBootState()
-    if (!s.ok) return { ok: false as const, error: s.error }
-    const writer = flagWriterFor(s.accountId, s.config)
+  ipcMain.handle('thread:markRead', (_e, threadId: string, accountId?: number) => {
+    const a = accountFor(accountId)
+    if (!a) return { ok: false as const, error: 'account not found' }
+    const writer = flagWriterFor(a.accountId, a.config)
     const changed: number[] = []
-    for (const m of getThread(s.accountId, threadId)) {
+    for (const m of getThread(a.accountId, threadId)) {
       const next = addFlag(m.id, '\\Seen')
       if (next) {
         changed.push(m.id)
@@ -696,8 +711,8 @@ export function registerIpc(): void {
   ipcMain.handle('message:get', (_e, id: number) => getMessage(id))
 
   ipcMain.handle('compose:saveDraft', (_e, payload: DraftPayload) => {
-    const s = getBootState()
-    if (!s.ok) return { ok: false as const, error: s.error }
+    const a = accountFor(payload.accountId)
+    if (!a) return { ok: false as const, error: 'account not found' }
     try {
       // Compose is WYSIWYG, so `body` is HTML; the text part is a downgrade.
       const html = payload.body ?? ''
@@ -719,8 +734,8 @@ export function registerIpc(): void {
         updateDraft(draftId, fields)
       } else {
         draftId = createDraft({
-          account_id: s.accountId,
-          from_addr: s.config.email,
+          account_id: a.accountId,
+          from_addr: a.config.email,
           ...fields
         })
       }
@@ -730,9 +745,10 @@ export function registerIpc(): void {
     }
   })
 
+  // A reply from the unified inbox must leave from the account that received the mail.
   ipcMain.handle('compose:queueSend', (_e, payload: QueueSendPayload) => {
-    const s = getBootState()
-    if (!s.ok) return { ok: false as const, error: s.error }
+    const a = accountFor(payload.accountId)
+    if (!a) return { ok: false as const, error: 'account not found' }
     if (!payload.to?.trim()) return { ok: false as const, error: 'missing recipients' }
     try {
       const sendAt = payload.sendAt ?? Date.now() + undoWindowMs(getSettings())
@@ -754,7 +770,7 @@ export function registerIpc(): void {
           : null
       })
       const row = enqueueOutbox({
-        account_id: s.accountId,
+        account_id: a.accountId,
         draft_message_id: payload.draftId,
         to_addrs: payload.to.trim(),
         cc_addrs: payload.cc?.trim() || null,
@@ -768,7 +784,8 @@ export function registerIpc(): void {
           ? JSON.stringify(payload.attachments)
           : null,
         send_at: sendAt,
-        remind_at: payload.remindAt ?? null
+        remind_at: payload.remindAt ?? null,
+        cancel_on_reply: payload.cancelOnReply && payload.inReplyTo ? 1 : 0
       })
       return { ok: true as const, outboxId: row.id, sendAt: row.send_at }
     } catch (e) {
@@ -785,15 +802,19 @@ export function registerIpc(): void {
   ipcMain.handle('compose:listScheduled', () => {
     const s = getBootState()
     if (!s.ok) return []
-    return listPendingOutbox(s.accountId)
-      .filter((r) => r.send_at > Date.now() + undoWindowMs(getSettings()))
-      .map((r) => ({
+    // Every live account: a reply from All inboxes queues under the account
+    // that received the mail, which may not be the active one.
+    const emails = new Map(listAccounts().map((a) => [a.accountId, a.email]))
+    return listScheduledOutbox([...emails.keys()], Date.now() + undoWindowMs(getSettings())).map(
+      (r) => ({
         id: r.id,
         to_addrs: r.to_addrs,
         subject: r.subject,
         send_at: r.send_at,
-        status: r.status
-      }))
+        status: r.status,
+        from_addr: emails.get(r.account_id) ?? null
+      })
+    )
   })
 
   // Bulk body fetch over one reused connection. Fire-and-forget: the caller
@@ -943,6 +964,13 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('sync:run', () => runSyncFor(getBootState()))
+
+  // The unified inbox shows every account, so its refresh syncs every account.
+  ipcMain.handle('sync:runAll', () =>
+    syncAllAccounts(listAccounts(), (a) =>
+      runSyncFor({ ok: true, accountId: a.accountId, email: a.email, config: a.config })
+    )
+  )
 }
 
 /**

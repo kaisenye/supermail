@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import type { Folder, MessageListRow } from '../core/store/types'
+import type { Task } from '../../electron/preload'
 import type { ChipId } from './chips'
+import type { SearchCache } from './searchKeys'
 
 export interface ComposeAttachment {
   path: string
@@ -22,6 +24,10 @@ export interface ComposeState {
   mode: 'new' | 'reply' | 'replyAll' | 'forward'
   /** ⌘⇧H: "remind me if no reply" at this time, saved by main after the send. */
   remindAt: number | null
+  /** The account it sends from; null = the active one. */
+  accountId: number | null
+  /** The message replied to or forwarded; ⌘⇧↵ marks its thread Done. */
+  sourceMessageId: number | null
 }
 
 /** The single action `z` or the toast can still take back. Each new one replaces it. */
@@ -30,6 +36,8 @@ export interface UndoEntry {
   expiresAt: number
   run: () => Promise<void>
 }
+
+export type SearchResults = SearchCache<MessageListRow, { address: string; name: string | null }, Task>
 
 interface AppState {
   email: string | null
@@ -45,7 +53,7 @@ interface AppState {
   syncLabel: string | null
   syncError: string | null
   hasSyncedOnce: boolean
-  openThread: { threadId: string; messageId: number } | null
+  openThread: { threadId: string; messageId: number; accountId?: number } | null
   paletteOpen: boolean
   compose: ComposeState | null
   undo: UndoEntry | null
@@ -62,8 +70,12 @@ interface AppState {
   /** Active filter chip, any folder. */
   chip: ChipId | null
   groupByDate: boolean
+  /** The search page's query, kept so back / forward and tabs can restore it. */
+  searchQuery: string
+  /** The search page's results, scope and cursor, so a remount repaints at once. */
+  searchCache: SearchResults | null
 
-  openThreadView: (threadId: string, messageId: number) => void
+  openThreadView: (threadId: string, messageId: number, accountId?: number) => void
   closeThread: () => void
   setBoot: (email: string | null, error: string | null) => void
   setFolders: (folders: Folder[]) => void
@@ -105,6 +117,8 @@ interface AppState {
   setSplit: (id: string) => void
   setChip: (chip: ChipId | null) => void
   setGroupByDate: (on: boolean) => void
+  setSearchQuery: (q: string) => void
+  setSearchCache: (cache: SearchResults | null) => void
   /** ⇧J / ⇧K: check the cursor row and the next one, and move the cursor there. */
   extendSelection: (delta: number) => void
 }
@@ -121,12 +135,18 @@ export function emptyCompose(): ComposeState {
     inReplyTo: null,
     references: null,
     mode: 'new',
-    remindAt: null
+    remindAt: null,
+    accountId: null,
+    sourceMessageId: null
   }
 }
 
 /** activeFolderId sentinel for the Reminders view, which is not an IMAP folder. */
 export const REMINDERS_VIEW_ID = -1
+/** activeFolderId sentinel for All inboxes: every account's Inbox (needs two or more accounts). */
+export const UNIFIED_VIEW_ID = -2
+/** activeFolderId sentinel for the search page. */
+export const SEARCH_VIEW_ID = -3
 
 export const useStore = create<AppState>((set, get) => ({
   email: null,
@@ -154,8 +174,10 @@ export const useStore = create<AppState>((set, get) => ({
   splitId: 'all',
   chip: null,
   groupByDate: false,
+  searchQuery: '',
+  searchCache: null,
 
-  openThreadView: (threadId, messageId) => set({ openThread: { threadId, messageId } }),
+  openThreadView: (threadId, messageId, accountId) => set({ openThread: { threadId, messageId, accountId } }),
   closeThread: () => set({ openThread: null }),
   setBoot: (email, bootError) => set({ email, bootError }),
   setFolders: (folders) => set({ folders }),
@@ -289,6 +311,8 @@ export const useStore = create<AppState>((set, get) => ({
   setSplit: (splitId) => set({ splitId }),
   setChip: (chip) => set({ chip }),
   setGroupByDate: (groupByDate) => set({ groupByDate }),
+  setSearchQuery: (searchQuery) => set({ searchQuery }),
+  setSearchCache: (searchCache) => set({ searchCache }),
   extendSelection: (delta) => {
     const { rows, selectedIndex, checkedIds } = get()
     if (!rows.length) return

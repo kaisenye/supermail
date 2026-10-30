@@ -4,7 +4,10 @@ import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { flushPendingMoves, registerIpc, resumePendingMoves, runSyncFor } from './ipc.js'
 import { registerTriageIpc } from './ipcTriage.js'
+import { registerPowerIpc } from './ipcPower.js'
+import { installAppMenu } from './menu.js'
 import { startReminderWorker } from './reminderWorker.js'
+import { startHistoryWorker } from './historyWorker.js'
 import { initDb } from '../src/core/store/db.js'
 import { initAttachmentStore } from '../src/core/store/attachments.js'
 import {
@@ -15,6 +18,7 @@ import {
 import { initVault } from '../src/core/accounts/vault.js'
 import { onReauthRequired } from '../src/core/accounts/oauth.js'
 import { listAccounts as storedAccounts } from '../src/core/store/repo.js'
+import { onScheduledCancelled } from '../src/core/send/cancelOnReply.js'
 import { startOutboxWorker } from '../src/core/send/flush.js'
 import { stopIdleWatcher } from '../src/core/sync/idle.js'
 import { closePool } from '../src/core/sync/pool.js'
@@ -155,8 +159,10 @@ installCrashHandlers()
 app.whenReady().then(() => {
   setDevDockIcon()
   boot()
+  installAppMenu()
   registerIpc()
   registerTriageIpc()
+  registerPowerIpc()
   // Google's Testing-mode refresh tokens expire after 7 days, and either
   // provider can revoke one. Tell the renderer which address needs a new
   // sign-in instead of letting sync fail silently.
@@ -168,18 +174,22 @@ app.whenReady().then(() => {
     markNeedsReauth(acct.email)
     for (const w of BrowserWindow.getAllWindows()) w.webContents.send('account:reauth', acct.email)
   })
+  onScheduledCancelled((cancelled) => {
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.send('send:cancelledOnReply', cancelled)
+  })
   startOutboxWorker(
     (accountId) => getAccount(accountId)?.config ?? null,
     undefined,
     (f) => {
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send('send:failed', f)
     },
-    (accountId) => {
+    (accountId, messageId) => {
       const acct = getAccount(accountId)
-      if (acct) void refreshSentFolder(accountId, acct.config)
+      if (acct) void refreshSentFolder(accountId, acct.config, messageId)
     }
   )
   startReminderWorker()
+  startHistoryWorker()
   // Every account gets its own warmed pool and parked IDLE connection, so mail
   // pushes for all of them rather than only whichever is on screen.
   for (const a of listAccounts()) {

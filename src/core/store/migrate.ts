@@ -367,6 +367,50 @@ BEGIN
                         WHERE account_id = new.account_id
                           AND thread_key = COALESCE(new.thread_id, '#' || new.id));
 END;
+`),
+  // v20: Phase 3.
+  // - outbox.cancel_on_reply: a scheduled reply is cancelled when someone
+  //   answers the thread first (cancelOnReply.ts).
+  // - folders.history_complete: the full-history worker has reached uid 1.
+  // - snippets: plain-text templates with {variables}, inserted in compose.
+  // - tasks_fts: the unified search page's Tasks scope. External content,
+  //   kept aligned by triggers like messages_fts.
+  // - idx_messages_from: the contact pane looks people up by sender on every
+  //   thread open; without it each lookup scans the whole account.
+  (db) =>
+    db.exec(`
+ALTER TABLE outbox ADD COLUMN cancel_on_reply INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX idx_messages_from ON messages (account_id, lower(from_addr));
+ALTER TABLE folders ADD COLUMN history_complete INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE snippets (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  shortcut TEXT,
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX idx_snippets_shortcut ON snippets (lower(shortcut)) WHERE shortcut IS NOT NULL;
+
+CREATE VIRTUAL TABLE tasks_fts USING fts5(
+  title, description,
+  content='tasks', content_rowid='id'
+);
+INSERT INTO tasks_fts (rowid, title, description) SELECT id, title, description FROM tasks;
+
+CREATE TRIGGER tasks_fts_ai AFTER INSERT ON tasks BEGIN
+  INSERT INTO tasks_fts (rowid, title, description) VALUES (new.id, new.title, new.description);
+END;
+CREATE TRIGGER tasks_fts_ad AFTER DELETE ON tasks BEGIN
+  INSERT INTO tasks_fts (tasks_fts, rowid, title, description)
+  VALUES ('delete', old.id, old.title, old.description);
+END;
+CREATE TRIGGER tasks_fts_au AFTER UPDATE OF title, description ON tasks BEGIN
+  INSERT INTO tasks_fts (tasks_fts, rowid, title, description)
+  VALUES ('delete', old.id, old.title, old.description);
+  INSERT INTO tasks_fts (rowid, title, description) VALUES (new.id, new.title, new.description);
+END;
 `)
 ]
 

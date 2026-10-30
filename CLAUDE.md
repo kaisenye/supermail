@@ -25,10 +25,13 @@ Fast local-first mail client (IMAP/SMTP, Gmail, Outlook). North star: Superhuman
 1. Paint from SQLite first; network refresh after.
 2. Envelopes before bodies; body backfill is background.
 3. Optimistic SQLite, then background IMAP (`FlagWriter` pattern for flags; same idea for moves/send).
-4. Exmail quirks: STATUS skip, app-specific password. Special folders are found by role (`folders.role`, from SPECIAL-USE then names) — never by path.
+4. Exmail quirks: STATUS skip, app-specific password. Special folders are found by role (`folders.role`, from SPECIAL-USE then names) — never by path. imapflow skips SELECT on a mailbox a pooled connection already has open and never refreshes its `uidNext`, so `fetchEnvelopes` NOOPs a reused mailbox and UID FETCHes rather than trust that UIDNEXT.
 5. Threading: IMAP `ENVELOPE` has no References (RFC 3501) — fetch the header explicitly or replies each become their own thread. Exmail strips References from its own sent mail, so the thread root comes from a union-find over every id a message mentions, spanning INBOX and Sent. Each set is named by the `threadKey` most members derive; after that, `upsertMessage` joins new mail to the thread of any stored message it mentions.
 6. Lists read `list_rows` (`src/core/store/listRows.ts`), one row per (folder, thread). Triggers on `messages` mark threads dirty in `list_dirty`; `refreshListRows()` rebuilds them before every list read, and `repairListDrift()` runs after each sync. Never GROUP BY messages for a list. List headers (`list_unsubscribe`, `bulk`) for pre-v18 mail are filled by `backfillListHeaders` (header lines only).
 7. Remind me and mute are local: they set `list_rows.hidden` for Inbox rows and never move anything on the server. Exmail's Archive folder is only created from Settings → Done folder.
+8. Navigation is recorded, not pushed: a store subscription in App turns every change of folder / split / chip / thread / search query into a workspace history step (`src/ui/workspace.ts`). Back, forward and tab switches call `applyView`, which must change the store before its first await.
+9. The unified inbox (`UNIFIED_VIEW_ID`) reads `list_rows` with `(lr.account_id = ? AND lr.folder_id = ?) OR …` (`src/core/store/unified.ts`). Every list row carries `account_id`; thread reads, read/unread and compose pass the row's account to main. Anything that spans a mixed selection or every account checks each owner: `sync:runAll` keeps going past a failed account (`electron/syncAll.ts`), labels offer only what every owner has (`sharedLabelChoices`), and the scheduled list reads every account (`listScheduledOutbox`).
+10. Full offline history (`electron/historyWorker.ts`) backfills one 500-header page per account per minute, folder order from `nextHistoryFolder`, until each synced folder has `history_complete`. A folder counts as synced once the forward pass has run (`forwardSynced`: local rows or `last_uid > 0`). `backfillFolder` is gap-aware (`backfillPlan`): it fetches the newest server uids missing locally at or below max(newest local uid, `last_uid`), so a Gmail server-search hit stored far below the window leaves no hole. With full history on the forward pass has no date floor (`forwardCutoff`); with it off, mail it drops reopens the folder's history (`reopenHistory`). It shares `runBackfillExclusive` (`electron/backfillLock.ts`) with Load older, so the two never run at once for an account; Load older waits for a worker page instead of failing. Each account is tried on its own (`createHistoryTick`), and a folder that throws sits out 15 minutes. `backfillFolder` stores nothing when the live UIDVALIDITY differs from `folders.uidvalidity`, and `setHistoryComplete` only sets the flag if the uidvalidity it read is still current. Off when `settings.full_history` is `'0'`.
 
 ## Pipeline
 
@@ -36,7 +39,7 @@ Ordered `Processor[]` mutate `MsgCtx.draft`. Failures skip except `parse`. FTS5 
 
 ## Keyboard
 
-Central dispatcher: `src/ui/hooks/useHotkeys.ts`. Modes: `list` | `thread` | `compose` | `modal`.
+Central dispatcher: `src/ui/hooks/useHotkeys.ts`. Modes: `list` | `thread` | `compose` | `modal` | `search`.
 
 - Every action is declared once in `src/ui/commands.ts`; hotkeys, ⌘ chords, `g` sequences, ⌘K and the shortcut sheet are built from it. Add the command there, then its handler in `App.tsx`. Handlers run inside a 100ms budget that warns in dev.
 - Single-key bindings go through `useHotkeys`. `g` sequences listen in the capture phase and consume their keys, so the second key never fires its own shortcut.
@@ -45,6 +48,11 @@ Central dispatcher: `src/ui/hooks/useHotkeys.ts`. Modes: `list` | `thread` | `co
 - A `KeySpec` may carry `modes`, so one key can mean different things per mode (`R` = reply all in a thread, needs-reply filter in the list). ⌘ chords may add `shift` (`⌘⇧H`).
 - Keys inside an open picker or dialog (arrows, Enter, Esc) are local to that component, like `CommandPalette`. Palette commands run in `baseMode` (`src/ui/appMode.ts`), never `modal`.
 - Triage keys in an open thread act on the open thread (`openThreadTarget`), never the list cursor.
+- `KeySpec` kinds: `key`, `seq`, `mod` (⌘, Ctrl off macOS) and `ctrl` (the physical Control key: `⌃1–9` accounts, `⌃Tab` tabs). A `ctrl` chord is matched before a `mod` chord on the same key.
+- Builders take the command list (`applyKeymap(COMMANDS, settings.keymap)`); never read `COMMANDS` directly in App. Numbered families (`account.1–9`, `tab.1–9`) set `sheet` so the shortcut sheet shows one row.
+- Modes include `search` (the search page). Tab and history chords use `NAV_MODES` (list, thread, search) and stay off in compose.
+- `⌘W` is close-tab: `electron/menu.ts` moves Close Window to `⇧⌘W`. Check `menu.ts` before taking any ⌘ chord the default menu might own.
+- Thread keys drive `ThreadHandle` (`src/ui/views/Thread.tsx`); App holds no thread reading state.
 
 ## Schema
 
@@ -59,6 +67,8 @@ Central dispatcher: `src/ui/hooks/useHotkeys.ts`. Modes: `list` | `thread` | `co
 - `reminders` / `mutes` are keyed by account + Message-ID; `vip_senders`, `replied_senders` (trigger-filled) and `splits` back the Important/Other/VIP splits. Splits and chips are list-context `search.ts` queries (`is:needs-reply`, `is:waiting`, `is:important`…).
 - `labels` / `message_labels` are account-scoped and hold Gmail X-GM-LABELS only.
 - One undo window: `settings.undo_seconds` (3/5/10/20), read by main through `undoWindowMs`; IPC results carry `holdMs` and the renderer's single `UndoEntry` (`z`) uses it.
+- `snippets` (global, plain text with `{variables}`), `tasks_fts` (trigger-kept), `outbox.cancel_on_reply` (the pipeline's `cancelAndNotify` cancels a pending scheduled reply when its thread gets a reply), `folders.history_complete` (full-history worker; `resetFolder` clears it).
+- Settings keys added in Phase 3: `keymap`, `workspace`, `cancel_on_reply_default`, `contact_pane`, `full_history`.
 
 ## Commands / env
 
@@ -81,7 +91,8 @@ pnpm typecheck
 | C | Done | Schedule send + 3s undo send |
 | D | Done | Selection + action bar; flags; archive/trash |
 | Phase 2 | Done | Triage: list read model, Done, undo window, splits/chips, Remind me, mute, labels, unsubscribe, zero |
-| Later | — | Full history sync, AI triage |
+| Phase 3 | Done | Tabs + history, unified inbox, ⌃1–9, remappable keys, thread keys, snippets, send later / Send + Done / intro, cancel-on-reply, search operators + search page, contact pane, full history |
+| Later | — | AI triage |
 
 ## Code map
 
@@ -93,4 +104,8 @@ pnpm typecheck
 - `src/core/pipeline/` — parse + processors
 - `src/core/triage/` — move planning, reminders, local rules, unsubscribe, zero
 - `electron/ipcTriage.ts` — Phase 2 handlers
+- `electron/ipcPower.ts` — Phase 3 handlers
+- `electron/menu.ts` — app menu
+- `electron/historyWorker.ts`, `historyTick.ts`, `backfillLock.ts` — full history, one backfill per account
+- `electron/syncAll.ts` — sync every account for the unified inbox
 - `src/ui/` — App, views, Zustand store, hotkeys

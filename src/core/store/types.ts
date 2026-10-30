@@ -21,6 +21,8 @@ export interface Folder {
   last_uid: number
   /** Null for ordinary user folders. Set on every sync. */
   role: FolderRole | null
+  /** 1 once full-history backfill has reached uid 1 (migration v20). */
+  history_complete?: number
 }
 
 export interface Message {
@@ -61,6 +63,7 @@ export interface Message {
 export type MessageListRow = Pick<
   Message,
   | 'id'
+  | 'account_id'
   | 'thread_id'
   | 'from_addr'
   | 'from_name'

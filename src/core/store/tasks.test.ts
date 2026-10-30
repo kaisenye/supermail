@@ -10,6 +10,7 @@ import {
   deleteTask,
   getTask,
   listTasks,
+  searchTasks,
   setTaskDone,
   updateTask
 } from './tasks.js'
@@ -167,5 +168,15 @@ describe('priority, search, sort and filter', () => {
     setTaskDone(t.id, true)
     expect(listTasks(ACC, false)).toHaveLength(0)
     expect(listTasks(ACC, true)).toHaveLength(1)
+  })
+
+  it('searches titles and descriptions of one account, open tasks first', () => {
+    getDb().prepare("INSERT INTO accounts (id,email) VALUES (2,'c@d.test')").run()
+    createTask({ account_id: ACC, title: 'Call the bank' })
+    const done = createTask({ account_id: ACC, title: 'Statement', description: 'from the bank' })
+    setTaskDone(done.id, true)
+    createTask({ account_id: 2, title: 'bank elsewhere' })
+    expect(searchTasks(ACC, 'bank').map((t) => t.title)).toEqual(['Call the bank', 'Statement'])
+    expect(searchTasks(ACC, '  ')).toEqual([])
   })
 })

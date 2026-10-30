@@ -153,14 +153,17 @@ const M_COLS = LIST_COLS.split(', ')
   .map((c) => `m.${c}`)
   .join(', ')
 
+/** What a list row selects: the newest message's columns plus the thread rollup. */
+export const LIST_ROW_COLS = `${M_COLS}, lr.msg_count AS thread_count, lr.unread_count AS thread_unread,
+              lr.reminder_fired AS reminder_fired, lr.sort_date AS sort_date`
+
 /** One page of a folder, newest conversation first. Hidden rows (reminders, mutes) are left out. */
 export function listView(folderId: number, opts: ListViewOptions = {}): MessageListRow[] {
   refreshListRows()
   const w = listWhere(opts.query ?? '')
   return getDb()
     .prepare(
-      `SELECT ${M_COLS}, lr.msg_count AS thread_count, lr.unread_count AS thread_unread,
-              lr.reminder_fired AS reminder_fired, lr.sort_date AS sort_date
+      `SELECT ${LIST_ROW_COLS}
          FROM list_rows lr JOIN messages m ON m.id = lr.newest_id
         WHERE lr.folder_id = ? AND lr.hidden = 0${w.sql}
         ORDER BY lr.sort_date DESC, lr.newest_id DESC

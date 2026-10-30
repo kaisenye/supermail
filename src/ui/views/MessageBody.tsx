@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import type { BodyResult } from '../../../electron/preload'
+import type { Attachment, BodyResult } from '../../../electron/preload'
 import { AttachmentList } from './AttachmentList'
 
 interface Props {
   messageId: number
+  /** Called once the body is in: the thread needs links (Tab) and attachments (⌘O). */
+  onLoaded?: (info: { links: string[]; attachments: Attachment[] }) => void
+  /** Index into this message's links that Tab selected, or null. */
+  activeLink?: number | null
 }
 
 /**
@@ -11,7 +15,7 @@ interface Props {
  * in the main process; the sandbox is the second layer, and srcdoc with no
  * allow-same-origin means the frame cannot reach window.api or our storage.
  */
-export function MessageBody({ messageId }: Props) {
+export function MessageBody({ messageId, onLoaded, activeLink }: Props) {
   const [body, setBody] = useState<BodyResult | null>(null)
   const [showImages, setShowImages] = useState(false)
   const [showQuotes, setShowQuotes] = useState(false)
@@ -30,6 +34,12 @@ export function MessageBody({ messageId }: Props) {
       cancelled = true
     }
   }, [messageId, showImages])
+
+  useEffect(() => {
+    if (body?.ok) onLoaded?.({ links: extractLinks(body.html), attachments: body.attachments })
+    // onLoaded is a fresh closure each render; only a new body should report.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [body])
 
   /**
    * The frame is fully opaque (no allow-scripts, no allow-same-origin), so
@@ -140,13 +150,13 @@ export function MessageBody({ messageId }: Props) {
       {/* Links open on click via the host. This list stays as the way to see
           every destination at once before following any of them. */}
       {links.length > 0 && (
-        <details className="body-links">
+        <details className="body-links" open={activeLink != null ? true : undefined}>
           <summary>
             {links.length} link{links.length === 1 ? '' : 's'}
           </summary>
           <ul>
             {links.map((href, i) => (
-              <li key={i}>
+              <li key={i} data-active={i === activeLink}>
                 <button
                   onClick={() => window.api.openExternal(href)}
                   title={href}

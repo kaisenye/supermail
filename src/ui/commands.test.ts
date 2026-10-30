@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { eventKey, type Mode } from './hooks/useHotkeys.js'
+import { eventKey, MODES, type Mode } from './hooks/useHotkeys.js'
 import { matchChord } from './hooks/useCommandChord.js'
 import {
   COMMANDS,
@@ -9,12 +9,73 @@ import {
   buildSequences,
   keyCaps,
   shortcutGroups,
-  withTiming
+  withTiming,
+  type Handlers
 } from './commands.js'
 
-const ALL_MODES: Mode[] = ['list', 'thread', 'compose', 'modal']
+const ALL_MODES: Mode[] = MODES
 
 describe('command registry', () => {
+  it('never reuses a ⌃ chord in the same mode', () => {
+    const seen = new Map<string, string>()
+    for (const c of COMMANDS) {
+      for (const k of c.keys) {
+        if (k.kind !== 'ctrl') continue
+        for (const m of k.modes ?? ALL_MODES) {
+          const slot = `${m}:${k.shift ? '⇧' : ''}${k.key.toLowerCase()}`
+          expect(seen.get(slot), `${slot} is bound by ${seen.get(slot)} and ${c.id}`).toBeUndefined()
+          seen.set(slot, c.id)
+        }
+      }
+    }
+  })
+
+  it('switches accounts on ⌃1–⌃9, never on ⌘, and not while composing', () => {
+    const h = { 'account.1': () => {}, 'account.9': () => {} } as Handlers
+    const chords = buildChords('list', h)
+    const ev = (key: string, metaKey: boolean, ctrlKey: boolean) => ({
+      key,
+      metaKey,
+      ctrlKey,
+      altKey: false,
+      shiftKey: false
+    })
+    expect(matchChord(chords, ev('1', false, true), false)?.key).toBe('1')
+    expect(matchChord(chords, ev('9', false, true), true)?.key).toBe('9')
+    expect(matchChord(chords, ev('1', true, false), false)).toBeUndefined()
+    expect(buildChords('compose', h)).toEqual([])
+  })
+
+  it('lets a ⌃ chord win over a ⌘ chord on the same key', () => {
+    const ran: string[] = []
+    const chords = [
+      { key: '1', handler: () => void ran.push('mod') },
+      { key: '1', ctrl: true, handler: () => void ran.push('ctrl') }
+    ]
+    const ev = { key: '1', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false }
+    matchChord(chords, ev, false)?.handler({} as KeyboardEvent)
+    matchChord(chords, { ...ev, metaKey: true, ctrlKey: false }, false)?.handler({} as KeyboardEvent)
+    expect(ran).toEqual(['ctrl', 'mod'])
+  })
+
+  it('draws ⌃ keycaps and lists the account keys as one sheet row', () => {
+    expect(keyCaps({ kind: 'ctrl', key: 'Tab', shift: true })).toEqual(['⌃', '⇧', '⇥'])
+    expect(keyCaps({ kind: 'ctrl', key: '1' })).toEqual(['⌃', '1'])
+    const general = shortcutGroups().find((g) => g.title === 'General')!
+    expect(general.items.filter((i) => i.label.startsWith('Switch to account'))).toEqual([
+      { label: 'Switch to account 1–9', keys: ['⌃', '1–9'] }
+    ])
+  })
+
+  it('builds from any command list, so a keymap can replace keys', () => {
+    const only = COMMANDS.filter((c) => c.id === 'msg.star').map((c) => ({
+      ...c,
+      keys: [{ kind: 'key' as const, key: 'y', modes: ['list' as const] }]
+    }))
+    expect(buildBindings('list', { 'msg.star': () => {} }, only).map((b) => b.key)).toEqual(['y'])
+    expect(shortcutGroups(only).flatMap((g) => g.items.map((i) => i.keys))).toEqual([['y']])
+  })
+
   it('never binds one key twice in the same mode', () => {
     const seen = new Map<string, string>()
     for (const c of COMMANDS) {
@@ -162,6 +223,10 @@ describe('command registry', () => {
     expect(buildSequences('thread', h)).toEqual({})
   })
 
+  it('binds g a to the unified inbox', () => {
+    expect(Object.keys(buildSequences('list', { 'go.unified': () => {} }).g ?? {})).toEqual(['a'])
+  })
+
   it('lists palette commands with their shortcut as a hint', () => {
     const actions = buildPaletteActions('modal', { 'go.inbox': () => {}, 'nav.down': () => {} })
     expect(actions.map((a) => [a.id, a.hint])).toEqual([['go.inbox', 'g i']])
@@ -177,14 +242,118 @@ describe('command registry', () => {
     })
   })
 
+  it('binds tab and history chords in the list and a thread, not while composing', () => {
+    const h = {
+      'tab.new': () => {},
+      'tab.close': () => {},
+      'tab.next': () => {},
+      'tab.prev': () => {},
+      'tab.1': () => {},
+      'tab.9': () => {},
+      'history.back': () => {},
+      'history.forward': () => {}
+    } as Handlers
+    expect(buildChords('thread', h).map((c) => [c.key, !!c.shift, !!c.ctrl])).toEqual([
+      ['t', false, false],
+      ['w', false, false],
+      ['Tab', false, true],
+      ['Tab', true, true],
+      ['1', false, false],
+      ['9', false, false],
+      ['[', false, false],
+      [']', false, false]
+    ])
+    expect(buildChords('compose', h)).toEqual([])
+    const tabs = shortcutGroups().find((g) => g.title === 'Tabs')!
+    expect(tabs.items.find((i) => i.label === 'Go to tab 1–9')).toEqual({ label: 'Go to tab 1–9', keys: ['⌘', '1–9'] })
+  })
+
+  it('gives a thread its reading keys, Enter as reply all, and ⌘O', () => {
+    const ids = [
+      'thread.replyAll',
+      'thread.nextConv',
+      'thread.prevConv',
+      'thread.nextMsg',
+      'thread.prevMsg',
+      'thread.expand',
+      'thread.expandAll',
+      'thread.pageDown',
+      'thread.pageUp',
+      'thread.nextLink',
+      'thread.prevLink'
+    ]
+    const h = Object.fromEntries(ids.map((id) => [id, () => {}])) as Handlers
+    expect(buildBindings('thread', h).map((b) => [b.key, b.modes])).toEqual([
+      ['Enter', ['thread']],
+      ['R', ['thread']],
+      ['j', ['thread']],
+      ['k', ['thread']],
+      ['n', ['thread']],
+      ['p', ['thread']],
+      ['o', ['thread']],
+      ['O', ['thread']],
+      ['Space', ['thread']],
+      ['Shift+Space', ['thread']],
+      ['Tab', ['thread']],
+      ['Shift+Tab', ['thread']]
+    ])
+    expect(buildChords('thread', { 'thread.open': () => {} }).map((c) => c.key)).toEqual(['o'])
+    expect(buildChords('list', { 'thread.open': () => {} })).toEqual([])
+  })
+
+  it('reads Space and Shift+Space as keys of their own', () => {
+    expect(eventKey({ key: ' ', shiftKey: false })).toBe('Space')
+    expect(eventKey({ key: ' ', shiftKey: true })).toBe('Shift+Space')
+    expect(keyCaps({ kind: 'key', key: 'Space' })).toEqual(['Space'])
+    expect(keyCaps({ kind: 'key', key: 'Shift+Space' })).toEqual(['⇧', 'Space'])
+  })
+
   it('keeps ⌘U for Unsubscribe in the list and for Underline in compose', () => {
     const h = { 'msg.unsubscribe': () => {} }
     expect(buildChords('list', h).map((c) => c.key)).toEqual(['u'])
     expect(buildChords('compose', h)).toEqual([])
   })
+
+  it('declares the new compose chords for the editor only', () => {
+    const ids = [
+      'compose.sendDone',
+      'compose.sendLater',
+      'compose.intro',
+      'compose.focusTo',
+      'compose.focusCc',
+      'compose.focusBcc',
+      'compose.focusSubject'
+    ]
+    for (const id of ids) {
+      const c = COMMANDS.find((x) => x.id === id)!
+      expect(c.external, id).toBe(true)
+      expect(c.keys[0], id).toMatchObject({ kind: 'mod', shift: true, modes: ['compose'] })
+    }
+    const h = Object.fromEntries(ids.map((id) => [id, () => {}])) as Handlers
+    expect(buildChords('compose', h)).toEqual([])
+  })
+
+  it('declares ⌘; as the compose snippet picker', () => {
+    expect(COMMANDS.find((c) => c.id === 'compose.snippet')).toMatchObject({
+      external: true,
+      keys: [{ kind: 'mod', key: ';', modes: ['compose'] }]
+    })
+  })
 })
 
 describe('withTiming', () => {
+  it('opens the search page on /, leaves ⌘K to the palette, and toggles the contact pane on i', () => {
+    expect(COMMANDS.find((c) => c.id === 'palette.open')!.keys).toEqual([{ kind: 'mod', key: 'k' }])
+    const h = { 'search.open': () => {}, 'thread.contactPane': () => {} }
+    expect(buildBindings('list', h).map((b) => [b.key, b.modes])).toEqual([
+      ['/', ['list', 'thread']],
+      ['i', ['thread']]
+    ])
+    // Tabs and history work on the search page; Esc there goes back.
+    expect(buildChords('search', { 'history.back': () => {} }).map((c) => c.key)).toEqual(['['])
+    expect(buildBindings('search', { escape: () => {} })[0].modes).toContain('search')
+  })
+
   it('logs, instead of rejecting, when a handler throws', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {

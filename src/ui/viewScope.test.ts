@@ -51,4 +51,22 @@ describe('Done in the Reminders view', () => {
     expect(b).not.toContain('moveMessages')
     expect(body('doneSelected')).toContain("doneAction(useStore.getState().activeFolderId, REMINDERS_VIEW_ID) === 'dismissReminder'")
   })
+
+  it('Send + Done from Reminders dismisses the reminder too, under the one send undo', () => {
+    const b = body('onSent')
+    const branch = b.indexOf("doneAction(origin.folderId, REMINDERS_VIEW_ID) === 'dismissReminder'")
+    const move = b.indexOf('window.api.moveMessages([doneId]')
+    expect(branch).toBeGreaterThan(-1)
+    expect(move).toBeGreaterThan(branch)
+    const dismiss = b.slice(branch, move)
+    expect(dismiss).toContain('window.api.clearReminders([doneId])')
+    expect(dismiss).toContain('dropRows([doneId])')
+    expect(dismiss).toContain('return')
+    // One undo entry takes back the send and the dismissal, in that order.
+    const undo = dismiss.slice(dismiss.indexOf('pushUndo('))
+    expect(undo.indexOf('await undoSend()')).toBeGreaterThan(-1)
+    expect(undo.indexOf('window.api.restoreReminders(cleared.cleared)')).toBeGreaterThan(undo.indexOf('await undoSend()'))
+    expect(undo).toContain('repaintAfterUndo(origin, removed)')
+    expect(dismiss.match(/pushUndo\(/g)).toHaveLength(1)
+  })
 })

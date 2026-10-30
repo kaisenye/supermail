@@ -259,4 +259,9 @@ describe('list read model', () => {
     expect(listView(inbox)[0].thread_unread).toBe(1)
     expect(repairListDrift(ACC)).toEqual([])
   })
+
+  it('carries the owning account on every row', () => {
+    add({ thread: '<t@x>', date: 100 })
+    expect(listView(inbox).map((r) => r.account_id)).toEqual([ACC])
+  })
 })

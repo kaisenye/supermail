@@ -81,6 +81,18 @@ Built for power users and small teams who want Superhuman-like speed without sur
 - Schedule send + undo send; undo on trash (same adjustable window)
 - Optimistic star, read/unread, trash (IMAP write-back)
 
+**Power**
+- Workspace tabs, each with its own back / forward (`⌘T`, `⌘W`, `⌘1–9`, `⌃Tab`, `⌘[` / `⌘]`), restored after a restart
+- Unified inbox across accounts (`g a`); `⌃1–9` switches account
+- Remappable shortcuts (Settings → Shortcuts), with clashes refused
+- Thread keys: `o` / `⇧O` expand, `n` / `p` step messages, `Space` pages, `Tab` cycles links, `⌘O` opens, `↵` replies all, and a position counter
+- Snippets with `{variables}`: type `;name` then `⇥`, or pick with `⌘;`
+- Send later (`⌘⇧L`), Send + Done (`⌘⇧↵`, one undo for both) and Instant Intro (`⌘⇧I`)
+- Cancel a scheduled reply when someone replies first
+- Search operators `OR`, `-word`, `"phrase"`, `in:`, `label:`, `before:`, `after:` on one search page (`/`) with Emails / Contacts / Tasks, plus Gmail server search
+- Contact pane (`i`): recent mail with a person, from the local DB
+- The whole mailbox offline: a background worker downloads every folder's headers (Settings → Offline history)
+
 **Speed**
 - Shared IMAP connection pool — actions settle in ~300–500ms instead of ~4s
 - Paint from SQLite first; the network is always a background refresh
@@ -187,11 +199,30 @@ pnpm build       # production bundle
 | `⇧D` | Group by date |
 | `c` | Compose |
 | `⌘,` | Settings |
-| `r` / `⇧R` / `f` | Reply / reply-all / forward (in thread) |
-| `/` or `⌘K` | Search & command palette |
+| `⌘.` | Keyboard shortcuts |
+| `r` / `↵` (or `⇧R`) / `f` | Reply / reply all / forward (in thread) |
+| `o` / `⇧O` | Expand message / expand all (in thread) |
+| `n` / `p` | Next / previous message (in thread) |
+| `j` / `k` | Next / previous conversation (in thread) |
+| `Space` / `⇧Space` | Page down / up (in thread) |
+| `Tab` / `⇧Tab` | Next / previous link (in thread) |
+| `⌘O` | Open selected link, else first attachment (in thread) |
+| `i` | Contact pane (in thread) |
+| `/` | Search page |
+| `⌘K` | Command palette |
+| `⌘T` / `⌘W` | New tab / close tab (`⇧⌘W` closes the window) |
+| `⌘1`–`⌘9` | Jump to tab (`⌘9` = last) |
+| `⌃Tab` / `⌃⇧Tab` | Next / previous tab |
+| `⌘[` / `⌘]` | Back / forward |
+| `⌃1`–`⌃9` | Switch account |
 | `⌘↵` | Send (in compose) |
+| `⌘⇧↵` | Send + Done (in compose) |
+| `⌘⇧L` | Send later (in compose) |
+| `⌘⇧I` | Instant Intro (in compose) |
+| `⌘⇧O` / `⌘⇧C` / `⌘⇧B` / `⌘⇧S` | Jump to To / Cc / Bcc / Subject (in compose) |
+| `⌘;` · `;name` then `⇥` | Insert a snippet (in compose) |
 | `⌘⇧H` | Remind me if no reply (in compose) |
-| `g` then `i`/`s`/`t`/`d`/`j`/`e`/`h` | Jump Inbox / Sent / Trash / Drafts / Junk / Done / Reminders |
+| `g` then `i`/`a`/`s`/`t`/`d`/`j`/`e`/`h` | Jump Inbox / All inboxes / Sent / Trash / Drafts / Junk / Done / Reminders |
 | `Esc` | Clear selection · close thread · close palette |
 
 ---
@@ -253,6 +284,7 @@ Agent notes for contributors: see [`CLAUDE.md`](./CLAUDE.md).
 - [x] Multi-account
 - [x] Gmail and Outlook sign-in (OAuth2 on IMAP/SMTP)
 - [x] Triage: Done, undo, split inbox, filter chips, Remind me, mute, labels, unsubscribe, Get me to zero
+- [x] Power: tabs + history, unified inbox, remappable keys, thread keys, snippets, send later, cancel-on-reply, search page, contact pane, full offline history
 - [ ] AI triage (summaries, labels) — Stage 2 pipeline
 
 PRs welcome. Keep the surface small.

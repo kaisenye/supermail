@@ -134,6 +134,14 @@ export function captureSelection(el: HTMLDivElement | null): Range | null {
   return range.cloneRange()
 }
 
+/** The caret or selection inside `el`. captureSelection ignores a bare caret; a snippet goes exactly there. */
+export function captureCaret(el: HTMLElement | null): Range | null {
+  const sel = window.getSelection()
+  if (!el || !sel || sel.rangeCount === 0) return null
+  const range = sel.getRangeAt(0)
+  return el.contains(range.commonAncestorContainer) ? range.cloneRange() : null
+}
+
 export type LinkResult = 'ok' | 'bad-url' | 'no-selection'
 
 /**

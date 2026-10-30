@@ -42,3 +42,22 @@ describe('the split-query parser (list context)', () => {
     expect(listWhere('  ')).toEqual({ sql: '', params: [] })
   })
 })
+
+describe('the split-query parser, new operators', () => {
+  it('groups OR operands, thread-state ones included', () => {
+    const w = listWhere('is:unread OR is:starred')
+    expect(w.sql).toBe(' AND (lr.unread_count > 0 OR lr.flagged = 1)')
+    expect(w.params).toEqual([])
+  })
+
+  it('keeps bare words and phrases in one FTS match', () => {
+    expect(listWhere('invoice "due soon"')).toEqual({
+      sql: ' AND m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)',
+      params: ['"invoice"* "due soon"']
+    })
+  })
+
+  it('reads a negated operator as NOT', () => {
+    expect(parseQuery('-is:unread', 'list').predicates).toEqual([{ sql: 'NOT (lr.unread_count > 0)', params: [] }])
+  })
+})

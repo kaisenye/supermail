@@ -168,8 +168,15 @@ export async function fetchEnvelopes(
   path: string,
   opts: { sinceUid: number; limit: number; accountId: number; folderId: number }
 ): Promise<{ status: MailboxStatus; messages: RawMessage[] }> {
+  // imapflow skips SELECT when `path` is already open (a pooled connection
+  // that refreshed this folder before) and never updates uidNext after that,
+  // so the cached value is stale. A fresh SELECT replaces the mailbox object.
+  const before = client.mailbox
   const lock = await client.getMailboxLock(path)
   try {
+    const reused = !!before && client.mailbox === before
+    // NOOP pulls the EXISTS/EXPUNGE updates the server held back.
+    if (reused) await client.noop()
     const mb = client.mailbox
     if (!mb || typeof mb === 'boolean') throw new Error(`cannot select ${path}`)
 
@@ -183,7 +190,8 @@ export async function fetchEnvelopes(
     }
 
     const messages: RawMessage[] = []
-    if (mb.exists === 0 || status.uidNext <= opts.sinceUid + 1) {
+    // Only a fresh SELECT's UIDNEXT can rule out new mail; otherwise UID FETCH.
+    if (mb.exists === 0 || (!reused && status.uidNext <= opts.sinceUid + 1)) {
       return { status, messages }
     }
 

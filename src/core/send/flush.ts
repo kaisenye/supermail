@@ -128,7 +128,7 @@ async function appendToSent(
 export async function flushOutboxRow(
   config: AccountConfig,
   row: OutboxRow
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; messageId: string } | { ok: false; error: string }> {
   if (!markOutboxSending(row.id)) {
     return { ok: false, error: 'not pending' }
   }
@@ -149,6 +149,7 @@ export async function flushOutboxRow(
       attachments,
       inline
     })
+    const sentId = result.messageId || messageId
     // Mark sent as soon as SMTP succeeds: the mail is irreversibly out.
     markOutboxSent(row.id)
 
@@ -159,7 +160,7 @@ export async function flushOutboxRow(
       try {
         setReminder({
           accountId: row.account_id,
-          messageId: result.messageId || messageId,
+          messageId: sentId,
           subject: row.subject,
           remindAt,
           ifNoReply: true
@@ -174,7 +175,7 @@ export async function flushOutboxRow(
     // in Sent. Verified against Exmail: SMTP alone produces exactly one copy.
     if (!config.smtpSavesSent) {
       try {
-        await appendToSent(config, row, result.messageId || messageId, loadForMime(attachments))
+        await appendToSent(config, row, sentId, loadForMime(attachments))
       } catch (err) {
         // Best-effort: SMTP already succeeded, so this must not fail the send
         // — but it must not be silent either.
@@ -188,7 +189,7 @@ export async function flushOutboxRow(
       const draft = getMessage(row.draft_message_id)
       if (draft?.folder_id == null) deleteDraft(row.draft_message_id)
     }
-    return { ok: true }
+    return { ok: true, messageId: sentId }
   } catch (e) {
     const msg = (e as Error).message
     markOutboxFailed(row.id, msg)
@@ -206,7 +207,7 @@ export interface SendFailure {
 export async function flushDueOutbox(
   configFor: (accountId: number) => AccountConfig | null,
   onFailure?: (f: SendFailure) => void,
-  onSent?: (accountId: number) => void
+  onSent?: (accountId: number, messageId: string) => void
 ): Promise<number> {
   const due = listDueOutbox()
   let sent = 0
@@ -223,7 +224,7 @@ export async function flushDueOutbox(
       sent++
       // The server files the copy into Sent asynchronously and IDLE only
       // watches INBOX, so nothing else would notice it for up to a minute.
-      onSent?.(current.account_id)
+      onSent?.(current.account_id, res.messageId)
     }
     // A failed send is otherwise invisible: the compose window is already gone.
     else
@@ -245,7 +246,7 @@ export function startOutboxWorker(
   configFor: (accountId: number) => AccountConfig | null,
   intervalMs = 1_000,
   onFailure?: (f: SendFailure) => void,
-  onSent?: (accountId: number) => void
+  onSent?: (accountId: number, messageId: string) => void
 ): void {
   if (workerTimer) return
   // A flush takes seconds (SMTP + Sent APPEND) but the tick is 1s, so without

@@ -450,6 +450,18 @@ button > svg {
   color: var(--text-secondary);
 }
 
+/* All inboxes: the account a row belongs to, quiet next to the subject. */
+.row-account {
+  flex: none;
+  max-width: 140px;
+  margin-right: var(--space-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
 /* Message count, shown only on threads of two or more. Tabular so the digits
    do not shift the subject as counts change. */
 .row-thread-count {
@@ -3605,3 +3617,64 @@ button.sidebar-account svg {
 .picker-clear:hover {
   text-decoration: underline;
 }
+
+.shortcut-remap { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 280px; overflow: auto; }
+.shortcut-remap li { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: center; font-size: 12.5px; }
+.shortcut-remap-keys kbd { font-family: inherit; padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; margin-left: 2px; }
+
+.tab-bar { display: flex; flex-shrink: 0; align-items: center; gap: 2px; height: 30px; padding: 0 8px; border-bottom: 1px solid var(--border); -webkit-app-region: drag; }
+.tab-bar button, .tab-bar .tab { -webkit-app-region: no-drag; }
+.tab-nav { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 5px; background: none; color: var(--text-tertiary); cursor: pointer; }
+.tab-nav:disabled { opacity: 0.35; cursor: default; }
+.tab-nav:not(:disabled):hover { background: var(--surface-hover); }
+.tab-list { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1; overflow: hidden; }
+.tab { display: flex; align-items: center; gap: 4px; max-width: 180px; height: 22px; padding: 0 6px 0 10px; border-radius: 5px; font-size: 12px; color: var(--text-tertiary); cursor: default; }
+.tab[aria-selected='true'] { background: var(--surface-hover); color: var(--text-primary); }
+.tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-close { display: grid; place-items: center; width: 16px; height: 16px; border: 0; border-radius: 4px; background: none; color: inherit; opacity: 0.6; }
+.tab-close:hover { opacity: 1; background: var(--border); }
+
+/* Thread reading keys: position counter, focused message, Tab-selected link */
+.thread-position { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.thread-position button { display: grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 4px; background: none; color: inherit; cursor: pointer; }
+.thread-position button:hover { background: var(--surface-hover); }
+.thread-message[data-focused='true'] > .message-head { box-shadow: inset 2px 0 0 var(--accent); }
+.body-links li[data-active='true'] button { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
+
+/* Settings → Snippets */
+.snippet-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 2px; }
+.snippet-list li { display: flex; justify-content: space-between; gap: 8px; }
+.snippet-key { margin-left: 8px; color: var(--text-tertiary); font-size: 11.5px; }
+.snippet-form { display: grid; gap: 6px; }
+
+/* ---- search page and contact pane ---- */
+
+.search-page { display: flex; flex-direction: column; min-height: 0; flex: 1; padding: 46px var(--space-5) var(--space-4); gap: 8px; }
+.search-input { font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 6px; background: transparent; color: inherit; outline: none; }
+.search-input:focus { border-color: var(--accent); }
+.search-scopes { display: flex; gap: 4px; }
+.search-scopes button { border: 0; background: none; padding: 4px 8px; border-radius: 5px; color: var(--text-tertiary); font: inherit; font-size: 12.5px; }
+.search-scopes button[aria-selected='true'] { background: var(--surface-selected); color: var(--text-primary); }
+.search-scope-count { margin-left: 6px; opacity: 0.6; }
+.search-results { list-style: none; margin: 0; padding: 0; overflow: auto; }
+.search-results li { display: grid; grid-template-columns: 180px 1fr auto; gap: 12px; padding: 6px 8px; border-radius: 5px; font-size: 13px; cursor: default; }
+.search-results li:hover { background: var(--surface-hover); }
+.search-results li[data-active='true'] { background: var(--surface-selected); }
+.search-results li[data-done='true'] { opacity: 0.55; }
+.search-from, .search-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-date { color: var(--text-tertiary); font-size: 12px; }
+.search-server { grid-template-columns: 1fr !important; color: var(--text-tertiary); }
+.search-status { padding: 6px 8px; font-size: 13px; color: var(--text-tertiary); }
+.thread-layout { display: flex; flex: 1; min-height: 0; }
+.thread-layout > .thread { flex: 1; min-width: 0; }
+.contact-pane { width: 260px; flex: none; border-left: 1px solid var(--border); padding: 46px 16px 16px; overflow: auto; font-size: 12.5px; }
+.contact-name { font-weight: 600; font-size: 14px; }
+.contact-addr, .contact-date, .contact-stats dt { color: var(--text-tertiary); }
+.contact-stats { display: grid; gap: 6px; margin: 12px 0; }
+.contact-stats div { display: flex; justify-content: space-between; gap: 8px; }
+.contact-stats dd { margin: 0; }
+.contact-pane h4 { margin: 16px 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-tertiary); }
+.contact-recent { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.contact-recent button { display: flex; justify-content: space-between; gap: 8px; width: 100%; border: 0; background: none; text-align: left; padding: 4px 0; color: inherit; font: inherit; }
+.contact-recent button span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1000px) { .contact-pane { display: none; } }
