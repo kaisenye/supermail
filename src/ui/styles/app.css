@@ -500,6 +500,11 @@ button > svg {
   line-height: 1;
 }
 
+.row-reminder {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
 /* ---- thread ---- */
 
 .thread {
@@ -877,6 +882,97 @@ button > svg {
   color: var(--text-quaternary);
 }
 
+/* Inbox zero: the art inherits the tertiary text colour through currentColor. */
+.zero-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-6);
+  color: var(--text-tertiary);
+}
+
+/* Splits (Inbox only) on the left, filter chips on the right. */
+.split-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.split-tabs {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.split-tabs button {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.split-tabs button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.split-tabs button[aria-selected='true'] {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+
+.split-count {
+  margin-left: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.split-chips {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.split-chips button {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.split-chips button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.split-chips button[data-on='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Date header between runs of rows; display only, never selectable. */
+.row-group {
+  display: flex;
+  align-items: flex-end;
+  padding: 0 var(--space-4) var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .sync-error-banner {
   display: flex;
   align-items: center;
@@ -1167,6 +1263,27 @@ button > svg {
   border: 1px solid color-mix(in srgb, var(--flag) 30%, transparent);
   font-size: var(--text-sm);
   color: var(--text-secondary);
+}
+
+.compose-remind {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) var(--space-4) 0;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-selected);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.compose-remind button {
+  margin-left: auto;
+  color: var(--text-tertiary);
+}
+
+.compose-remind button:hover {
+  color: var(--text-primary);
 }
 
 .compose-fields {
@@ -1672,6 +1789,72 @@ div.compose-body[data-empty='true']::before {
 
 .settings-signature a {
   color: var(--accent);
+}
+
+.settings-splits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.settings-splits li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.settings-splits code {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.settings-splits button {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.settings-splits button:hover {
+  color: var(--text-primary);
+}
+
+.settings-split-form {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.settings-split-form input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: transparent;
+  outline: none;
+}
+
+.settings-split-form input:focus {
+  border-color: var(--border-strong);
+}
+
+.settings-split-form button {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.settings-split-form button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
 }
 
 .link-prompt {
@@ -3329,3 +3512,96 @@ button.sidebar-account svg {
 }
 .reauth-banner button:hover { background: var(--surface-hover); }
 .reauth-banner .reauth-dismiss { border-color: transparent; background: transparent; color: var(--text-tertiary); padding: 0 var(--space-2); }
+
+/* ---- remind picker ---- */
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(360px, 100%);
+  padding: var(--space-4);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  animation: palette-rise var(--duration-base) var(--ease-out);
+}
+
+.picker-title {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.picker-input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  background: transparent;
+  outline: none;
+}
+
+.picker-input:focus {
+  border-color: var(--border-strong);
+}
+
+.picker-hint,
+.picker-meta {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.picker-list button {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  width: 100%;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+/* Move / Label: a folder or label list can run long. */
+.picker-scroll {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.picker-list button:hover,
+.picker-list button[data-active='true'] {
+  background: var(--surface-hover);
+}
+
+.picker-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.picker-check input[type='number'] {
+  width: 4em;
+  margin: 0 var(--space-1);
+}
+
+.picker-clear {
+  align-self: flex-start;
+  font-size: var(--text-sm);
+  color: var(--flag);
+}
+
+.picker-clear:hover {
+  text-decoration: underline;
+}

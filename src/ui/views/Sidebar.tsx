@@ -1,10 +1,11 @@
-import { CheckSquare, Keyboard, Settings as SettingsIcon } from 'lucide-react'
+import { CheckSquare, Clock, Keyboard, Settings as SettingsIcon } from 'lucide-react'
 import type { AccountSummary } from '../../../electron/preload'
 import { AccountSwitcher } from './AccountSwitcher'
 import type { Folder } from '../../core/store/types'
 import type { FolderRole } from '../../core/store/folderRoles'
 import { folderLabel } from '../format'
 import { folderIcon } from '../folderIcons'
+import { REMINDERS_VIEW_ID } from '../store'
 
 interface Props {
   email: string | null
@@ -92,6 +93,17 @@ export function Sidebar({
       </ul>
 
       <div className="sidebar-tasks">
+        <button
+          className="folder-item"
+          aria-current={activeFolderId === REMINDERS_VIEW_ID}
+          onClick={(e) => {
+            e.currentTarget.blur()
+            onSelect(REMINDERS_VIEW_ID)
+          }}
+        >
+          <Clock className="folder-icon" size={15} strokeWidth={1.75} />
+          <span className="folder-name">Reminders</span>
+        </button>
         <button
           className="folder-item"
           aria-current={tasksActive}

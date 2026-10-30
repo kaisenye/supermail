@@ -3,6 +3,8 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { flushPendingMoves, registerIpc, resumePendingMoves, runSyncFor } from './ipc.js'
+import { registerTriageIpc } from './ipcTriage.js'
+import { startReminderWorker } from './reminderWorker.js'
 import { initDb } from '../src/core/store/db.js'
 import { initAttachmentStore } from '../src/core/store/attachments.js'
 import {
@@ -154,6 +156,7 @@ app.whenReady().then(() => {
   setDevDockIcon()
   boot()
   registerIpc()
+  registerTriageIpc()
   // Google's Testing-mode refresh tokens expire after 7 days, and either
   // provider can revoke one. Tell the renderer which address needs a new
   // sign-in instead of letting sync fail silently.
@@ -176,6 +179,7 @@ app.whenReady().then(() => {
       if (acct) void refreshSentFolder(accountId, acct.config)
     }
   )
+  startReminderWorker()
   // Every account gets its own warmed pool and parked IDLE connection, so mail
   // pushes for all of them rather than only whichever is on screen.
   for (const a of listAccounts()) {

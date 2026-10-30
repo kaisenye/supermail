@@ -1,6 +1,7 @@
 import { simpleParser } from 'mailparser'
 import type { MsgCtx, Processor } from './types.js'
 import { threadKey } from './threadKey.js'
+import { listHeadersFrom } from './listHeaders.js'
 
 const SNIPPET_LEN = 140
 
@@ -54,6 +55,7 @@ export const parseProcessor: Processor = {
 
       draft.message_id = p.messageId ?? null
       draft.in_reply_to = p.inReplyTo ?? null
+      draft.references = refs
       draft.thread_id = threadKey(refs, p.inReplyTo, p.messageId)
       draft.from_addr = from?.address ?? null
       draft.from_name = from?.name || null
@@ -64,6 +66,10 @@ export const parseProcessor: Processor = {
       draft.body_text = p.text ?? null
       draft.body_html = typeof p.html === 'string' ? p.html : null
       draft.body_fetched = 1
+      const lh = listHeadersFrom(p.headerLines.map((h) => h.line).join('\r\n'))
+      draft.list_unsubscribe = lh.unsubscribe
+      draft.unsubscribe_one_click = lh.oneClick ? 1 : 0
+      draft.bulk = lh.bulk ? 1 : 0
 
       // Prefer real text; fall back to stripped html so html-only mail still previews.
       draft.snippet = toSnippet(p.text ?? (p.html ? stripHtml(p.html) : null))
@@ -92,6 +98,7 @@ export const parseProcessor: Processor = {
 
     draft.message_id = e.messageId ?? null
     draft.in_reply_to = e.inReplyTo ?? null
+    draft.references = e.references ?? null
     draft.thread_id = threadKey(e.references, e.inReplyTo, e.messageId)
     draft.from_addr = e.from?.address ?? null
     draft.from_name = e.from?.name || null
@@ -100,5 +107,10 @@ export const parseProcessor: Processor = {
     draft.subject = e.subject ?? null
     draft.date = e.date ? e.date.getTime() : null
     draft.body_fetched = 0
+    if (raw.listHeaders) {
+      draft.list_unsubscribe = raw.listHeaders.unsubscribe
+      draft.unsubscribe_one_click = raw.listHeaders.oneClick ? 1 : 0
+      draft.bulk = raw.listHeaders.bulk ? 1 : 0
+    }
   }
 }

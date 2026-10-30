@@ -1,3 +1,5 @@
+import type { MailProvider } from '../accounts/auth.js'
+
 /** What a folder is for, independent of what the server calls it. */
 export type FolderRole = 'inbox' | 'sent' | 'drafts' | 'trash' | 'junk' | 'archive' | 'all'
 
@@ -81,4 +83,9 @@ export function assignRoles(boxes: RoleCandidate[]): Map<string, FolderRole> {
   }
 
   return out
+}
+
+/** Where Done sends mail. Gmail has no \Archive: archiving there is leaving All Mail only. */
+export function doneRole(provider: MailProvider): FolderRole {
+  return provider === 'gmail' ? 'all' : 'archive'
 }

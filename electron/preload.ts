@@ -3,6 +3,7 @@ import type { Folder, Message, MessageListRow } from '../src/core/store/types.js
 import type { MoveTarget } from '../src/core/store/folderRoles.js'
 import type { SyncProgress } from '../src/core/sync/syncEngine.js'
 import type { MailProvider } from '../src/core/accounts/auth.js'
+import type { ReminderSnapshot } from '../src/core/triage/reminders.js'
 
 export interface ScheduledSend {
   id: number
@@ -104,8 +105,19 @@ export interface DraftPayload {
 
 export interface QueueSendPayload extends DraftPayload {
   draftId: number
-  sendAt: number
+  /** null = now, after the undo window (main decides its length). */
+  sendAt: number | null
   attachments?: ComposeAttachment[]
+  /** "Remind me if no reply": main saves the reminder once the mail is sent. */
+  remindAt?: number | null
+}
+
+/** An inbox split: a named list-context query (src/core/store/splits.ts). */
+export interface Split {
+  id: string
+  name: string
+  query: string
+  builtin: boolean
 }
 
 export type Priority = 0 | 1 | 2 | 3 | 4
@@ -187,17 +199,98 @@ const api = {
   accountRemove: (accountId: number): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('account:remove', accountId),
   listFolders: (): Promise<Folder[]> => ipcRenderer.invoke('folders:list'),
-  listMessages: (folderId: number, limit?: number, offset?: number): Promise<MessageListRow[]> =>
-    ipcRenderer.invoke('messages:list', folderId, limit, offset),
+  listMessages: (
+    folderId: number,
+    limit?: number,
+    offset?: number,
+    query?: string
+  ): Promise<MessageListRow[]> => ipcRenderer.invoke('messages:list', folderId, limit, offset, query),
   searchContacts: (
     query: string,
     limit?: number
   ): Promise<{ address: string; name: string | null }[]> =>
     ipcRenderer.invoke('contacts:search', query, limit),
-  countMessages: (folderId: number): Promise<number> =>
-    ipcRenderer.invoke('messages:count', folderId),
+  countMessages: (folderId: number, query?: string): Promise<number> =>
+    ipcRenderer.invoke('messages:count', folderId, query),
   listDrafts: (limit?: number, offset?: number): Promise<MessageListRow[]> =>
     ipcRenderer.invoke('messages:listDrafts', limit, offset),
+  listSplits: (): Promise<Split[]> => ipcRenderer.invoke('splits:list'),
+  saveSplit: (input: {
+    id?: string
+    name: string
+    query: string
+  }): Promise<{ ok: true; split: Split } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('splits:save', input),
+  deleteSplit: (id: string): Promise<{ ok: true }> => ipcRenderer.invoke('splits:delete', id),
+  splitCounts: (folderId: number, extraQuery?: string): Promise<Record<string, number>> =>
+    ipcRenderer.invoke('splits:counts', folderId, extraQuery),
+  archiveStatus: (): Promise<
+    | { ok: true; hasArchive: boolean; canCreate: boolean; reason?: string; host: string }
+    | { ok: false; error: string }
+  > => ipcRenderer.invoke('triage:archiveStatus'),
+  createArchive: (): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('triage:createArchive'),
+  setReminder: (
+    ids: number[],
+    remindAt: number,
+    ifNoReply: boolean
+  ): Promise<{
+    ok: true
+    /** Row ids that got a reminder (rows without a Message-ID are skipped). */
+    set: number[]
+    /** Row ids that had no reminder before: undo clears these. */
+    fresh: number[]
+    /** The reminders that were rescheduled, as they were: undo restores these. */
+    prev: ReminderSnapshot[]
+    holdMs: number
+  }> => ipcRenderer.invoke('reminders:set', ids, remindAt, ifNoReply),
+  restoreReminders: (rows: ReminderSnapshot[]): Promise<{ ok: true }> =>
+    ipcRenderer.invoke('reminders:restore', rows),
+  /** Returns what it cleared and the undo window, so Done in Reminders can be undone. */
+  clearReminders: (
+    ids: number[]
+  ): Promise<{ ok: true; cleared: ReminderSnapshot[]; holdMs: number }> =>
+    ipcRenderer.invoke('reminders:clear', ids),
+  listReminders: (): Promise<MessageListRow[]> => ipcRenderer.invoke('reminders:list'),
+  toggleMute: (
+    ids: number[],
+    set?: boolean
+  ): Promise<
+    | { ok: true; muted: boolean; changed: number[]; holdMs: number }
+    | { ok: false; error: string }
+  > => ipcRenderer.invoke('triage:mute', ids, set),
+  toggleVip: (
+    ids: number[],
+    set?: boolean
+  ): Promise<
+    | { ok: true; vip: boolean; changed: number[]; holdMs: number }
+    | { ok: false; error: string }
+  > => ipcRenderer.invoke('triage:vip', ids, set),
+  labelChoices: (): Promise<string[]> => ipcRenderer.invoke('labels:choices'),
+  labelsFor: (ids: number[]): Promise<Record<number, string[]>> =>
+    ipcRenderer.invoke('labels:forMessages', ids),
+  setLabel: (
+    ids: number[],
+    label: string,
+    add: boolean
+  ): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('messages:label', ids, label, add),
+  unsubscribePlan: (
+    rowId: number
+  ): Promise<{ ok: true; sender: string; description: string } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('unsubscribe:plan', rowId),
+  unsubscribe: (rowId: number): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('unsubscribe:run', rowId),
+  zeroCount: (
+    folderId: number,
+    opts: { olderThanDays: number; keepUnread: boolean; keepStarred: boolean }
+  ): Promise<{ ok: true; count: number }> => ipcRenderer.invoke('triage:zero', folderId, opts, true),
+  zero: (
+    folderId: number,
+    opts: { olderThanDays: number; keepUnread: boolean; keepStarred: boolean }
+  ): Promise<
+    { ok: true; batchId: number; moved: number[]; holdMs: number } | { ok: false; error: string }
+  > => ipcRenderer.invoke('triage:zero', folderId, opts, false),
   deleteDraft: (id: number): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke('draft:delete', id),
   loadOlder: (
@@ -253,7 +346,7 @@ const api = {
     ids: number[],
     target: MoveTarget
   ): Promise<
-    { ok: true; batchId: number; moved: number[] } | { ok: false; error: string }
+    { ok: true; batchId: number; moved: number[]; holdMs: number } | { ok: false; error: string }
   > => ipcRenderer.invoke('messages:move', ids, target),
   undoMove: (
     batchId: number
@@ -302,6 +395,16 @@ const api = {
     ): void => cb(f)
     ipcRenderer.on('send:failed', h)
     return () => ipcRenderer.off('send:failed', h)
+  },
+  /**
+   * Reminders came due. Threads with an Inbox row are back at its top; one
+   * that lives only elsewhere (a new mail in Sent) shows in g h and the
+   * notification only.
+   */
+  onRemindersFired: (cb: (p: { count: number }) => void): (() => void) => {
+    const h = (_e: unknown, p: { count: number }): void => cb(p)
+    ipcRenderer.on('reminders:fired', h)
+    return () => ipcRenderer.off('reminders:fired', h)
   },
   onNewMail: (cb: () => void): (() => void) => {
     const h = (): void => cb()

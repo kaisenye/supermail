@@ -3,6 +3,7 @@ import type { AccountConfig } from '../accounts/config.js'
 import { processors } from '../pipeline/index.js'
 import { runPipeline } from '../pipeline/pipeline.js'
 import { getDb } from '../store/db.js'
+import { queuedSourceUids } from '../store/moveJobs.js'
 import { assignRoles } from '../store/folderRoles.js'
 import {
   deleteFolder,
@@ -20,13 +21,14 @@ import {
   fetchEnvelopes,
   listMailboxes,
   mailboxStatus,
-  ensureMessageIdFormat,
-  parseReferences,
+  ENVELOPE_QUERY,
+  envelopeToRaw,
   type MailboxStatus
 } from './imap.js'
 import { shouldSyncFolder } from './folderFilter.js'
 import { reconcileFolder } from './reconcile.js'
 import { rethreadAccount, type RethreadResult } from './rethread.js'
+import { backfillListHeaders, type HeaderBackfillResult } from './headerBackfill.js'
 import type { RawMessage } from '../pipeline/types.js'
 
 export interface SyncOptions {
@@ -138,7 +140,8 @@ export async function syncAccount(
         if (drifted || periodic) {
           const rec = await reconcileFolder(client, folder.path, folder.id, {
             skipIds: pendingFlagIds,
-            dropVanished: pre.exists < localCount
+            dropVanished: pre.exists < localCount,
+            labelsAccountId: config.provider === 'gmail' ? accountId : undefined
           })
           result.reconciled += rec.updated + rec.vanished
         }
@@ -237,6 +240,38 @@ export async function repairThreading(
   }
 }
 
+function listHeadersKey(accountId: number): string {
+  return `account.${accountId}.listHeaders.v1`
+}
+
+export function listHeadersDone(accountId: number): boolean {
+  return getSettings()[listHeadersKey(accountId)] === '1'
+}
+
+/**
+ * One-time list-header backfill for mail synced before migration v18, so old
+ * newsletters land in Other and can be unsubscribed. Same shape as
+ * repairThreading: own connection, headers only, marked done after a clean pass.
+ */
+export async function repairListHeaders(
+  accountId: number,
+  config: AccountConfig
+): Promise<HeaderBackfillResult & { skipped: boolean }> {
+  if (listHeadersDone(accountId)) return { scanned: 0, updated: 0, skipped: true }
+  const client = await createClient(config)
+  await client.connect()
+  try {
+    const folders = listFolders(accountId)
+      .filter((f) => shouldSyncFolder(config.provider, f))
+      .map((f) => ({ id: f.id, path: f.path }))
+    const r = await backfillListHeaders(client, accountId, folders)
+    setSetting(listHeadersKey(accountId), '1')
+    return { ...r, skipped: false }
+  } finally {
+    await client.logout().catch(() => {})
+  }
+}
+
 export function isIgnoredFolder(path: string): boolean {
   return IGNORED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))
 }
@@ -307,7 +342,9 @@ export async function backfillFolder(
   accountId: number,
   config: AccountConfig,
   folder: { id: number; path: string },
-  limit = 200
+  limit = 200,
+  /** Source uids of moves still held for undo; the server has them here until the MOVE runs. */
+  held: () => Iterable<number> = () => []
 ): Promise<BackfillResult> {
   const oldest = oldestSyncedUid(folder.id)
   // Nothing synced yet: the forward pass owns the first page, not this.
@@ -319,49 +356,41 @@ export async function backfillFolder(
     const lock = await client.getMailboxLock(folder.path)
     try {
       const raw: RawMessage[] = []
-      for await (const msg of client.fetch(
-        `1:${oldest - 1}`,
-        // Same header pull as the incremental path: ENVELOPE has no References
-        // (RFC 3501), and without it backfilled mail cannot be threaded.
-        { uid: true, envelope: true, flags: true, headers: ['references'] },
-        { uid: true }
-      )) {
+      // Same query as the incremental path: ENVELOPE has no References
+      // (RFC 3501), and without it backfilled mail cannot be threaded.
+      for await (const msg of client.fetch(`1:${oldest - 1}`, ENVELOPE_QUERY, { uid: true })) {
         if (msg.uid >= oldest) continue
-        raw.push({
-          accountId,
-          folderId: folder.id,
-          uid: msg.uid,
-          envelope: {
-            messageId: msg.envelope?.messageId
-              ? ensureMessageIdFormat(msg.envelope.messageId)
-              : null,
-            inReplyTo: msg.envelope?.inReplyTo
-              ? ensureMessageIdFormat(msg.envelope.inReplyTo)
-              : null,
-            references: parseReferences(msg.headers),
-            from: msg.envelope?.from?.[0]
-              ? { address: msg.envelope.from[0].address, name: msg.envelope.from[0].name }
-              : null,
-            to: msg.envelope?.to?.map((a) => ({ address: a.address, name: a.name })) ?? [],
-            cc: msg.envelope?.cc?.map((a) => ({ address: a.address, name: a.name })) ?? [],
-            subject: msg.envelope?.subject ?? null,
-            date: msg.envelope?.date ?? null
-          },
-          flags: msg.flags ? [...msg.flags] : []
-        })
+        raw.push(envelopeToRaw(msg, accountId, folder.id))
       }
-      // Newest of the older block first, so a page walks steadily backwards.
-      raw.sort((a, b) => (b.uid ?? 0) - (a.uid ?? 0))
-      const page = raw.slice(0, limit)
+      // Read after the fetch, so a move made while it ran is skipped too.
+      const skip = new Set<number>([...held(), ...queuedSourceUids(accountId, folder.path)])
+      const { page, more } = backfillPage(raw, skip, limit)
       // Backfill is explicit user intent, so the sinceDays cutoff must not apply.
       const messages = await store(page, 0)
-      return { messages, more: raw.length > page.length }
+      return { messages, more }
     } finally {
       lock.release()
     }
   } finally {
     await client.logout().catch(() => {})
   }
+}
+
+/**
+ * The next older page, newest first so paging walks steadily backwards.
+ * Messages mid-move are skipped: their local row has a NULL uid (so they sit
+ * below oldestSyncedUid's view), and storing them again would duplicate them
+ * in the folder they are leaving.
+ */
+export function backfillPage<T extends { uid?: number | null }>(
+  raw: T[],
+  skip: ReadonlySet<number>,
+  limit: number
+): { page: T[]; more: boolean } {
+  const fresh = raw.filter((m) => m.uid == null || !skip.has(m.uid))
+  fresh.sort((a, b) => (b.uid ?? 0) - (a.uid ?? 0))
+  const page = fresh.slice(0, limit)
+  return { page, more: fresh.length > page.length }
 }
 
 async function store(

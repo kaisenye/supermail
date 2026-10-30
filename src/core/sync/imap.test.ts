@@ -1,6 +1,6 @@
-import type { ListResponse } from 'imapflow'
-import { describe, expect, it } from 'vitest'
-import { toMailboxInfo } from './imap.js'
+import type { ImapFlow, ListResponse } from 'imapflow'
+import { describe, expect, it, vi } from 'vitest'
+import { parseReferences, storeFlag, toMailboxInfo } from './imap.js'
 
 const list = (o: Record<string, unknown>): ListResponse =>
   ({ path: 'X', name: 'X', flags: new Set<string>(), ...o }) as unknown as ListResponse
@@ -23,5 +23,64 @@ describe('toMailboxInfo', () => {
   it('marks \\NoSelect containers as not selectable', () => {
     const info = toMailboxInfo(list({ flags: new Set(['\\NoSelect']) }))
     expect(info.selectable).toBe(false)
+  })
+})
+
+describe('parseReferences', () => {
+  it('returns null for an empty References followed by another field', () => {
+    expect(parseReferences(Buffer.from('References: \r\nList-Id: <l@x>\r\n\r\n'))).toBeNull()
+  })
+
+  it('does not read past References into the next field', () => {
+    const h = 'References: <a@x> <b@x>\r\nList-Id: <dev.list.test>\r\n\r\n'
+    expect(parseReferences(Buffer.from(h))).toEqual(['<a@x>', '<b@x>'])
+  })
+
+  it('unfolds continuation lines', () => {
+    const h = 'References: <a@x>\r\n <b@x>\r\n\t<c@x>\r\nPrecedence: bulk\r\n\r\n'
+    expect(parseReferences(Buffer.from(h))).toEqual(['<a@x>', '<b@x>', '<c@x>'])
+  })
+
+  it('finds References when it is not the first fetched field', () => {
+    const h = 'List-Id: <l@x>\r\nReferences: <a@x>\r\n\r\n'
+    expect(parseReferences(Buffer.from(h))).toEqual(['<a@x>'])
+  })
+})
+
+describe('storeFlag', () => {
+  const fake = (result: boolean) => {
+    const release = vi.fn()
+    const client = {
+      getMailboxLock: vi.fn(async () => ({ release })),
+      messageFlagsAdd: vi.fn(async () => result),
+      messageFlagsRemove: vi.fn(async () => result)
+    }
+    return { client: client as unknown as ImapFlow, raw: client, release }
+  }
+
+  it('resolves when the server accepts the STORE', async () => {
+    const f = fake(true)
+    await storeFlag(f.client, 'INBOX', 7, 'Work', true, true)
+    expect(f.raw.messageFlagsAdd).toHaveBeenCalledWith('7', ['Work'], { uid: true, useLabels: true })
+    expect(f.release).toHaveBeenCalled()
+  })
+
+  // imapflow returns false on NO/BAD instead of throwing; FlagWriter must see a permanent failure.
+  it('throws a NO when imapflow reports a rejected label STORE', async () => {
+    const f = fake(false)
+    await expect(storeFlag(f.client, 'INBOX', 7, 'Work', true, true)).rejects.toMatchObject({
+      message: 'STORE X-GM-LABELS rejected',
+      responseStatus: 'NO'
+    })
+    expect(f.release).toHaveBeenCalled()
+  })
+
+  it('throws a NO when imapflow reports a rejected flag removal', async () => {
+    const f = fake(false)
+    await expect(storeFlag(f.client, 'INBOX', 7, '\\Seen', false)).rejects.toMatchObject({
+      message: 'STORE FLAGS rejected',
+      responseStatus: 'NO'
+    })
+    expect(f.raw.messageFlagsRemove).toHaveBeenCalled()
   })
 })

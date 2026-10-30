@@ -52,6 +52,9 @@ export interface Message {
   embedding_id: number | null
   entities: string | null
   workflow_state: string | null
+  list_unsubscribe: string | null
+  unsubscribe_one_click: number
+  bulk: number
 }
 
 /** Envelope-only shape for list views — omits bodies so rows stay cheap. */
@@ -74,6 +77,15 @@ export type MessageListRow = Pick<
    */
   thread_count?: number
   thread_unread?: number
+  /** 1 when a reminder on this thread has fired (list_rows.reminder_fired). */
+  reminder_fired?: number
+  /**
+   * What the list is ordered by (list_rows.sort_date): the newest message's
+   * date, or a fired reminder's time when later. Date headers group on this.
+   */
+  sort_date?: number | null
+  /** Set only in the Reminders view: when the reminder is due. */
+  remind_at?: number
 }
 
 export interface UpsertMessageInput {
@@ -83,6 +95,11 @@ export interface UpsertMessageInput {
   message_id: string | null
   thread_id: string | null
   in_reply_to: string | null
+  /**
+   * The References header ids. Not stored: upsertMessage reads them to join
+   * the thread of any stored message this one mentions.
+   */
+  references?: string[] | null
   from_addr: string | null
   from_name: string | null
   to_addrs: string | null
@@ -101,4 +118,7 @@ export interface UpsertMessageInput {
   has_attachments?: number
   body_fetched?: number
   entities?: string | null
+  list_unsubscribe?: string | null
+  unsubscribe_one_click?: number
+  bulk?: number
 }

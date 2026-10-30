@@ -3,7 +3,8 @@ import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { closeDb, getDb, initDb } from './db.js'
-import { listInbox, upsertMessage } from './repo.js'
+import { upsertMessage } from './repo.js'
+import { listInbox } from './listRows.js'
 
 const ACC = 1
 let folder: number

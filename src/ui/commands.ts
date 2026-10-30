@@ -1,4 +1,5 @@
 import type { Binding, Mode } from './hooks/useHotkeys'
+import type { Chord } from './hooks/useCommandChord'
 import type { PaletteAction } from './views/CommandPalette'
 import { timed } from './perf'
 
@@ -13,10 +14,10 @@ export type KeySpec =
   | { kind: 'key'; key: string; modes?: Mode[] }
   /** Two keys in a row, e.g. g then i. */
   | { kind: 'seq'; keys: [string, string]; modes?: Mode[] }
-  /** ⌘ (Ctrl off macOS) plus a key. Live in every mode; handlers decide. */
-  | { kind: 'mod'; key: string }
+  /** ⌘ (Ctrl off macOS) plus a key, optionally with Shift. Without `modes`, live in every mode. */
+  | { kind: 'mod'; key: string; shift?: boolean; modes?: Mode[] }
 
-export type Group = 'General' | 'Navigation' | 'Message' | 'In a thread' | 'Compose'
+export type Group = 'General' | 'Navigation' | 'Message' | 'List' | 'In a thread' | 'Compose'
 
 export type CommandId =
   | 'palette.open'
@@ -34,14 +35,38 @@ export type CommandId =
   | 'go.drafts'
   | 'go.trash'
   | 'go.junk'
+  | 'go.done'
+  | 'go.reminders'
   | 'msg.star'
   | 'msg.read'
   | 'msg.trash'
+  | 'msg.done'
+  | 'msg.notDone'
+  | 'msg.spam'
+  | 'msg.remind'
+  | 'msg.move'
+  | 'msg.label'
+  | 'msg.mute'
+  | 'msg.vip'
+  | 'msg.unsubscribe'
   | 'msg.select'
+  | 'undo'
+  | 'triage.zero'
+  | 'split.next'
+  | 'split.prev'
+  | 'filter.unread'
+  | 'filter.needsReply'
+  | 'filter.waiting'
+  | 'filter.starred'
+  | 'list.groupByDate'
+  | 'select.all'
+  | 'select.extendDown'
+  | 'select.extendUp'
   | 'thread.reply'
   | 'thread.replyAll'
   | 'thread.forward'
   | 'compose.send'
+  | 'compose.remind'
   | 'format.bold'
   | 'format.italic'
   | 'format.underline'
@@ -99,21 +124,47 @@ export const COMMANDS: Command[] = [
   { id: 'go.drafts', title: 'Go to Drafts', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'd'], modes: ['list'] }] },
   { id: 'go.trash', title: 'Go to Trash', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 't'], modes: ['list'] }] },
   { id: 'go.junk', title: 'Go to Junk', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'j'], modes: ['list'] }] },
+  { id: 'go.done', title: 'Go to Done', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'e'], modes: ['list'] }] },
+  { id: 'go.reminders', title: 'Go to Reminders', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'h'], modes: ['list'] }] },
 
   { id: 'msg.star', title: 'Star', group: 'Message', keys: [{ kind: 'key', key: 's', modes: LIST_THREAD }] },
   { id: 'msg.read', title: 'Toggle read / unread', group: 'Message', keys: [{ kind: 'key', key: 'u', modes: LIST_THREAD }] },
   // The Mac key labelled "delete" reports as Backspace.
   { id: 'msg.trash', title: 'Trash', group: 'Message', keys: [{ kind: 'key', key: 'Backspace', modes: LIST_THREAD }] },
+  { id: 'msg.done', title: 'Done', group: 'Message', palette: true, keys: [{ kind: 'key', key: 'e', modes: LIST_THREAD }] },
+  { id: 'msg.notDone', title: 'Not done (back to Inbox)', group: 'Message', palette: true, keys: [{ kind: 'key', key: 'E', modes: LIST_THREAD }] },
+  { id: 'msg.spam', title: 'Mark as spam', group: 'Message', palette: true, keys: [{ kind: 'key', key: '!', modes: LIST_THREAD }] },
+  { id: 'msg.remind', title: 'Remind me', group: 'Message', palette: true, keys: [{ kind: 'key', key: 'h', modes: LIST_THREAD }] },
+  { id: 'msg.move', title: 'Move to folder…', group: 'Message', palette: true, keys: [{ kind: 'key', key: 'v', modes: LIST_THREAD }] },
+  { id: 'msg.label', title: 'Label… (Gmail)', group: 'Message', palette: true, keys: [{ kind: 'key', key: 'l', modes: LIST_THREAD }] },
+  { id: 'msg.mute', title: 'Mute conversation', group: 'Message', palette: true, keys: [{ kind: 'key', key: 'M', modes: LIST_THREAD }] },
+  { id: 'msg.vip', title: 'Toggle VIP sender', group: 'Message', palette: true, keys: [] },
+  { id: 'msg.unsubscribe', title: 'Unsubscribe', group: 'Message', palette: true, keys: [{ kind: 'mod', key: 'u', modes: LIST_THREAD }] },
   { id: 'msg.select', title: 'Select', group: 'Message', keys: [{ kind: 'key', key: 'x', modes: ['list'] }] },
+  { id: 'undo', title: 'Undo', group: 'Message', palette: true, keys: [{ kind: 'key', key: 'z', modes: LIST_THREAD }] },
+  { id: 'triage.zero', title: 'Get me to zero…', group: 'General', palette: true, keys: [] },
+
+  // R stays Reply all in a thread; a key may mean different things in different modes.
+  { id: 'split.next', title: 'Next split', group: 'List', keys: [{ kind: 'key', key: 'Tab', modes: ['list'] }] },
+  { id: 'split.prev', title: 'Previous split', group: 'List', keys: [{ kind: 'key', key: 'Shift+Tab', modes: ['list'] }] },
+  { id: 'filter.unread', title: 'Filter: unread', group: 'List', palette: true, keys: [{ kind: 'key', key: 'U', modes: ['list'] }] },
+  { id: 'filter.needsReply', title: 'Filter: needs reply', group: 'List', palette: true, keys: [{ kind: 'key', key: 'R', modes: ['list'] }] },
+  { id: 'filter.waiting', title: 'Filter: waiting on others', group: 'List', palette: true, keys: [] },
+  { id: 'filter.starred', title: 'Filter: starred', group: 'List', palette: true, keys: [{ kind: 'key', key: 'S', modes: ['list'] }] },
+  { id: 'list.groupByDate', title: 'Group by date', group: 'List', palette: true, keys: [{ kind: 'key', key: 'D', modes: ['list'] }] },
+  { id: 'select.all', title: 'Select all', group: 'List', keys: [{ kind: 'mod', key: 'a', modes: ['list'] }] },
+  { id: 'select.extendDown', title: 'Extend selection down', group: 'List', keys: [{ kind: 'key', key: 'J', modes: ['list'] }] },
+  { id: 'select.extendUp', title: 'Extend selection up', group: 'List', keys: [{ kind: 'key', key: 'K', modes: ['list'] }] },
 
   { id: 'thread.reply', title: 'Reply', group: 'In a thread', keys: [{ kind: 'key', key: 'r', modes: ['thread'] }] },
   { id: 'thread.replyAll', title: 'Reply all', group: 'In a thread', keys: [{ kind: 'key', key: 'R', modes: ['thread'] }] },
   { id: 'thread.forward', title: 'Forward', group: 'In a thread', keys: [{ kind: 'key', key: 'f', modes: ['thread'] }] },
 
-  { id: 'compose.send', title: 'Send', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'Enter' }] },
-  { id: 'format.bold', title: 'Bold', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'b' }] },
-  { id: 'format.italic', title: 'Italic', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'i' }] },
-  { id: 'format.underline', title: 'Underline', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'u' }] }
+  { id: 'compose.send', title: 'Send', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'Enter', modes: ['compose'] }] },
+  { id: 'compose.remind', title: 'Remind me if no reply', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'h', shift: true, modes: ['compose'] }] },
+  { id: 'format.bold', title: 'Bold', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'b', modes: ['compose'] }] },
+  { id: 'format.italic', title: 'Italic', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'i', modes: ['compose'] }] },
+  { id: 'format.underline', title: 'Underline', group: 'Compose', external: true, keys: [{ kind: 'mod', key: 'u', modes: ['compose'] }] }
 ]
 
 export type Handler = (ctx: { mode: Mode }) => void | Promise<unknown>
@@ -124,15 +175,17 @@ const NAMED: Record<string, string> = {
   Enter: '↵',
   Escape: 'Esc',
   ArrowUp: '↑',
-  ArrowDown: '↓'
+  ArrowDown: '↓',
+  Tab: '⇥'
 }
 
 const cap = (k: string): string => NAMED[k] ?? k
 
 export function keyCaps(spec: KeySpec): string[] {
   if (spec.kind === 'seq') return spec.keys.map(cap)
-  if (spec.kind === 'mod') return ['⌘', cap(spec.key).toUpperCase()]
+  if (spec.kind === 'mod') return ['⌘', ...(spec.shift ? ['⇧'] : []), cap(spec.key).toUpperCase()]
   const k = spec.key
+  if (k === 'Shift+Tab') return ['⇧', cap('Tab')]
   // A shifted letter arrives as its capital (R); show the Shift it took.
   if (k.length === 1 && k !== k.toLowerCase()) return ['⇧', k]
   return [cap(k)]
@@ -160,13 +213,12 @@ export function buildBindings(mode: Mode, handlers: Handlers): Binding[] {
   )
 }
 
-export function buildChords(
-  mode: Mode,
-  handlers: Handlers
-): { key: string; handler: () => void }[] {
+export function buildChords(mode: Mode, handlers: Handlers): Chord[] {
   return live(handlers).flatMap(({ cmd, run }) =>
     cmd.keys.flatMap((k) =>
-      k.kind === 'mod' ? [{ key: k.key, handler: () => void run({ mode }) }] : []
+      k.kind === 'mod' && (!k.modes || k.modes.includes(mode))
+        ? [{ key: k.key, shift: k.shift, handler: () => void run({ mode }) }]
+        : []
     )
   )
 }
@@ -187,9 +239,16 @@ export function buildSequences(
   return out
 }
 
+/**
+ * `mode` is the mode under the palette (appMode's baseMode), never 'modal' for
+ * the palette itself. Under anything but the list or a thread (Tasks), message
+ * and list commands would act on a mail list that is not on screen, so they
+ * are left out.
+ */
 export function buildPaletteActions(mode: Mode, handlers: Handlers): PaletteAction[] {
+  const mailOnScreen = mode === 'list' || mode === 'thread'
   return live(handlers)
-    .filter(({ cmd }) => cmd.palette)
+    .filter(({ cmd }) => cmd.palette && (mailOnScreen || (cmd.group !== 'Message' && cmd.group !== 'List')))
     .map(({ cmd, run }) => ({
       id: cmd.id,
       label: cmd.title,
@@ -217,7 +276,7 @@ export interface SheetRow {
   alt?: string[]
 }
 
-const GROUP_ORDER: Group[] = ['General', 'Navigation', 'Message', 'In a thread', 'Compose']
+const GROUP_ORDER: Group[] = ['General', 'Navigation', 'Message', 'List', 'In a thread', 'Compose']
 
 export function shortcutGroups(): { title: Group; items: SheetRow[] }[] {
   return GROUP_ORDER.map((title) => ({

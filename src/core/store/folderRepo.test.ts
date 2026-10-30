@@ -3,7 +3,15 @@ import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { closeDb, getDb, initDb } from './db.js'
-import { folderByRole, getFolder, setFolderRoles, upsertFolder } from './repo.js'
+import {
+  folderByRole,
+  getFolder,
+  setFolderRole,
+  setFolderRoles,
+  threadMatesInFolder,
+  upsertFolder,
+  upsertMessage
+} from './repo.js'
 
 beforeEach(() => {
   closeDb()
@@ -38,5 +46,39 @@ describe('folder roles', () => {
     const f = folder(1, 'INBOX')
     expect(getFolder(f.id)?.path).toBe('INBOX')
     expect(getFolder(9999)).toBeUndefined()
+  })
+})
+
+describe('setFolderRole', () => {
+  it('gives a free role to one folder and never steals a taken one', () => {
+    const db = getDb()
+    db.prepare("INSERT OR IGNORE INTO accounts (id,email) VALUES (9,'r@x.test')").run()
+    upsertFolder({ account_id: 9, name: 'Archive', path: 'Archive', uidvalidity: null })
+    upsertFolder({ account_id: 9, name: 'Old', path: 'Old', uidvalidity: null })
+    expect(setFolderRole(9, 'Archive', 'archive')).toBe(true)
+    expect(setFolderRole(9, 'Old', 'archive')).toBe(false)
+    expect(folderByRole(9, 'archive')?.path).toBe('Archive')
+  })
+})
+
+describe('threadMatesInFolder', () => {
+  it('returns the row first, then its thread in the same folder only', () => {
+    const db = getDb()
+    db.prepare("INSERT OR IGNORE INTO accounts (id,email) VALUES (8,'t@x.test')").run()
+    const a = upsertFolder({ account_id: 8, name: 'A', path: 'A', uidvalidity: null }).id
+    const b = upsertFolder({ account_id: 8, name: 'B', path: 'B', uidvalidity: null }).id
+    const put = (folder: number, uid: number, thread: string | null) =>
+      upsertMessage({
+        account_id: 8, folder_id: folder, uid, message_id: `<${uid}@t>`, thread_id: thread,
+        in_reply_to: null, from_addr: null, from_name: null, to_addrs: null, cc_addrs: null,
+        subject: null, date: uid, snippet: null
+      })
+    const x1 = put(a, 1, 't')
+    const x2 = put(a, 2, 't')
+    put(b, 3, 't')
+    const lone = put(a, 4, null)
+    expect(threadMatesInFolder(x2)).toEqual([x2, x1])
+    expect(threadMatesInFolder(lone)).toEqual([lone])
+    expect(threadMatesInFolder(99999)).toEqual([])
   })
 })

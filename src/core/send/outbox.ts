@@ -16,6 +16,8 @@ export interface OutboxRow {
   references_header: string | null
   attachments: string | null
   send_at: number
+  /** "Remind me if no reply" chosen in compose; the reminder is saved after the send. */
+  remind_at: number | null
   status: OutboxStatus
   error: string | null
   created_at: number
@@ -34,6 +36,31 @@ export interface EnqueueOutboxInput {
   references_header?: string | null
   attachments?: string | null
   send_at: number
+  remind_at?: number | null
+}
+
+/**
+ * A "remind me if no reply" time must come after the send itself: a reminder
+ * due before the mail goes out would fire as soon as it is sent.
+ */
+export function remindAtError(remindAt: number | null | undefined, sendAt: number): string | null {
+  if (remindAt == null) return null
+  return remindAt <= sendAt ? 'Reminder must be later than the send time' : null
+}
+
+/**
+ * When to save the reminder for a row sent at `now`. A send that went out late
+ * (a retry after a failure, or the app was closed) keeps the gap the user chose
+ * between send and reminder. Null when the reminder would already be due.
+ */
+export function reminderTimeAfterSend(
+  row: Pick<OutboxRow, 'send_at' | 'remind_at'>,
+  now: number
+): number | null {
+  if (row.remind_at == null) return null
+  if (row.remind_at > now) return row.remind_at
+  const shifted = row.remind_at + Math.max(0, now - row.send_at)
+  return shifted > now ? shifted : null
 }
 
 export function enqueueOutbox(input: EnqueueOutboxInput): OutboxRow {
@@ -44,11 +71,11 @@ export function enqueueOutbox(input: EnqueueOutboxInput): OutboxRow {
       `INSERT INTO outbox (
          account_id, draft_message_id, to_addrs, cc_addrs, bcc_addrs,
          subject, body_text, body_html, in_reply_to, references_header,
-         attachments, send_at, status, created_at
+         attachments, send_at, remind_at, status, created_at
        ) VALUES (
          @account_id, @draft_message_id, @to_addrs, @cc_addrs, @bcc_addrs,
          @subject, @body_text, @body_html, @in_reply_to, @references_header,
-         @attachments, @send_at, 'pending', @created_at
+         @attachments, @send_at, @remind_at, 'pending', @created_at
        )`
     )
     .run({
@@ -64,6 +91,7 @@ export function enqueueOutbox(input: EnqueueOutboxInput): OutboxRow {
       references_header: input.references_header ?? null,
       attachments: input.attachments ?? null,
       send_at: input.send_at,
+      remind_at: input.remind_at ?? null,
       created_at
     })
   return getOutbox(Number(info.lastInsertRowid))!

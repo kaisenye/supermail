@@ -1,4 +1,5 @@
 import type { UpsertMessageInput } from '../store/types.js'
+import type { ListHeaders } from './listHeaders.js'
 
 /** Raw input a processor starts from. Either envelope-only or with a full body. */
 export interface RawMessage {
@@ -19,6 +20,10 @@ export interface RawMessage {
     date?: Date | null
   }
   flags?: string[]
+  /** List-Unsubscribe / bulk headers from the envelope fetch. Absent on body passes. */
+  listHeaders?: ListHeaders
+  /** Gmail X-GM-LABELS as fetched. Absent means "no authority": stored labels stay. */
+  labels?: string[]
 }
 
 /**

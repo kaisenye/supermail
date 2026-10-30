@@ -189,6 +189,184 @@ CREATE INDEX IF NOT EXISTS idx_move_jobs_account ON move_jobs (account_id, id);
     db.exec(`
 ALTER TABLE accounts ADD COLUMN provider TEXT NOT NULL DEFAULT 'imap';
 ALTER TABLE accounts ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'password';
+`),
+
+  // v18: Phase 2 triage, in one migration so every later step finds its tables.
+  // - List headers on messages: bulk detection for the Other split, and unsubscribe.
+  // - outbox.remind_at: "remind me if no reply" chosen at send time.
+  // - The list read model (list_rows), kept current by triggers that mark a
+  //   thread dirty in list_dirty; refreshListRows() rebuilds only those.
+  //   A message with no thread id is a thread of one, keyed '#<id>'.
+  // - Local triage state: reminders and mutes (keyed by Message-ID so a
+  //   rethread cannot orphan them), VIP senders, custom splits.
+  // - replied_senders: everyone you have sent mail to, which Important reads.
+  // - labels become account-scoped. The stage-1 tables were never written.
+  (db) =>
+    db.exec(`
+ALTER TABLE messages ADD COLUMN list_unsubscribe TEXT;
+ALTER TABLE messages ADD COLUMN unsubscribe_one_click INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE messages ADD COLUMN bulk INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE outbox ADD COLUMN remind_at INTEGER;
+
+CREATE INDEX IF NOT EXISTS idx_messages_account_thread ON messages (account_id, thread_id);
+CREATE INDEX IF NOT EXISTS idx_messages_account_msgid ON messages (account_id, message_id);
+
+CREATE TABLE list_rows (
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+  thread_key TEXT NOT NULL,
+  newest_id INTEGER NOT NULL,
+  date INTEGER,
+  sort_date INTEGER NOT NULL DEFAULT 0,
+  msg_count INTEGER NOT NULL,
+  unread_count INTEGER NOT NULL,
+  flagged INTEGER NOT NULL DEFAULT 0,
+  sender TEXT,
+  bulk INTEGER NOT NULL DEFAULT 0,
+  last_from_me INTEGER NOT NULL DEFAULT 0,
+  hidden INTEGER NOT NULL DEFAULT 0,
+  reminder_fired INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (folder_id, thread_key)
+);
+CREATE INDEX idx_list_rows_page ON list_rows (folder_id, hidden, sort_date DESC);
+CREATE INDEX idx_list_rows_thread ON list_rows (account_id, thread_key);
+
+CREATE TABLE list_dirty (
+  account_id INTEGER NOT NULL,
+  thread_key TEXT NOT NULL,
+  PRIMARY KEY (account_id, thread_key)
+) WITHOUT ROWID;
+
+CREATE TRIGGER list_dirty_ai AFTER INSERT ON messages WHEN new.folder_id IS NOT NULL BEGIN
+  INSERT OR IGNORE INTO list_dirty VALUES (new.account_id, COALESCE(new.thread_id, '#' || new.id));
+END;
+CREATE TRIGGER list_dirty_ad AFTER DELETE ON messages WHEN old.folder_id IS NOT NULL BEGIN
+  INSERT OR IGNORE INTO list_dirty VALUES (old.account_id, COALESCE(old.thread_id, '#' || old.id));
+END;
+-- Only the columns list_rows reads. An envelope re-sync rewrites flags with the
+-- same value, so compare old and new rather than firing on every UPDATE.
+CREATE TRIGGER list_dirty_au AFTER UPDATE ON messages
+  WHEN old.folder_id IS NOT new.folder_id OR old.thread_id IS NOT new.thread_id
+    OR old.flags IS NOT new.flags OR old.date IS NOT new.date
+    OR old.from_addr IS NOT new.from_addr OR old.bulk IS NOT new.bulk
+BEGIN
+  INSERT OR IGNORE INTO list_dirty
+    SELECT old.account_id, COALESCE(old.thread_id, '#' || old.id) WHERE old.folder_id IS NOT NULL;
+  INSERT OR IGNORE INTO list_dirty
+    SELECT new.account_id, COALESCE(new.thread_id, '#' || new.id) WHERE new.folder_id IS NOT NULL;
+END;
+
+INSERT OR IGNORE INTO list_dirty (account_id, thread_key)
+  SELECT account_id, COALESCE(thread_id, '#' || id) FROM messages WHERE folder_id IS NOT NULL;
+
+CREATE TABLE reminders (
+  id INTEGER PRIMARY KEY,
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  subject TEXT,
+  remind_at INTEGER NOT NULL,
+  if_no_reply INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  fired_at INTEGER,
+  UNIQUE (account_id, message_id)
+);
+CREATE INDEX idx_reminders_due ON reminders (remind_at) WHERE fired_at IS NULL;
+
+CREATE TABLE mutes (
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (account_id, message_id)
+) WITHOUT ROWID;
+
+CREATE TABLE vip_senders (
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  address TEXT NOT NULL,
+  PRIMARY KEY (account_id, address)
+) WITHOUT ROWID;
+
+CREATE TABLE replied_senders (
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  address TEXT NOT NULL,
+  PRIMARY KEY (account_id, address)
+) WITHOUT ROWID;
+
+CREATE TRIGGER replied_senders_ai AFTER INSERT ON messages
+  WHEN new.folder_id IS NOT NULL
+   AND lower(COALESCE(new.from_addr, '')) = (SELECT lower(email) FROM accounts WHERE id = new.account_id)
+BEGIN
+  INSERT OR IGNORE INTO replied_senders (account_id, address)
+    SELECT new.account_id, lower(json_extract(v.value, '$.address'))
+      FROM json_each(CASE WHEN json_valid(new.to_addrs) THEN new.to_addrs ELSE '[]' END) v
+     WHERE json_extract(v.value, '$.address') IS NOT NULL;
+  INSERT OR IGNORE INTO replied_senders (account_id, address)
+    SELECT new.account_id, lower(json_extract(v.value, '$.address'))
+      FROM json_each(CASE WHEN json_valid(new.cc_addrs) THEN new.cc_addrs ELSE '[]' END) v
+     WHERE json_extract(v.value, '$.address') IS NOT NULL;
+END;
+
+INSERT OR IGNORE INTO replied_senders (account_id, address)
+  SELECT m.account_id, lower(json_extract(v.value, '$.address'))
+    FROM messages m JOIN accounts a ON a.id = m.account_id,
+         json_each(CASE WHEN json_valid(m.to_addrs) THEN m.to_addrs ELSE '[]' END) v
+   WHERE m.folder_id IS NOT NULL AND lower(COALESCE(m.from_addr, '')) = lower(a.email)
+     AND json_extract(v.value, '$.address') IS NOT NULL;
+INSERT OR IGNORE INTO replied_senders (account_id, address)
+  SELECT m.account_id, lower(json_extract(v.value, '$.address'))
+    FROM messages m JOIN accounts a ON a.id = m.account_id,
+         json_each(CASE WHEN json_valid(m.cc_addrs) THEN m.cc_addrs ELSE '[]' END) v
+   WHERE m.folder_id IS NOT NULL AND lower(COALESCE(m.from_addr, '')) = lower(a.email)
+     AND json_extract(v.value, '$.address') IS NOT NULL;
+
+CREATE TABLE splits (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  query TEXT NOT NULL,
+  sort_order REAL NOT NULL
+);
+
+DROP TABLE message_labels;
+DROP TABLE labels;
+CREATE TABLE labels (
+  id INTEGER PRIMARY KEY,
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  color TEXT,
+  UNIQUE (account_id, name)
+);
+CREATE TABLE message_labels (
+  message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  label_id INTEGER NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
+  PRIMARY KEY (message_id, label_id)
+) WITHOUT ROWID;
+CREATE INDEX idx_message_labels_label ON message_labels (label_id);
+`),
+  // list_dirty_au used INSERT OR IGNORE, but SQLite applies the outer
+  // statement's conflict policy inside triggers: under upsertMessage's
+  // ON CONFLICT DO UPDATE the IGNORE became ABORT, so any upsert that changed
+  // a listed column while its thread was already dirty threw. NOT EXISTS never
+  // conflicts, whatever the outer policy.
+  (db) =>
+    db.exec(`
+DROP TRIGGER list_dirty_au;
+CREATE TRIGGER list_dirty_au AFTER UPDATE ON messages
+  WHEN old.folder_id IS NOT new.folder_id OR old.thread_id IS NOT new.thread_id
+    OR old.flags IS NOT new.flags OR old.date IS NOT new.date
+    OR old.from_addr IS NOT new.from_addr OR old.bulk IS NOT new.bulk
+BEGIN
+  INSERT INTO list_dirty
+    SELECT old.account_id, COALESCE(old.thread_id, '#' || old.id)
+     WHERE old.folder_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM list_dirty
+                        WHERE account_id = old.account_id
+                          AND thread_key = COALESCE(old.thread_id, '#' || old.id));
+  INSERT INTO list_dirty
+    SELECT new.account_id, COALESCE(new.thread_id, '#' || new.id)
+     WHERE new.folder_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM list_dirty
+                        WHERE account_id = new.account_id
+                          AND thread_key = COALESCE(new.thread_id, '#' || new.id));
+END;
 `)
 ]
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AccountSummary, ScheduledSend } from '../../electron/preload'
+import type { AccountSummary, ScheduledSend, Split } from '../../electron/preload'
 import type { MessageListRow } from '../core/store/types'
-import { emptyCompose, useStore, type ComposeAttachment } from './store'
+import { emptyCompose, REMINDERS_VIEW_ID, useStore, type ComposeAttachment } from './store'
 import { useHotkeys, type Mode } from './hooks/useHotkeys'
 import { useKeySequences } from './hooks/useKeySequences'
 import {
@@ -15,31 +15,54 @@ import {
 import { useCommandChord } from './hooks/useCommandChord'
 import { MessageList } from './views/MessageList'
 import { ActionBar } from './views/ActionBar'
+import { SplitBar } from './views/SplitBar'
 import { Sidebar } from './views/Sidebar'
 import { Thread } from './views/Thread'
 import { CommandPalette, type PaletteAction } from './views/CommandPalette'
 import { Compose } from './views/Compose'
 import { UndoToast } from './views/UndoToast'
+import { RemindPicker } from './views/RemindPicker'
+import { Picker, type PickerItem } from './views/Picker'
+import { ConfirmDialog } from './views/ConfirmDialog'
+import { ZeroModal } from './views/ZeroModal'
+import { ZeroState } from './views/ZeroState'
 import { Settings } from './views/Settings'
 import { Tasks } from './views/Tasks'
 import { ShortcutHelp } from './views/ShortcutHelp'
 import { Onboarding } from './views/Onboarding'
 import { PenSquare, Plus } from 'lucide-react'
 import { folderLabel, isFlagged, isUnread } from './format'
+import { goDoneTarget, reloadFolders } from './folders'
+import { doneAction, undoRepaint, viewKey, type ViewKey } from './viewScope'
+import { appMode, baseMode } from './appMode'
+import { openThreadTarget } from './threadTarget'
+import { viewQuery, type ChipId } from './chips'
+import { nextSplitId, resolveSplitId } from './splitNav'
+import { dayKey, isInboxZero, nextStreak } from './streak'
 import type { FolderRole, MoveTarget } from '../core/store/folderRoles'
 import { buildForwardBody, buildReplyBody } from './quote'
 import { applyTheme, isTheme, type Theme } from './theme'
+import { latestOnly } from './latest'
 import './styles/app.css'
 
 /** Sentinel from main: no account connected yet, as opposed to a real fault. */
 const NO_ACCOUNT = 'no account connected'
 
+/** Main's error when Done finds no archive folder (Exmail has none until Settings makes one). */
+const NO_ARCHIVE = 'Done needs an Archive folder. Create one in Settings → Done folder.'
+
 /** Folders holding your own mail, where "from" is always you. */
 const OUTGOING_ROLES: FolderRole[] = ['sent', 'drafts']
 
 const PAGE_SIZE = 50
-/** Must not exceed main's UNDO_MOVE_MS, or the toast outlives the undo. */
-const UNDO_MOVE_MS = 3_000
+
+/** A picker or dialog over the list. Keys inside it are its own, so mode is 'modal'. */
+type Overlay =
+  | { kind: 'remind'; fromThread: boolean; hasReminder: boolean }
+  | { kind: 'move'; fromThread: boolean }
+  | { kind: 'label'; ids: number[]; items: PickerItem[] }
+  | { kind: 'unsubscribe'; id: number; sender: string; description: string }
+  | { kind: 'zero'; folderId: number }
 
 function replySubject(subject: string | null): string {
   const s = (subject ?? '').trim()
@@ -85,6 +108,8 @@ export default function App() {
     setSync,
     syncError,
     setSyncError,
+    actionError,
+    setActionError,
     setSyncedOnce,
     hasSyncedOnce,
     paletteOpen,
@@ -93,10 +118,8 @@ export default function App() {
     compose,
     openCompose,
     closeCompose,
-    undoToast,
-    setUndoToast,
-    moveToast,
-    setMoveToast,
+    undo,
+    setUndo,
     unread,
     setUnread,
     loadingMore,
@@ -104,7 +127,14 @@ export default function App() {
     page,
     setPage,
     totalRows,
-    setTotalRows
+    setTotalRows,
+    splitId,
+    chip,
+    groupByDate,
+    setSplit,
+    setChip,
+    setGroupByDate,
+    extendSelection
   } = useStore()
 
   // Expanded inline in the palette; reset on close so it never shows stale rows.
@@ -116,6 +146,21 @@ export default function App() {
   const refreshUnread = useCallback(async () => {
     setUnread(await window.api.unreadCounts())
   }, [setUnread])
+
+  /** Offers `run` as the undo for `holdMs`, the window main is holding the action for. */
+  const pushUndo = useCallback(
+    (label: string, holdMs: number, run: () => Promise<void>) => {
+      if (holdMs > 0) setUndo({ label, expiresAt: Date.now() + holdMs, run })
+    },
+    [setUndo]
+  )
+
+  const runUndo = useCallback(async () => {
+    const u = useStore.getState().undo
+    if (!u || Date.now() > u.expiresAt) return
+    setUndo(null)
+    await u.run()
+  }, [setUndo])
 
   /** Drafts live outside any folder, so that view has its own query. */
   const isDraftsFolder = useCallback((folderId: number): boolean => {
@@ -167,6 +212,7 @@ export default function App() {
 
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [overlay, setOverlay] = useState<Overlay | null>(null)
   // Tasks replaces the mail pane rather than overlaying it: it is a separate
   // place to be, not a modal on top of the inbox.
   const [tasksOpen, setTasksOpen] = useState(false)
@@ -190,8 +236,9 @@ export default function App() {
       const t = isTheme(s.theme) ? s.theme : 'system'
       setTheme(t)
       applyTheme(t)
+      setGroupByDate(s.list_group_by_date === '1')
     })
-  }, [])
+  }, [setGroupByDate])
 
   // "system" tracks the OS, so a change there must repaint without a restart.
   useEffect(() => {
@@ -213,32 +260,144 @@ export default function App() {
     void window.api.setSettings({ signature: html })
   }, [])
 
+  const [splits, setSplits] = useState<Split[]>([])
+  const splitsRef = useRef<Split[]>([])
+  const [splitCounts, setSplitCounts] = useState<Record<string, number>>({})
+  const isInbox = useCallback(
+    (fid: number | null) => useStore.getState().folders.find((f) => f.id === fid)?.role === 'inbox',
+    []
+  )
+  const splitCountsRead = useRef(latestOnly(setSplitCounts))
+  /**
+   * Re-read the split tab counts. Every Inbox change goes through here, not
+   * only a full list load: an optimistic remove or restore (Done, trash,
+   * Remind me, undo) already keeps the pager total right, and the tabs must
+   * agree with it. SQLite has the change by then, so the read is accurate.
+   */
+  const refreshSplitCounts = useCallback(
+    async (folderId: number | null) => {
+      if (folderId === null || !isInbox(folderId)) return
+      await splitCountsRead.current(() =>
+        window.api.splitCounts(folderId, viewQuery('', useStore.getState().chip))
+      )
+    },
+    [isInbox]
+  )
+
+  /** What the list on screen shows: the split (Inbox only) ANDed with the chip. */
+  const currentQuery = useCallback(
+    (folderId: number): string => {
+      const { splitId: sid, chip: c } = useStore.getState()
+      const split = isInbox(folderId) ? splitsRef.current.find((s) => s.id === sid) : undefined
+      return viewQuery(split?.query ?? '', c)
+    },
+    [isInbox]
+  )
+
   const fetchPage = useCallback(
     async (folderId: number, page: number): Promise<MessageListRow[]> => {
+      // Reminders is one local list, not an IMAP folder: no pages, no server.
+      if (folderId === REMINDERS_VIEW_ID) return page === 0 ? window.api.listReminders() : []
       const offset = page * PAGE_SIZE
       return isDraftsFolder(folderId)
         ? window.api.listDrafts(PAGE_SIZE, offset)
-        : window.api.listMessages(folderId, PAGE_SIZE, offset)
+        : window.api.listMessages(folderId, PAGE_SIZE, offset, currentQuery(folderId))
     },
-    [isDraftsFolder]
+    [isDraftsFolder, currentQuery]
   )
+
+  const [streak, setStreak] = useState(0)
+  /** Called when the plain Inbox (no split, no chip) loads empty. */
+  const recordZero = useCallback(async () => {
+    const s = await window.api.getSettings()
+    const prev = { days: Number(s.zero_streak_days) || 0, lastDay: s.zero_last_day || null }
+    const next = nextStreak(prev, dayKey(new Date()))
+    setStreak(next.days)
+    if (next.lastDay !== prev.lastDay)
+      await window.api.setSettings({ zero_streak_days: String(next.days), zero_last_day: next.lastDay ?? '' })
+  }, [])
 
   const loadRows = useCallback(
     async (folderId: number, keepPage = false) => {
       // A background sync refreshes in place; only an explicit folder switch
       // should send the user back to page 1.
-      const page = keepPage ? useStore.getState().page : 0
-      const rows = await fetchPage(folderId, page)
+      let page = keepPage ? useStore.getState().page : 0
+      let rows = await fetchPage(folderId, page)
+      const total =
+        folderId === REMINDERS_VIEW_ID
+          ? rows.length
+          : await window.api.countMessages(folderId, currentQuery(folderId))
+      // Emptying a later page (select all, Done) steps back to the last page
+      // that still has mail, rather than showing an empty list over a full one.
+      if (!rows.length && page > 0 && total > 0) {
+        page = Math.min(page, Math.ceil(total / PAGE_SIZE) - 1)
+        rows = await fetchPage(folderId, page)
+      }
       // keepPage means a refresh under the user (sync, new mail): keep the
       // selection. Only a real folder or page change resets it.
       if (keepPage) setRows(rows)
       else setPageRows(rows)
       setPage(page)
-      setTotalRows(await window.api.countMessages(folderId))
+      setTotalRows(total)
+      await refreshSplitCounts(folderId)
       void refreshUnread()
+      const st = useStore.getState()
+      const plainInbox = isInbox(folderId) && st.splitId === 'all' && !st.chip
+      if (isInboxZero({ plainInbox, total, hasSyncedOnce: st.hasSyncedOnce, syncError: st.syncError }))
+        void recordZero()
     },
-    [fetchPage, setRows, setPageRows, setPage, setTotalRows, refreshUnread]
+    [fetchPage, setRows, setPageRows, setPage, setTotalRows, refreshUnread, currentQuery, isInbox, recordZero, refreshSplitCounts]
   )
+
+  const loadRowsRef = useRef(loadRows)
+  loadRowsRef.current = loadRows
+
+  /**
+   * Repaint after an undo. Saved rows go back only into the view they came
+   * from: after a folder, split, chip or account change they would land in the
+   * wrong list (and duplicate rows it already holds), so that list is re-read.
+   */
+  const repaintAfterUndo = useCallback(
+    (origin: ViewKey, removed: { index: number; row: MessageListRow }[]) => {
+      const st = useStore.getState()
+      if (removed.length && undoRepaint(origin, viewKey(st)) === 'restore') {
+        restoreRows(removed)
+        void refreshSplitCounts(st.activeFolderId)
+      } else if (st.activeFolderId) void loadRows(st.activeFolderId, true)
+    },
+    [restoreRows, loadRows, refreshSplitCounts]
+  )
+
+  /**
+   * Optimistic removal. When it empties the page, re-read: the next page's
+   * mail moves up, and an empty plain Inbox records the zero streak (loadRows
+   * owns that). SQLite already reflects the move, so the re-read is accurate.
+   */
+  const dropRows = useCallback(
+    (ids: number[]) => {
+      const removed = removeRows(ids)
+      const st = useStore.getState()
+      if (removed.length && !st.rows.length && st.activeFolderId) void loadRows(st.activeFolderId, true)
+      else if (removed.length) void refreshSplitCounts(st.activeFolderId)
+      return removed
+    },
+    [removeRows, loadRows, refreshSplitCounts]
+  )
+
+  // Reloaded when Settings closes, since custom splits are edited there. A
+  // deleted active split falls back to All, and the list and the tab counts
+  // are re-read so they match the new set of splits.
+  useEffect(() => {
+    if (settingsOpen) return
+    void window.api.listSplits().then((s) => {
+      splitsRef.current = s
+      setSplits(s)
+      const { splitId: sid, activeFolderId: fid } = useStore.getState()
+      const next = resolveSplitId(s, sid)
+      if (next !== sid) setSplit(next)
+      if (fid) void loadRowsRef.current(fid, true)
+    })
+  }, [settingsOpen, setSplit])
 
   /**
    * Repaint the current page in place. A thread rollup cannot be patched from
@@ -265,7 +424,7 @@ export default function App() {
       setLoadingMore(true)
       try {
         let rows = await fetchPage(folderId, next)
-        if (!rows.length && next > 0 && !isDraftsFolder(folderId)) {
+        if (!rows.length && next > 0 && !isDraftsFolder(folderId) && folderId !== REMINDERS_VIEW_ID) {
           const older = await window.api.loadOlder(folderId, PAGE_SIZE)
           if (!older.ok) {
             setSyncError(older.error)
@@ -273,7 +432,7 @@ export default function App() {
           }
           if (!older.messages) return
           rows = await fetchPage(folderId, next)
-          setTotalRows(await window.api.countMessages(folderId))
+          setTotalRows(await window.api.countMessages(folderId, currentQuery(folderId)))
         }
         if (!rows.length) return
         setPageRows(rows)
@@ -282,7 +441,7 @@ export default function App() {
         setLoadingMore(false)
       }
     },
-    [fetchPage, isDraftsFolder, setLoadingMore, setPageRows, setPage, setTotalRows, setSyncError]
+    [fetchPage, isDraftsFolder, setLoadingMore, setPageRows, setPage, setTotalRows, setSyncError, currentQuery]
   )
 
   const backgroundSync = useCallback(async () => {
@@ -294,6 +453,9 @@ export default function App() {
       // Timer/focus overlapped an in-flight sync — not a failure.
       if (res.skipped) return
       setSyncError(null)
+      // A folder added on the server (or by us) since boot only reaches the
+      // sidebar and `g` jumps through the store.
+      await reloadFolders()
       if (res.messages > 0 && after.activeFolderId)
         await loadRows(after.activeFolderId, true)
       else void refreshUnread()
@@ -330,14 +492,21 @@ export default function App() {
       const id = useStore.getState().activeFolderId
       if (id) void loadRows(id, true)
     })
+    // A reminder came due: its thread is back at the top of the Inbox if it has
+    // an Inbox row, and the Reminders view shows it as fired.
+    const offReminders = window.api.onRemindersFired(() => {
+      const id = useStore.getState().activeFolderId
+      if (id) void loadRows(id, true)
+    })
     // The compose window is long gone by the time a send fails, so this banner
     // is the only thing standing between a failure and silence.
     const offSendFailed = window.api.onSendFailed((f) => {
-      setSyncError(
+      setActionError(
         `Send failed — “${f.subject || '(no subject)'}” to ${f.to}: ${f.error}`
       )
     })
     return () => {
+      offReminders()
       offRethread()
       offSentStored()
       clearInterval(timer)
@@ -345,7 +514,7 @@ export default function App() {
       offNewMail()
       offSendFailed()
     }
-  }, [backgroundSync, loadRows, refreshUnread, setSyncError])
+  }, [backgroundSync, loadRows, refreshUnread, setActionError])
 
   useEffect(() => {
     let cancelled = false
@@ -494,36 +663,42 @@ export default function App() {
     return row ? [row.id] : []
   }, [])
 
+  /** The open thread's message, or the checked rows / cursor row in the list. */
+  const actionIds = useCallback((): number[] => {
+    const ot = useStore.getState().openThread
+    return ot ? [ot.messageId] : targetIds()
+  }, [targetIds])
+
   /** Delete the focused/checked drafts straight from the list. */
-  const deleteDrafts = useCallback(async () => {
-    const ids = targetIds()
+  const deleteDrafts = useCallback(async (explicit?: number[]) => {
+    const ids = explicit ?? targetIds()
     if (!ids.length) return
     for (const id of ids) await window.api.deleteDraft(id)
-    removeRows(ids)
+    dropRows(ids)
     clearChecked()
-  }, [targetIds, removeRows, clearChecked])
+  }, [targetIds, dropRows, clearChecked])
 
   const applyFlags = useCallback(
     async (flag: string, add: boolean) => {
       const ids = targetIds()
       if (!ids.length) return
       if (typeof window.api.setFlag !== 'function') {
-        setSyncError('App needs restart — action APIs not loaded')
+        setActionError('App needs restart — action APIs not loaded')
         return
       }
       try {
         const res = await window.api.setFlag(ids, flag, add)
         if (!res.ok) {
-          setSyncError(res.error)
+          setActionError(res.error)
           return
         }
         for (const u of res.updated) updateRowFlags(u.id, JSON.stringify(u.flags))
         void refreshUnread()
       } catch (e) {
-        setSyncError((e as Error).message)
+        setActionError((e as Error).message)
       }
     },
-    [targetIds, updateRowFlags, setSyncError, refreshUnread]
+    [targetIds, updateRowFlags, setActionError, refreshUnread]
   )
 
   const starSelected = useCallback(async () => {
@@ -568,17 +743,17 @@ export default function App() {
       if (read) {
         for (const threadId of threadIds) {
           const res = await window.api.markThreadRead(threadId)
-          if (!res.ok) return setSyncError(res.error)
+          if (!res.ok) return setActionError(res.error)
           for (const id of res.changed) markRowSeen(id)
         }
       } else {
         const res = await window.api.markThreadsUnread(threadIds)
-        if (!res.ok) return setSyncError(res.error)
+        if (!res.ok) return setActionError(res.error)
       }
       await refreshRows()
       void refreshUnread()
     },
-    [targetRows, markRowSeen, refreshRows, refreshUnread, setSyncError]
+    [targetRows, markRowSeen, refreshRows, refreshUnread, setActionError]
   )
 
   /** Linear-style: u toggles read ↔ unread on selection (or focused row). */
@@ -593,60 +768,118 @@ export default function App() {
   }, [targetRows, setThreadsRead])
 
   const moveSelected = useCallback(
-    async (target: MoveTarget, verb: string) => {
-      const ids = targetIds()
+    /** `explicit` wins over the cursor/checked rows (thread mode passes the open thread's ids). */
+    async (target: MoveTarget, verb: string, explicit?: number[]) => {
+      const ids = explicit ?? targetIds()
       if (!ids.length) return
       if (typeof window.api.moveMessages !== 'function') {
-        setSyncError('App needs restart — action APIs not loaded')
+        setActionError('App needs restart — action APIs not loaded')
         return
       }
+      const origin = viewKey(useStore.getState())
       try {
         const res = await window.api.moveMessages(ids, target)
         if (!res.ok) {
-          setSyncError(res.error)
+          setActionError(res.error === 'no archive folder' ? NO_ARCHIVE : res.error)
           return
         }
-        const removed = removeRows(res.moved)
+        const removed = dropRows(res.moved)
         clearChecked()
         void refreshUnread()
         if (!res.batchId || !removed.length) return
         // Each batch commits on its own main-process timer, so replacing the
-        // toast only drops the *offer* to undo the previous one, never the move.
+        // undo only drops the *offer* to undo the previous one, never the move.
         const n = removed.length
-        setMoveToast({
-          batchId: res.batchId,
-          label: `${verb} ${n} message${n === 1 ? '' : 's'}`,
-          expiresAt: Date.now() + UNDO_MOVE_MS,
-          removed
+        pushUndo(`${verb} ${n} conversation${n === 1 ? '' : 's'}`, res.holdMs, async () => {
+          const r = await window.api.undoMove(res.batchId)
+          if (!r.ok) return setActionError(r.error)
+          repaintAfterUndo(origin, removed)
+          void refreshUnread()
         })
       } catch (e) {
-        setSyncError((e as Error).message)
+        setActionError((e as Error).message)
       }
     },
-    [targetIds, removeRows, clearChecked, setSyncError, setMoveToast, refreshUnread]
+    [targetIds, dropRows, repaintAfterUndo, clearChecked, setActionError, pushUndo, refreshUnread]
   )
-
-  const onUndoMove = useCallback(async () => {
-    const toast = useStore.getState().moveToast
-    if (!toast) return
-    setMoveToast(null)
-    const res = await window.api.undoMove(toast.batchId)
-    if (!res.ok) {
-      setSyncError(res.error)
-      return
-    }
-    restoreRows(toast.removed)
-    void refreshUnread()
-  }, [setMoveToast, restoreRows, setSyncError, refreshUnread])
 
   /** In Drafts there is nothing to MOVE — a local draft has no server uid. */
   const triageSelected = useCallback(
-    async () => {
+    async (ids?: number[]) => {
       const fid = useStore.getState().activeFolderId
-      if (fid && isDraftsFolder(fid)) await deleteDrafts()
-      else await moveSelected({ role: 'trash' }, 'Trashed')
+      if (fid && isDraftsFolder(fid)) await deleteDrafts(ids)
+      else await moveSelected({ role: 'trash' }, 'Trashed', ids)
     },
     [isDraftsFolder, deleteDrafts, moveSelected]
+  )
+
+  /**
+   * Done in the Reminders view dismisses the reminder. Its row is the keyed
+   * message, which for remind-on-send is the user's Sent copy: moving that to
+   * Archive would file away Sent mail and leave the reminder pending.
+   */
+  const dismissReminders = useCallback(
+    async (explicit?: number[]) => {
+      const ids = explicit ?? targetIds()
+      if (!ids.length) return
+      const origin = viewKey(useStore.getState())
+      const res = await window.api.clearReminders(ids)
+      const removed = dropRows(ids)
+      clearChecked()
+      const n = res.cleared.length
+      if (!n) return
+      pushUndo(`Dismissed ${n} reminder${n === 1 ? '' : 's'}`, res.holdMs, async () => {
+        await window.api.restoreReminders(res.cleared)
+        repaintAfterUndo(origin, removed)
+      })
+    },
+    [targetIds, dropRows, clearChecked, pushUndo, repaintAfterUndo]
+  )
+
+  const doneSelected = useCallback(
+    (ids?: number[]) =>
+      doneAction(useStore.getState().activeFolderId, REMINDERS_VIEW_ID) === 'dismissReminder'
+        ? dismissReminders(ids)
+        : moveSelected({ role: 'archive' }, 'Done', ids),
+    [moveSelected, dismissReminders]
+  )
+  const notDoneSelected = useCallback(
+    (ids?: number[]) => moveSelected({ role: 'inbox' }, 'Moved to Inbox', ids),
+    [moveSelected]
+  )
+  const spamSelected = useCallback(
+    (ids?: number[]) => moveSelected({ role: 'junk' }, 'Marked spam', ids),
+    [moveSelected]
+  )
+
+  /**
+   * Remind me is local. A pending reminder hides only the Inbox row, so only
+   * the Inbox drops rows now; anywhere else (the Reminders view included) the
+   * page is re-read. Undo puts a rescheduled reminder back as it was and
+   * clears a fresh one.
+   */
+  const remindSelected = useCallback(
+    async (at: number, ifNoReply: boolean, explicit?: number[]) => {
+      const ids = explicit ?? targetIds()
+      if (!ids.length) return
+      const origin = viewKey(useStore.getState())
+      const res = await window.api.setReminder(ids, at, ifNoReply)
+      const inInbox = isInbox(useStore.getState().activeFolderId)
+      const removed = inInbox ? dropRows(res.set) : []
+      clearChecked()
+      if (!inInbox) void refreshRows()
+      const when = new Date(at).toLocaleString(undefined, {
+        weekday: 'short',
+        hour: 'numeric',
+        minute: '2-digit'
+      })
+      pushUndo(`Reminder set for ${when}`, res.holdMs, async () => {
+        if (res.prev.length) await window.api.restoreReminders(res.prev)
+        if (res.fresh.length) await window.api.clearReminders(res.fresh)
+        repaintAfterUndo(origin, removed)
+      })
+    },
+    [targetIds, isInbox, dropRows, clearChecked, refreshRows, pushUndo, repaintAfterUndo]
   )
 
   /**
@@ -662,14 +895,16 @@ export default function App() {
    * list only at the end, where there is nothing left to advance to.
    */
   const triageFromThread = useCallback(
-    async () => {
+    async (act: (ids: number[]) => Promise<unknown>) => {
       const ot = useStore.getState().openThread
       if (!ot) return
-      const idx = useStore.getState().rows.findIndex((r) => r.id === ot.messageId)
+      // Act on the open thread by id, never the cursor row: a sync can re-sort
+      // the list under the reader so the cursor sits on another conversation.
+      const { index: idx, ids } = openThreadTarget(useStore.getState().rows, ot)
       if (idx >= 0) setSelectedIndex(idx)
       clearChecked()
       closeThread()
-      await triageSelected()
+      await act(ids)
 
       // The triaged row is gone, so the same index now holds the next message.
       // Reuse openRow so drafts and read-marking behave as they do elsewhere.
@@ -680,7 +915,7 @@ export default function App() {
         openRow(nextIndex)
       }
     },
-    [setSelectedIndex, clearChecked, closeThread, triageSelected, openRow]
+    [setSelectedIndex, clearChecked, closeThread, openRow]
   )
 
   const starFromThread = useCallback(async () => {
@@ -696,11 +931,11 @@ export default function App() {
     // Opening the thread marked every message read, so this un-reads all of
     // them — clearing only the newest would leave the thread read.
     const res = await window.api.markThreadsUnread([ot.threadId])
-    if (!res.ok) return setSyncError(res.error)
+    if (!res.ok) return setActionError(res.error)
     await refreshRows()
     void refreshUnread()
     closeThread()
-  }, [setSyncError, refreshRows, refreshUnread, closeThread])
+  }, [setActionError, refreshRows, refreshUnread, closeThread])
 
   const onToggleCheck = useCallback(
     (id: number, index: number, shiftKey: boolean) => {
@@ -716,10 +951,35 @@ export default function App() {
       closeThread()
       closeCompose()
       clearChecked()
+      setTasksOpen(false)
       setActiveFolder(id)
       await loadRows(id)
     },
     [closeThread, closeCompose, clearChecked, setActiveFolder, loadRows]
+  )
+
+  const reloadActive = useCallback(() => {
+    const fid = useStore.getState().activeFolderId
+    if (fid) void loadRows(fid)
+  }, [loadRows])
+
+  const cycleSplit = useCallback(
+    (delta: number) => {
+      if (!isInbox(useStore.getState().activeFolderId)) return
+      const next = nextSplitId(splitsRef.current, useStore.getState().splitId, delta)
+      if (!next) return
+      setSplit(next)
+      reloadActive()
+    },
+    [isInbox, setSplit, reloadActive]
+  )
+
+  const toggleChip = useCallback(
+    (id: ChipId) => {
+      setChip(useStore.getState().chip === id ? null : id)
+      reloadActive()
+    },
+    [setChip, reloadActive]
   )
 
   const gotoFolder = useCallback(
@@ -793,13 +1053,64 @@ export default function App() {
     })
   }, [openCompose, signature])
 
-  const mode: Mode = paletteOpen || settingsOpen || shortcutsOpen
-    ? 'modal'
-    : compose
-      ? 'compose'
-      : openThread
-        ? 'thread'
-        : 'list'
+  /**
+   * Mute is local: the threads leave the Inbox (and the reader), and z unmutes.
+   * Every target ends in one state; undo reverses only the threads that changed.
+   */
+  const muteSelected = useCallback(async () => {
+    const ids = actionIds()
+    if (!ids.length) return
+    const origin = viewKey(useStore.getState())
+    const res = await window.api.toggleMute(ids)
+    if (!res.ok) return setActionError(res.error)
+    if (useStore.getState().openThread) closeThread()
+    clearChecked()
+    // loadRows, not refreshRows: the total and the split counts change too.
+    const fid = useStore.getState().activeFolderId
+    if (fid) await loadRows(fid, true)
+    const n = res.changed.length
+    const label = `${res.muted ? 'Muted' : 'Unmuted'}${n > 1 ? ` ${n} conversations` : ''}`
+    pushUndo(label, res.holdMs, async () => {
+      await window.api.toggleMute(res.changed, !res.muted)
+      repaintAfterUndo(origin, [])
+    })
+  }, [actionIds, setActionError, closeThread, clearChecked, loadRows, pushUndo, repaintAfterUndo])
+
+  /** Gmail only: the account's user labels, checked where the targets already carry them. */
+  const openLabelPicker = useCallback(async () => {
+    const ids = actionIds()
+    if (!ids.length) return
+    const choices = await window.api.labelChoices()
+    if (!choices.length) return setActionError('Labels are Gmail only')
+    const current = new Set(Object.values(await window.api.labelsFor(ids)).flat())
+    setOverlay({
+      kind: 'label',
+      ids,
+      items: choices.map((c) => ({ id: c, label: c, checked: current.has(c) }))
+    })
+  }, [actionIds, setActionError])
+
+  /** From a thread the reminder targets the open thread, then advances like Done. */
+  const onRemindPick = useCallback(
+    (at: number, ifNoReply: boolean) => {
+      const o = overlay
+      setOverlay(null)
+      if (o?.kind === 'remind' && o.fromThread)
+        void triageFromThread((ids) => remindSelected(at, ifNoReply, ids))
+      else void remindSelected(at, ifNoReply)
+    },
+    [overlay, triageFromThread, remindSelected]
+  )
+
+  // Tasks counts as 'modal': it replaces the mail pane, and list keys (e, !,
+  // ⌘A, Tab, …) would otherwise act on the hidden mail list.
+  const surface = { compose: !!compose, tasksOpen, openThread: !!openThread }
+  const mode: Mode = appMode({
+    ...surface,
+    overlayOpen: !!(paletteOpen || settingsOpen || shortcutsOpen || overlay)
+  })
+  // The palette's own mode is always 'modal'; its commands need the one under it.
+  const paletteMode: Mode = baseMode(surface)
 
   const handlers = useMemo<Handlers>(
     () =>
@@ -826,10 +1137,61 @@ export default function App() {
         'go.drafts': () => gotoFolder('drafts'),
         'go.trash': () => gotoFolder('trash'),
         'go.junk': () => gotoFolder('junk'),
+        'go.done': () => {
+          const acct = accounts.find((a) => a.accountId === activeAccountId)
+          const t = goDoneTarget(useStore.getState().folders, acct?.provider)
+          if ('folderId' in t) void onFolder(t.folderId)
+          else setActionError(t.message)
+        },
+        'go.reminders': () => void onFolder(REMINDERS_VIEW_ID),
         'msg.star': ({ mode: m }) => (m === 'thread' ? starFromThread() : starSelected()),
         // In a thread, u un-reads and leaves, since staying would re-mark it read.
         'msg.read': ({ mode: m }) => (m === 'thread' ? unreadFromThread() : toggleReadSelected()),
-        'msg.trash': ({ mode: m }) => (m === 'thread' ? triageFromThread() : triageSelected()),
+        'msg.trash': ({ mode: m }) => (m === 'thread' ? triageFromThread(triageSelected) : triageSelected()),
+        'msg.done': ({ mode: m }) => (m === 'thread' ? triageFromThread(doneSelected) : doneSelected()),
+        'msg.notDone': ({ mode: m }) =>
+          m === 'thread' ? triageFromThread(notDoneSelected) : notDoneSelected(),
+        'msg.spam': ({ mode: m }) => (m === 'thread' ? triageFromThread(spamSelected) : spamSelected()),
+        // In the Reminders view every row already has one, so the picker offers to remove it.
+        'msg.remind': ({ mode: m }) =>
+          setOverlay({
+            kind: 'remind',
+            fromThread: m === 'thread',
+            hasReminder: useStore.getState().activeFolderId === REMINDERS_VIEW_ID
+          }),
+        'msg.move': ({ mode: m }) => setOverlay({ kind: 'move', fromThread: m === 'thread' }),
+        'msg.label': () => openLabelPicker(),
+        'msg.mute': () => muteSelected(),
+        'msg.vip': async () => {
+          const ids = actionIds()
+          if (!ids.length) return
+          const origin = viewKey(useStore.getState())
+          const r = await window.api.toggleVip(ids)
+          if (!r.ok) return setActionError(r.error)
+          clearChecked()
+          // The VIP and Important splits read vip_senders at query time.
+          const fid = useStore.getState().activeFolderId
+          if (fid) await loadRows(fid, true)
+          // A blind toggle: the toast says which way it went.
+          const n = r.changed.length
+          const who = n > 1 ? ` ${n} senders` : ''
+          pushUndo(r.vip ? `Marked${who} VIP` : `Removed${who} from VIP`, r.holdMs, async () => {
+            await window.api.toggleVip(r.changed, !r.vip)
+            repaintAfterUndo(origin, [])
+          })
+        },
+        'msg.unsubscribe': async () => {
+          const [id] = actionIds()
+          if (!id) return
+          const p = await window.api.unsubscribePlan(id)
+          if (!p.ok) return setActionError(p.error)
+          setOverlay({ kind: 'unsubscribe', id, sender: p.sender, description: p.description })
+        },
+        'triage.zero': () => {
+          const fid = useStore.getState().activeFolderId
+          if (fid && isInbox(fid)) setOverlay({ kind: 'zero', folderId: fid })
+          else setActionError('Get me to zero works on the Inbox')
+        },
         'msg.select': () => {
           const { rows: r, selectedIndex: i } = useStore.getState()
           const row = r[i]
@@ -837,7 +1199,22 @@ export default function App() {
         },
         'thread.reply': () => startReply(false),
         'thread.replyAll': () => startReply(true),
-        'thread.forward': () => startForward()
+        'thread.forward': () => startForward(),
+        undo: () => runUndo(),
+        'split.next': () => cycleSplit(1),
+        'split.prev': () => cycleSplit(-1),
+        'filter.unread': () => toggleChip('unread'),
+        'filter.needsReply': () => toggleChip('needsReply'),
+        'filter.waiting': () => toggleChip('waiting'),
+        'filter.starred': () => toggleChip('starred'),
+        'list.groupByDate': () => {
+          const on = !useStore.getState().groupByDate
+          setGroupByDate(on)
+          void window.api.setSettings({ list_group_by_date: on ? '1' : '0' })
+        },
+        'select.all': () => setCheckedAll(useStore.getState().rows.map((r) => r.id)),
+        'select.extendDown': () => extendSelection(1),
+        'select.extendUp': () => extendSelection(-1)
       }),
     [
       openPalette,
@@ -854,9 +1231,29 @@ export default function App() {
       toggleReadSelected,
       triageFromThread,
       triageSelected,
+      doneSelected,
+      notDoneSelected,
+      spamSelected,
+      openLabelPicker,
+      muteSelected,
+      actionIds,
+      setActionError,
+      loadRows,
+      pushUndo,
+      onFolder,
       toggleChecked,
       startReply,
-      startForward
+      startForward,
+      runUndo,
+      cycleSplit,
+      toggleChip,
+      setGroupByDate,
+      setCheckedAll,
+      extendSelection,
+      isInbox,
+      accounts,
+      activeAccountId,
+      repaintAfterUndo
     ]
   )
 
@@ -869,7 +1266,7 @@ export default function App() {
 
   const paletteActions = useMemo<PaletteAction[]>(
     () => [
-      ...buildPaletteActions(mode, handlers),
+      ...buildPaletteActions(paletteMode, handlers),
       {
         id: 'scheduled',
         label: scheduled.length
@@ -889,25 +1286,18 @@ export default function App() {
         }
       }))
     ],
-    [mode, handlers, scheduled]
+    [paletteMode, handlers, scheduled]
   )
 
   const onSent = useCallback(
-    (outboxId: number, subject: string, undoMs: number) => {
-      // Only an immediate send gets a toast; a scheduled send is not undoable here.
-      if (undoMs > 0 && undoMs <= 5_000) {
-        setUndoToast({ outboxId, subject, expiresAt: Date.now() + undoMs })
-      }
+    (outboxId: number, subject: string, undoMs: number, immediate: boolean) => {
+      // A scheduled send is cancelled from ⌘K, not undone.
+      if (!immediate) return
+      pushUndo(`Sending “${subject}”`, undoMs, async () => {
+        await window.api.cancelSend(outboxId)
+      })
     },
-    [setUndoToast]
-  )
-
-  const onUndo = useCallback(
-    async (outboxId: number) => {
-      await window.api.cancelSend(outboxId)
-      setUndoToast(null)
-    },
-    [setUndoToast]
+    [pushUndo]
   )
 
   // No account is the normal first-run state; anything else is a real fault
@@ -1011,7 +1401,8 @@ export default function App() {
             onBack={closeThread}
             onReply={(all) => void startReply(all)}
             onForward={() => void startForward()}
-            onTrash={() => void triageFromThread()}
+            onTrash={() => void triageFromThread(triageSelected)}
+            onDone={() => void triageFromThread(doneSelected)}
             onStar={() => void starFromThread()}
             onToggleRead={() => void unreadFromThread()}
             starred={openStarred}
@@ -1020,7 +1411,11 @@ export default function App() {
           <>
             <header className="list-header">
               <h1 className="list-title">
-                {active ? folderLabel(active) : 'Supermail'}
+                {activeFolderId === REMINDERS_VIEW_ID
+                  ? 'Reminders'
+                  : active
+                    ? folderLabel(active)
+                    : 'Supermail'}
               </h1>
               <span className="list-meta">
                 {rows.length}
@@ -1055,6 +1450,27 @@ export default function App() {
                 </button>
               </div>
             )}
+            {actionError && (
+              <div className="sync-error-banner" role="alert">
+                <span>{actionError}</span>
+                <button onClick={() => setActionError(null)} aria-label="Dismiss">
+                  ✕
+                </button>
+              </div>
+            )}
+            {active && active.role !== 'drafts' && (
+              <SplitBar
+                splits={active.role === 'inbox' ? splits : null}
+                counts={splitCounts}
+                activeSplit={splitId}
+                chip={chip}
+                onSplit={(id) => {
+                  setSplit(id)
+                  reloadActive()
+                }}
+                onChip={toggleChip}
+              />
+            )}
             {rows.length > 0 && (
               <ActionBar
                 count={checkedIds.length}
@@ -1067,6 +1483,7 @@ export default function App() {
                 onMarkRead={() => void setThreadsRead(true)}
                 onMarkUnread={() => void setThreadsRead(false)}
                 onStar={() => void starSelected()}
+                onDone={() => void doneSelected()}
                 onTrash={() => void moveSelected({ role: 'trash' }, 'Trashed')}
               />
             )}
@@ -1086,10 +1503,25 @@ export default function App() {
                 emptySub={
                   syncError
                     ? 'Check your connection and try again.'
-                    : active
-                      ? `${folderLabel(active)} is empty`
-                      : ''
+                    : chip || (active?.role === 'inbox' && splitId !== 'all')
+                      ? 'Nothing matches this view'
+                      : active
+                        ? `${folderLabel(active)} is empty`
+                        : ''
                 }
+                emptyNode={
+                  isInboxZero({
+                    plainInbox: active?.role === 'inbox' && splitId === 'all' && !chip,
+                    total: totalRows,
+                    hasSyncedOnce,
+                    syncError
+                  }) ? (
+                    <ZeroState streak={streak} />
+                  ) : undefined
+                }
+                // Reminders sorts by due time, not received date, so date
+                // headers there would be out of order.
+                groupByDate={groupByDate && activeFolderId !== REMINDERS_VIEW_ID}
                 rows={rows}
                 selectedIndex={selectedIndex}
                 checkedIds={checkedIds}
@@ -1123,6 +1555,88 @@ export default function App() {
         />
       )}
       {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
+      {overlay?.kind === 'remind' && (
+        <RemindPicker
+          onPick={onRemindPick}
+          onClose={() => setOverlay(null)}
+          onClear={
+            overlay.hasReminder
+              ? async () => {
+                  setOverlay(null)
+                  await window.api.clearReminders(targetIds())
+                  void refreshRows()
+                }
+              : undefined
+          }
+        />
+      )}
+      {overlay?.kind === 'move' && (
+        <Picker
+          title="Move to"
+          items={folders
+            .filter((f) => f.id !== activeFolderId && f.role !== 'drafts')
+            .map((f) => ({ id: String(f.id), label: folderLabel(f) }))}
+          onClose={() => setOverlay(null)}
+          onPick={(id) => {
+            const fromThread = overlay.fromThread
+            setOverlay(null)
+            // From a thread, move the open thread's own ids, never the cursor row.
+            const move = (ids?: number[]) => moveSelected({ folderId: Number(id) }, 'Moved', ids)
+            void (fromThread ? triageFromThread(move) : move())
+          }}
+        />
+      )}
+      {overlay?.kind === 'label' && (
+        <Picker
+          title="Label"
+          items={overlay.items}
+          onClose={() => setOverlay(null)}
+          onPick={async (label) => {
+            const item = overlay.items.find((i) => i.id === label)
+            const add = !item?.checked
+            const r = await window.api.setLabel(overlay.ids, label, add)
+            if (!r.ok) return setActionError(r.error)
+            setOverlay({
+              ...overlay,
+              items: overlay.items.map((i) => (i.id === label ? { ...i, checked: add } : i))
+            })
+          }}
+        />
+      )}
+      {overlay?.kind === 'unsubscribe' && (
+        <ConfirmDialog
+          title={`Unsubscribe from ${overlay.sender}?`}
+          body={overlay.description}
+          confirmLabel="Unsubscribe"
+          onCancel={() => setOverlay(null)}
+          onConfirm={async () => {
+            const id = overlay.id
+            setOverlay(null)
+            const r = await window.api.unsubscribe(id)
+            if (!r.ok) setActionError(r.error)
+          }}
+        />
+      )}
+      {overlay?.kind === 'zero' && (
+        <ZeroModal
+          folderId={overlay.folderId}
+          onCancel={() => setOverlay(null)}
+          onDone={async (opts) => {
+            const fid = overlay.folderId
+            setOverlay(null)
+            const origin = viewKey(useStore.getState())
+            const r = await window.api.zero(fid, opts)
+            if (!r.ok) return setActionError(r.error === 'no archive folder' ? NO_ARCHIVE : r.error)
+            await loadRows(fid)
+            const n = r.moved.length
+            pushUndo(`Done ${n} message${n === 1 ? '' : 's'}`, r.holdMs, async () => {
+              const u = await window.api.undoMove(r.batchId)
+              if (!u.ok) return setActionError(u.error)
+              repaintAfterUndo(origin, [])
+            })
+          }}
+        />
+      )}
       {addingAccount && (
         <div className="onboard-overlay">
           <Onboarding
@@ -1132,21 +1646,14 @@ export default function App() {
           />
         </div>
       )}
-      {undoToast ? (
+      {undo && (
         <UndoToast
-          expiresAt={undoToast.expiresAt}
-          label={`Sending${undoToast.subject ? ` “${undoToast.subject}”` : ''}`}
-          onUndo={() => void onUndo(undoToast.outboxId)}
-          onDismiss={() => setUndoToast(null)}
+          expiresAt={undo.expiresAt}
+          label={undo.label}
+          onUndo={() => void runUndo()}
+          onDismiss={() => setUndo(null)}
         />
-      ) : moveToast ? (
-        <UndoToast
-          expiresAt={moveToast.expiresAt}
-          label={moveToast.label}
-          onUndo={() => void onUndoMove()}
-          onDismiss={() => setMoveToast(null)}
-        />
-      ) : null}
+      )}
     </div>
   )
 }

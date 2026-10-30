@@ -12,6 +12,8 @@ interface Job {
   messageId: number
   flag: string
   add: boolean
+  /** Write a Gmail label (X-GM-LABELS) instead of a flag. */
+  useLabels?: boolean
   attempt?: number
 }
 
@@ -66,7 +68,7 @@ export class FlagWriter {
         }
         try {
           await getPool(this.config).withConnection((client) =>
-            storeFlag(client, loc.path, loc.uid, job.flag, job.add)
+            storeFlag(client, loc.path, loc.uid, job.flag, job.add, job.useLabels ?? false)
           )
         } catch (err) {
           const attempt = (job.attempt ?? 0) + 1

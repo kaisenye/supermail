@@ -34,11 +34,35 @@ function likeParam(v: string): string {
   return `%${v.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`
 }
 
+/** `search` reads one message; `list` reads a list_rows row (alias lr) joined to its newest message (m). */
+export type QueryContext = 'search' | 'list'
+
+const VIP_SQL =
+  'EXISTS (SELECT 1 FROM vip_senders v WHERE v.account_id = lr.account_id AND v.address = lr.sender)'
+const REPLIED_SQL =
+  'EXISTS (SELECT 1 FROM replied_senders rs WHERE rs.account_id = lr.account_id AND rs.address = lr.sender)'
+/** VIPs, plus non-bulk mail from people you have written to. Other is its exact complement. */
+const IMPORTANT_SQL = `(${VIP_SQL} OR (lr.bulk = 0 AND ${REPLIED_SQL}))`
+
+/** `is:` values that read thread state from list_rows. List context only. */
+const LIST_IS: Record<string, string> = {
+  unread: 'lr.unread_count > 0',
+  read: 'lr.unread_count = 0',
+  starred: 'lr.flagged = 1',
+  flagged: 'lr.flagged = 1',
+  'needs-reply': 'lr.last_from_me = 0 AND lr.bulk = 0',
+  waiting: 'lr.last_from_me = 1',
+  bulk: 'lr.bulk = 1',
+  vip: VIP_SQL,
+  important: IMPORTANT_SQL,
+  other: `NOT ${IMPORTANT_SQL}`
+}
+
 /**
  * Split a query into FTS terms and SQL predicates. Anything that isn't a
  * recognised operator falls through as a literal term, so `foo:bar` still searches.
  */
-export function parseQuery(input: string): Parsed {
+export function parseQuery(input: string, ctx: QueryContext = 'search'): Parsed {
   const terms: string[] = []
   const predicates: Parsed['predicates'] = []
 
@@ -55,6 +79,10 @@ export function parseQuery(input: string): Parsed {
     }
     if (field === 'is') {
       const v = value.toLowerCase()
+      if (ctx === 'list' && Object.hasOwn(LIST_IS, v)) {
+        predicates.push({ sql: LIST_IS[v], params: [] })
+        continue
+      }
       if (v === 'unread' || v === 'read') {
         const f = hasFlagSql('\\seen')
         predicates.push({ sql: v === 'read' ? f.sql : `NOT ${f.sql}`, params: f.params })
@@ -232,4 +260,25 @@ export function searchMessages(
   // result is usually a real answer ("no unread from bob"), not a typo.
   if (rows.length || predicates.length || !terms.length) return rows
   return fuzzySearch(accountId, terms, limit)
+}
+
+/**
+ * Extra WHERE for a list view: predicates from a list-context query, plus
+ * bare words matched against the newest message through FTS. Starts with
+ * ' AND ' so it appends to listView's WHERE; empty when there is nothing to add.
+ */
+export function listWhere(query: string): { sql: string; params: unknown[] } {
+  const { terms, predicates } = parseQuery(query, 'list')
+  const parts: string[] = []
+  const params: unknown[] = []
+  for (const p of predicates) {
+    parts.push(predicates.length > 1 ? `(${p.sql})` : p.sql)
+    params.push(...p.params)
+  }
+  const fts = toFtsQuery(terms.join(' '))
+  if (fts) {
+    parts.push('m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)')
+    params.push(fts)
+  }
+  return parts.length ? { sql: ` AND ${parts.join(' AND ')}`, params } : { sql: '', params: [] }
 }

@@ -3,20 +3,18 @@ import { Link2, List, ListOrdered, Paperclip, X } from 'lucide-react'
 import { useCommandChord } from '../hooks/useCommandChord'
 import { applyLink, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
 import { LinkPrompt } from './LinkPrompt'
+import { RemindPicker } from './RemindPicker'
 import { RecipientField } from './RecipientField'
 import { useStore, type ComposeState } from '../store'
 
 interface Props {
   compose: ComposeState
   onClose: () => void
-  onSent: (outboxId: number, subject: string, undoMs: number) => void
+  onSent: (outboxId: number, subject: string, undoMs: number, immediate: boolean) => void
 }
 
-/** Undo grace before an immediate send actually leaves. */
-const SEND_DELAY_MS = 3_000
-
 const SCHEDULE_OPTS = [
-  { id: 'now', label: 'Send now', offsetMs: SEND_DELAY_MS },
+  { id: 'now', label: 'Send now', offsetMs: 0 },
   { id: '1h', label: 'In 1 hour', offsetMs: 3_600_000 },
   { id: 'tomorrow9', label: 'Tomorrow 9am', offsetMs: -1 },
   { id: 'monday9', label: 'Monday 9am', offsetMs: -2 }
@@ -31,9 +29,10 @@ const TOOLS = [
   { cmd: 'insertOrderedList', icon: ListOrdered, title: 'Numbered list' }
 ] as const
 
-function scheduleAt(id: string): number {
+/** null = now: main adds the undo window, whose length is a setting it owns. */
+function scheduleAt(id: string): number | null {
   const now = new Date()
-  if (id === 'now') return Date.now() + SEND_DELAY_MS
+  if (id === 'now') return null
   if (id === '1h') return Date.now() + 3_600_000
   if (id === 'tomorrow9') {
     const d = new Date(now)
@@ -56,6 +55,7 @@ export function Compose({ compose, onClose, onSent }: Props) {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showSchedule, setShowSchedule] = useState(false)
+  const [reminding, setReminding] = useState(false)
   const [linking, setLinking] = useState(false)
   const editorRef = useRef<HTMLDivElement>(null)
   const sendingRef = useRef(false)
@@ -119,7 +119,7 @@ export function Compose({ compose, onClose, onSent }: Props) {
   }, [compose.attachments, updateCompose])
 
   const persistAndQueue = useCallback(
-    async (sendAt: number) => {
+    async (sendAt: number | null) => {
       if (!compose.to.trim()) {
         setError('Add at least one recipient')
         return
@@ -161,14 +161,19 @@ export function Compose({ compose, onClose, onSent }: Props) {
           inReplyTo: compose.inReplyTo,
           references: compose.references,
           attachments: compose.attachments,
-          sendAt
+          sendAt,
+          remindAt: compose.remindAt
         })
         if (!queued.ok) {
           setError(queued.error)
           return
         }
-        const undoMs = Math.max(0, sendAt - Date.now())
-        onSent(queued.outboxId, compose.subject || '(no subject)', undoMs)
+        onSent(
+          queued.outboxId,
+          compose.subject || '(no subject)',
+          Math.max(0, queued.sendAt - Date.now()),
+          sendAt === null
+        )
         onClose()
       } finally {
         sendingRef.current = false
@@ -185,7 +190,9 @@ export function Compose({ compose, onClose, onSent }: Props) {
         handler: () => {
           if (!sending) void persistAndQueue(scheduleAt('now'))
         }
-      }
+      },
+      // Declared in commands.ts as compose.remind.
+      { key: 'h', shift: true, handler: () => setReminding(true) }
     ],
     [persistAndQueue, sending]
   )
@@ -193,14 +200,14 @@ export function Compose({ compose, onClose, onSent }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !showSchedule) {
+      if (e.key === 'Escape' && !showSchedule && !reminding) {
         e.preventDefault()
         onClose()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, showSchedule])
+  }, [onClose, showSchedule, reminding])
 
   return (
     <div className="compose">
@@ -247,6 +254,37 @@ export function Compose({ compose, onClose, onSent }: Props) {
           </button>
         </div>
       </header>
+      {compose.remindAt && (
+        <div className="compose-remind">
+          Remind me if no reply ·{' '}
+          {new Date(compose.remindAt).toLocaleString(undefined, {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+          })}
+          <button
+            type="button"
+            aria-label="Remove reminder"
+            onClick={() => updateCompose({ remindAt: null })}
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {/* Always "if no reply" (main sets it on send), so the checkbox only matters for h. */}
+      {reminding && (
+        <RemindPicker
+          title="Remind me if no reply"
+          defaultIfNoReply
+          onPick={(at) => {
+            setReminding(false)
+            updateCompose({ remindAt: at })
+          }}
+          onClose={() => setReminding(false)}
+        />
+      )}
       {error && (
         <div className="compose-error" role="alert">
           {error}

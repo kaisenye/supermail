@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'r
 import { Image as ImageIcon, Link2, Unlink } from 'lucide-react'
 import { applyLink, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
 import { LinkPrompt } from './LinkPrompt'
+import { TriageSettings } from './TriageSettings'
 import type { Theme } from '../theme'
 
 interface Props {
@@ -183,6 +184,8 @@ export function Settings({
               ))}
             </div>
           </section>
+
+          <TriageSettings />
 
           <section className="settings-section">
             <h3>Signature</h3>

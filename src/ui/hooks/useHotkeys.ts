@@ -10,8 +10,13 @@ export interface Binding {
   modes?: Mode[]
 }
 
+/** KeyboardEvent.key, except Shift+Tab, which reports 'Tab' but is its own binding. */
+export function eventKey(e: { key: string; shiftKey: boolean }): string {
+  return e.key === 'Tab' && e.shiftKey ? 'Shift+Tab' : e.key
+}
+
 /** True when focus is in an editable field — typing must not trigger shortcuts. */
-function isEditable(target: EventTarget | null): boolean {
+export function isEditable(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null
   if (!el) return false
   const tag = el.tagName
@@ -39,8 +44,9 @@ export function useHotkeys(mode: Mode, bindings: Binding[]): void {
       // Never hijack typing, except Escape which must always be reachable.
       if (isEditable(e.target) && e.key !== 'Escape') return
 
+      const key = eventKey(e)
       for (const b of bindings) {
-        if (b.key !== e.key) continue
+        if (b.key !== key) continue
         if (b.modes && !b.modes.includes(mode)) continue
         e.preventDefault()
         b.handler(e)

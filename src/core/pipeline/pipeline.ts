@@ -1,5 +1,6 @@
 import { clearMessageAttachments, writeAttachment } from '../store/attachments.js'
 import { getDb } from '../store/db.js'
+import { setMessageLabels } from '../store/labels.js'
 import { upsertMessage } from '../store/repo.js'
 import type { MsgCtx, Processor, RawMessage } from './types.js'
 
@@ -53,6 +54,7 @@ export async function runPipeline(
   const db = getDb()
   const id = db.transaction(() => {
     const msgId = upsertMessage(ctx.draft)
+    if (raw.labels) setMessageLabels(msgId, raw.accountId, raw.labels)
     if (ctx.attachments.length) {
       db.prepare('DELETE FROM attachments WHERE message_id = ?').run(msgId)
       try {

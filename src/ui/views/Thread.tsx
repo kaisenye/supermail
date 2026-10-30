@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  Archive,
   ArrowLeft,
   ArrowUpLeft,
   ArrowUpRight,
@@ -17,6 +18,7 @@ interface Props {
   onBack: () => void
   onReply: (all: boolean) => void
   onForward: () => void
+  onDone: () => void
   onTrash: () => void
   onStar: () => void
   onToggleRead: () => void
@@ -29,6 +31,7 @@ export function Thread({
   onBack,
   onReply,
   onForward,
+  onDone,
   onTrash,
   onStar,
   onToggleRead,
@@ -73,6 +76,9 @@ export function Thread({
           {messages.length} message{messages.length === 1 ? '' : 's'}
         </span>
         <div className="thread-actions">
+          <button type="button" title="Done (e)" aria-label="Done" onClick={onDone}>
+            <Archive size={15} strokeWidth={2} />
+          </button>
           <button type="button" title="Trash (⌫)" aria-label="Trash" onClick={onTrash}>
             <Trash2 size={15} strokeWidth={2} />
           </button>

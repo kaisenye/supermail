@@ -26,7 +26,9 @@ Fast local-first mail client (IMAP/SMTP, Gmail, Outlook). North star: Superhuman
 2. Envelopes before bodies; body backfill is background.
 3. Optimistic SQLite, then background IMAP (`FlagWriter` pattern for flags; same idea for moves/send).
 4. Exmail quirks: STATUS skip, app-specific password. Special folders are found by role (`folders.role`, from SPECIAL-USE then names) — never by path.
-5. Threading: IMAP `ENVELOPE` has no References (RFC 3501) — fetch the header explicitly or replies each become their own thread. Exmail strips References from its own sent mail, so the thread root comes from a union-find over every id a message mentions, spanning INBOX and Sent.
+5. Threading: IMAP `ENVELOPE` has no References (RFC 3501) — fetch the header explicitly or replies each become their own thread. Exmail strips References from its own sent mail, so the thread root comes from a union-find over every id a message mentions, spanning INBOX and Sent. Each set is named by the `threadKey` most members derive; after that, `upsertMessage` joins new mail to the thread of any stored message it mentions.
+6. Lists read `list_rows` (`src/core/store/listRows.ts`), one row per (folder, thread). Triggers on `messages` mark threads dirty in `list_dirty`; `refreshListRows()` rebuilds them before every list read, and `repairListDrift()` runs after each sync. Never GROUP BY messages for a list. List headers (`list_unsubscribe`, `bulk`) for pre-v18 mail are filled by `backfillListHeaders` (header lines only).
+7. Remind me and mute are local: they set `list_rows.hidden` for Inbox rows and never move anything on the server. Exmail's Archive folder is only created from Settings → Done folder.
 
 ## Pipeline
 
@@ -40,16 +42,23 @@ Central dispatcher: `src/ui/hooks/useHotkeys.ts`. Modes: `list` | `thread` | `co
 - Single-key bindings go through `useHotkeys`. `g` sequences listen in the capture phase and consume their keys, so the second key never fires its own shortcut.
 - Meta/Ctrl chords (Cmd+K, Cmd+Enter) use a dedicated listener — `useHotkeys` ignores modifiers on purpose.
 - Compose/modal swallow list nav keys.
+- A `KeySpec` may carry `modes`, so one key can mean different things per mode (`R` = reply all in a thread, needs-reply filter in the list). ⌘ chords may add `shift` (`⌘⇧H`).
+- Keys inside an open picker or dialog (arrows, Enter, Esc) are local to that component, like `CommandPalette`. Palette commands run in `baseMode` (`src/ui/appMode.ts`), never `modal`.
+- Triage keys in an open thread act on the open thread (`openThreadTarget`), never the list cursor.
 
 ## Schema
 
 - Append-only migrations in `src/core/store/migrate.ts`. Never edit shipped migrations.
 - Drafts: `messages.folder_id IS NULL`.
 - `folders.role` (`inbox|sent|drafts|trash|junk|archive|all`) is reassigned every sync; one folder per role per account. Use `folderByRole`.
+- Triage moves act on the whole thread in the current folder (`planMoves`); Done goes to `doneRole(provider)` (`archive`, or `all` on Gmail). `holdMove` applies them to SQLite at once and holds the IMAP MOVE for the undo window; backfill skips uids still queued in `move_jobs`.
 - `move_jobs` holds IMAP moves not yet confirmed (with the source mailbox's UIDVALIDITY, so a replay after a renumber is dropped); `MoveWriter.resume()` replays them at boot and after each sync.
 - Handlers that take message ids act on the owning account (`groupByAccount` / `ownerOf`), not the active one.
 - Multi-account: every message/folder query must filter `account_id`. `thread_id` collides across accounts (same mailing list), so thread reads scope by account too.
 - Outbox: `outbox` table for pending/scheduled/undo sends. **Scheduled send only flushes while the app is running.**
+- `reminders` / `mutes` are keyed by account + Message-ID; `vip_senders`, `replied_senders` (trigger-filled) and `splits` back the Important/Other/VIP splits. Splits and chips are list-context `search.ts` queries (`is:needs-reply`, `is:waiting`, `is:important`…).
+- `labels` / `message_labels` are account-scoped and hold Gmail X-GM-LABELS only.
+- One undo window: `settings.undo_seconds` (3/5/10/20), read by main through `undoWindowMs`; IPC results carry `holdMs` and the renderer's single `UndoEntry` (`z`) uses it.
 
 ## Commands / env
 
@@ -71,7 +80,8 @@ pnpm typecheck
 | B | Done | Compose / reply / SMTP send / Sent APPEND |
 | C | Done | Schedule send + 3s undo send |
 | D | Done | Selection + action bar; flags; archive/trash |
-| Later | — | Full history sync, AI triage, snooze |
+| Phase 2 | Done | Triage: list read model, Done, undo window, splits/chips, Remind me, mute, labels, unsubscribe, zero |
+| Later | — | Full history sync, AI triage |
 
 ## Code map
 
@@ -81,4 +91,6 @@ pnpm typecheck
 - `src/core/sync/` — IMAP sync, body fetch, flag writer (pools/watchers keyed per account)
 - `src/core/send/` — SMTP, outbox flush
 - `src/core/pipeline/` — parse + processors
+- `src/core/triage/` — move planning, reminders, local rules, unsubscribe, zero
+- `electron/ipcTriage.ts` — Phase 2 handlers
 - `src/ui/` — App, views, Zustand store, hotkeys

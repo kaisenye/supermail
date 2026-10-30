@@ -1,5 +1,6 @@
 import { getDb } from './db.js'
 import type { FolderRole } from './folderRoles.js'
+import { validId } from '../pipeline/threadKey.js'
 import type {
   Account,
   Folder,
@@ -93,23 +94,14 @@ export function folderByRole(accountId: number, role: FolderRole): Folder | unde
     .get(accountId, role) as Folder | undefined
 }
 
-/**
- * Unread per folder in one pass. json_each parses the flags array, so a folder
- * name or another flag containing "seen" can never be mistaken for \Seen.
- */
-export function unreadCounts(accountId: number): Record<number, number> {
-  const rows = getDb()
-    .prepare(
-      `SELECT folder_id, count(*) c FROM messages m
-       WHERE account_id = ? AND folder_id IS NOT NULL
-         AND NOT EXISTS (
-           SELECT 1 FROM json_each(COALESCE(m.flags, '[]'))
-           WHERE lower(json_each.value) = '\\seen'
-         )
-       GROUP BY folder_id`
-    )
-    .all(accountId) as { folder_id: number; c: number }[]
-  return Object.fromEntries(rows.map((r) => [r.folder_id, r.c]))
+/** Gives one folder a role if no folder of the account has it. False when taken or not found. */
+export function setFolderRole(accountId: number, path: string, role: FolderRole): boolean {
+  if (folderByRole(accountId, role)) return false
+  return (
+    getDb()
+      .prepare('UPDATE folders SET role = ? WHERE account_id = ? AND path = ? AND role IS NULL')
+      .run(role, accountId, path).changes > 0
+  )
 }
 
 export function setLastUid(folderId: number, uid: number): void {
@@ -135,13 +127,17 @@ export function resetFolder(folderId: number, uidvalidity: number): void {
 
 // ---- messages ----
 
-export function upsertMessage(m: UpsertMessageInput): number {
+export function upsertMessage(input: UpsertMessageInput): number {
+  const { references, ...m } = input
   const row = {
     body_text: null,
     body_html: null,
     has_attachments: 0,
     body_fetched: 0,
     entities: null,
+    list_unsubscribe: null,
+    unsubscribe_one_click: 0,
+    bulk: 0,
     // null = "leave stored flags alone"; only IMAP passes a real value.
     flags: null,
     ...m
@@ -174,11 +170,13 @@ export function upsertMessage(m: UpsertMessageInput): number {
       `INSERT INTO messages (
          account_id, folder_id, uid, message_id, thread_id, in_reply_to,
          from_addr, from_name, to_addrs, cc_addrs, subject, date, snippet,
-         body_text, body_html, flags, has_attachments, body_fetched, entities
+         body_text, body_html, flags, has_attachments, body_fetched, entities,
+         list_unsubscribe, unsubscribe_one_click, bulk
        ) VALUES (
          @account_id, @folder_id, @uid, @message_id, @thread_id, @in_reply_to,
          @from_addr, @from_name, @to_addrs, @cc_addrs, @subject, @date, @snippet,
-         @body_text, @body_html, @flags, @has_attachments, @body_fetched, @entities
+         @body_text, @body_html, @flags, @has_attachments, @body_fetched, @entities,
+         @list_unsubscribe, @unsubscribe_one_click, @bulk
        )
        ON CONFLICT(account_id, folder_id, uid) WHERE folder_id IS NOT NULL
        DO UPDATE SET
@@ -195,15 +193,79 @@ export function upsertMessage(m: UpsertMessageInput): number {
          snippet      = COALESCE(excluded.snippet, messages.snippet),
          has_attachments = MAX(excluded.has_attachments, messages.has_attachments),
          entities     = COALESCE(excluded.entities, messages.entities),
-         -- Only the body pass sees References/In-Reply-To: IMAP's ENVELOPE has
-         -- no References field, so a message synced envelope-first threads on
-         -- its own id until this corrects it.
-         thread_id    = COALESCE(excluded.thread_id, messages.thread_id),
+         list_unsubscribe = COALESCE(excluded.list_unsubscribe, messages.list_unsubscribe),
+         unsubscribe_one_click = MAX(excluded.unsubscribe_one_click, messages.unsubscribe_one_click),
+         bulk = MAX(excluded.bulk, messages.bulk),
+         -- A message still threaded on its own id (or not at all) takes the
+         -- new key: Exmail's ENVELOPE has no In-Reply-To, so the body pass can
+         -- know more. Any other thread_id came from a pass that saw more than
+         -- this one message (the account-wide rethread union), and re-deriving
+         -- it per message would split the conversation until every body is in.
+         thread_id    = CASE
+                          WHEN messages.thread_id IS NULL
+                            OR messages.thread_id = messages.message_id
+                          THEN COALESCE(excluded.thread_id, messages.thread_id)
+                          ELSE messages.thread_id
+                        END,
          in_reply_to  = COALESCE(excluded.in_reply_to, messages.in_reply_to)
        RETURNING id`
     )
     .get(row) as { id: number }
+  joinMentionedThread(row.account_id, info.id, row.message_id, [
+    ...(references ?? []),
+    ...(row.in_reply_to ? [row.in_reply_to] : [])
+  ])
   return info.id
+}
+
+/**
+ * Puts a message in the same thread as every stored message it mentions.
+ *
+ * The account-wide rethread union runs once; after that each message is keyed
+ * on its own headers (references[0]). An Exmail chain has gaps — its Sent mail
+ * carries In-Reply-To but no References — so a later reply can key on the Sent
+ * reply's id while that reply sits in the root's thread, splitting the
+ * conversation for good. This is the union step for one message: adopt the
+ * thread of the first stored message it mentions (References are root first),
+ * and fold in any fragment keyed on one of those ids, on this message's own id
+ * (replies that arrived before it), or on its current thread.
+ */
+function joinMentionedThread(
+  accountId: number,
+  id: number,
+  ownId: string | null,
+  mentioned: string[]
+): void {
+  const own = validId(ownId)
+  const ids = [...new Set(mentioned.map(validId).filter((x): x is string => x !== null && x !== own))]
+  if (!ids.length && !own) return
+  const db = getDb()
+  const current = (
+    db.prepare('SELECT thread_id FROM messages WHERE id = ?').get(id) as { thread_id: string | null }
+  ).thread_id
+  if (current === null) return
+
+  let found: { message_id: string; thread_id: string }[] = []
+  if (ids.length) {
+    found = db
+      .prepare(
+        `SELECT message_id, thread_id FROM messages
+          WHERE account_id = ? AND thread_id IS NOT NULL
+            AND message_id IN (${ids.map(() => '?').join(',')})`
+      )
+      .all(accountId, ...ids) as { message_id: string; thread_id: string }[]
+  }
+  const threadOf = new Map(found.map((f) => [f.message_id, f.thread_id]))
+  const first = ids.find((x) => threadOf.has(x))
+  const target = first ? threadOf.get(first)! : current
+
+  const fold = new Set([...ids, ...found.map((f) => f.thread_id), current, ...(own ? [own] : [])])
+  fold.delete(target)
+  if (!fold.size) return
+  db.prepare(
+    `UPDATE messages SET thread_id = ?
+      WHERE account_id = ? AND thread_id IN (${[...fold].map(() => '?').join(',')})`
+  ).run(target, accountId, ...fold)
 }
 
 export function setBody(
@@ -320,65 +382,21 @@ export function groupByAccount(ids: number[]): Map<number, number[]> {
 }
 
 /**
- * One row per thread, newest first, each carrying its own message count and
- * unread count.
- *
- * Three statements rather than one: grouping the folder is fast, but a single
- * query that also reads flags degrades into a row fetch per message. Selecting
- * the page first keeps the aggregate and the row fetch bound to the ~50 threads
- * actually on screen.
+ * `id`, then every other message of its thread in the same folder. A list row
+ * stands for its whole thread, so triaging the row must move all of them.
  */
-export function listInbox(
-  folderId: number,
-  limit = 100,
-  offset = 0
-): MessageListRow[] {
-  const db = getDb()
-
-  // id tracks sync order, not date, so the newest message must be picked by
-  // date. SQLite's bare-column rule returns the id from the MAX(date) row.
-  const page = db
+export function threadMatesInFolder(id: number): number[] {
+  const m = getDb()
+    .prepare('SELECT account_id, folder_id, thread_id FROM messages WHERE id = ?')
+    .get(id) as { account_id: number; folder_id: number | null; thread_id: string | null } | undefined
+  if (!m) return []
+  if (m.folder_id === null || m.thread_id === null) return [id]
+  const rows = getDb()
     .prepare(
-      `SELECT thread_id, MAX(date) AS date, id AS newest_id
-         FROM messages
-        WHERE folder_id = ?
-        GROUP BY thread_id
-        ORDER BY date DESC
-        LIMIT ? OFFSET ?`
+      'SELECT id FROM messages WHERE account_id = ? AND folder_id = ? AND thread_id = ? ORDER BY id DESC'
     )
-    .all(folderId, limit, offset) as { thread_id: string; newest_id: number }[]
-
-  if (!page.length) return []
-
-  const holes = page.map(() => '?').join(',')
-  const threadIds = page.map((p) => p.thread_id)
-
-  const stats = db
-    .prepare(
-      `SELECT thread_id, COUNT(*) AS n,
-              SUM(CASE WHEN NOT EXISTS (
-                    SELECT 1 FROM json_each(COALESCE(m.flags, '[]'))
-                     WHERE lower(json_each.value) = '\\seen'
-                  ) THEN 1 ELSE 0 END) AS unread
-         FROM messages m
-        WHERE folder_id = ? AND thread_id IN (${holes})
-        GROUP BY thread_id`
-    )
-    .all(folderId, ...threadIds) as { thread_id: string; n: number; unread: number }[]
-  const statFor = new Map(stats.map((r) => [r.thread_id, r]))
-
-  const rows = db
-    .prepare(`SELECT ${LIST_COLS} FROM messages WHERE id IN (${holes})`)
-    .all(...page.map((p) => p.newest_id)) as MessageListRow[]
-  const rowFor = new Map(rows.map((r) => [r.id, r]))
-
-  // Rebuilt from `page` so the caller's order survives the IN lookup.
-  return page.flatMap((p) => {
-    const row = rowFor.get(p.newest_id)
-    if (!row) return []
-    const st = statFor.get(p.thread_id)
-    return [{ ...row, thread_count: st?.n ?? 1, thread_unread: st?.unread ?? 0 }]
-  })
+    .all(m.account_id, m.folder_id, m.thread_id) as { id: number }[]
+  return [id, ...rows.map((r) => r.id).filter((x) => x !== id)]
 }
 
 /**
@@ -450,15 +468,6 @@ function accountEmail(accountId: number): string | null {
     .prepare('SELECT email FROM accounts WHERE id = ?')
     .get(accountId) as { email: string } | undefined
   return row?.email ?? null
-}
-
-/** Row count for a folder — drives the page indicator, so it must match listInbox. */
-export function countInbox(folderId: number): number {
-  return (
-    getDb()
-      .prepare('SELECT count(*) c FROM messages WHERE folder_id = ?')
-      .get(folderId) as { c: number }
-  ).c
 }
 
 /** Mirrors listDrafts' WHERE exactly, including the server-twin suppression. */

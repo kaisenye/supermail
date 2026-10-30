@@ -1,7 +1,8 @@
-import { ImapFlow, type ListResponse } from 'imapflow'
+import { ImapFlow, type FetchMessageObject, type FetchQueryObject, type ListResponse } from 'imapflow'
 import type { AccountConfig } from '../accounts/config.js'
 import type { RawMessage } from '../pipeline/types.js'
 import { resolveAuth } from '../accounts/auth.js'
+import { listHeadersFrom } from '../pipeline/listHeaders.js'
 
 export interface MailboxInfo {
   path: string
@@ -103,7 +104,8 @@ export function ensureMessageIdFormat(value: string): string | null {
 export function parseReferences(headers: Buffer | undefined): string[] | null {
   if (!headers) return null
   // Unfold continuation lines (CRLF + WSP) before matching the field body.
-  const m = /^references:\s*([\s\S]*?)$/im.exec(
+  // Stay on one line: other fetched header fields follow References.
+  const m = /^references:[ \t]*(.*)$/im.exec(
     headers.toString('utf8').replace(/\r?\n[ \t]+/g, ' ')
   )
   if (!m) return null
@@ -112,6 +114,49 @@ export function parseReferences(headers: Buffer | undefined): string[] | null {
     .map(ensureMessageIdFormat)
     .filter((r): r is string => r !== null)
   return refs.length ? refs : null
+}
+
+/** Header lines pulled with every envelope: threading plus list detection. */
+export const ENVELOPE_HEADERS = [
+  'references',
+  'list-unsubscribe',
+  'list-unsubscribe-post',
+  'list-id',
+  'precedence',
+  'auto-submitted'
+]
+
+/** imapflow only sends X-GM-LABELS when the server has X-GM-EXT-1, so this is safe everywhere. */
+export const ENVELOPE_QUERY: FetchQueryObject = {
+  uid: true,
+  envelope: true,
+  flags: true,
+  labels: true,
+  headers: [...ENVELOPE_HEADERS]
+}
+
+/** One fetched envelope as pipeline input. Shared by sync and backfill so they cannot drift. */
+export function envelopeToRaw(msg: FetchMessageObject, accountId: number, folderId: number): RawMessage {
+  return {
+    accountId,
+    folderId,
+    uid: msg.uid,
+    envelope: {
+      messageId: msg.envelope?.messageId ? ensureMessageIdFormat(msg.envelope.messageId) : null,
+      inReplyTo: msg.envelope?.inReplyTo ? ensureMessageIdFormat(msg.envelope.inReplyTo) : null,
+      references: parseReferences(msg.headers),
+      from: msg.envelope?.from?.[0]
+        ? { address: msg.envelope.from[0].address, name: msg.envelope.from[0].name }
+        : null,
+      to: msg.envelope?.to?.map((a) => ({ address: a.address, name: a.name })) ?? [],
+      cc: msg.envelope?.cc?.map((a) => ({ address: a.address, name: a.name })) ?? [],
+      subject: msg.envelope?.subject ?? null,
+      date: msg.envelope?.date ?? null
+    },
+    flags: msg.flags ? [...msg.flags] : [],
+    listHeaders: msg.headers ? listHeadersFrom(msg.headers.toString('utf8')) : undefined,
+    labels: msg.labels ? [...msg.labels] : undefined
+  }
 }
 
 /**
@@ -143,37 +188,10 @@ export async function fetchEnvelopes(
     }
 
     const range = `${opts.sinceUid + 1}:*`
-    for await (const msg of client.fetch(
-      range,
-      // ENVELOPE carries message-id/in-reply-to but not references (RFC 3501),
-      // so pull that one header line too — threading needs it on this pass.
-      { uid: true, envelope: true, flags: true, headers: ['references'] },
-      { uid: true }
-    )) {
+    for await (const msg of client.fetch(range, ENVELOPE_QUERY, { uid: true })) {
       // `n:*` always returns at least one message even when none match.
       if (msg.uid <= opts.sinceUid) continue
-      messages.push({
-        accountId: opts.accountId,
-        folderId: opts.folderId,
-        uid: msg.uid,
-        envelope: {
-          messageId: msg.envelope?.messageId
-            ? ensureMessageIdFormat(msg.envelope.messageId)
-            : null,
-          inReplyTo: msg.envelope?.inReplyTo
-            ? ensureMessageIdFormat(msg.envelope.inReplyTo)
-            : null,
-          references: parseReferences(msg.headers),
-          from: msg.envelope?.from?.[0]
-            ? { address: msg.envelope.from[0].address, name: msg.envelope.from[0].name }
-            : null,
-          to: msg.envelope?.to?.map((a) => ({ address: a.address, name: a.name })) ?? [],
-          cc: msg.envelope?.cc?.map((a) => ({ address: a.address, name: a.name })) ?? [],
-          subject: msg.envelope?.subject ?? null,
-          date: msg.envelope?.date ?? null
-        },
-        flags: msg.flags ? [...msg.flags] : []
-      })
+      messages.push(envelopeToRaw(msg, opts.accountId, opts.folderId))
     }
 
     // Newest first, so the most recent N survive the cap.
@@ -207,20 +225,42 @@ export async function fetchFlags(
   return out
 }
 
-/** Add or remove one IMAP flag on a message by UID. */
+/** UID -> Gmail labels for a mailbox. Empty on servers without X-GM-EXT-1. */
+export async function fetchLabels(client: ImapFlow, path: string): Promise<Map<number, string[]>> {
+  const out = new Map<number, string[]>()
+  const lock = await client.getMailboxLock(path)
+  try {
+    const mb = client.mailbox
+    if (!mb || typeof mb === 'boolean' || mb.exists === 0) return out
+    for await (const msg of client.fetch('1:*', { uid: true, labels: true }, { uid: true })) {
+      if (msg.labels) out.set(msg.uid, [...msg.labels])
+    }
+  } finally {
+    lock.release()
+  }
+  return out
+}
+
+/** Add or remove one IMAP flag, or with `useLabels` one Gmail label, on a message by UID. */
 export async function storeFlag(
   client: ImapFlow,
   path: string,
   uid: number,
   flag: string,
-  add: boolean
+  add: boolean,
+  useLabels = false
 ): Promise<void> {
   const lock = await client.getMailboxLock(path)
   try {
-    if (add) {
-      await client.messageFlagsAdd(String(uid), [flag], { uid: true })
-    } else {
-      await client.messageFlagsRemove(String(uid), [flag], { uid: true })
+    // imapflow returns false instead of throwing on a NO/BAD reply (or no
+    // X-GM-EXT-1), so a rejected STORE would otherwise look like success.
+    const ok = add
+      ? await client.messageFlagsAdd(String(uid), [flag], { uid: true, useLabels })
+      : await client.messageFlagsRemove(String(uid), [flag], { uid: true, useLabels })
+    if (!ok) {
+      throw Object.assign(new Error(`STORE ${useLabels ? 'X-GM-LABELS' : 'FLAGS'} rejected`), {
+        responseStatus: 'NO'
+      })
     }
   } finally {
     lock.release()

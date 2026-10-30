@@ -2,8 +2,14 @@ import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { basename, extname } from 'path'
 import { copyFileSync, readFileSync, statSync } from 'fs'
 import { attachmentPath, signatureLogoPath } from '../src/core/store/attachments.js'
+import { undoWindowMs } from '../src/core/triage/undoWindow.js'
+import { planMoves, type PlannedMove } from '../src/core/triage/movePlan.js'
+import { dropFiredReminders, type ReminderSnapshot } from '../src/core/triage/reminders.js'
+import { rollbackMoves } from '../src/core/triage/moveUndo.js'
 import {
   backfillFolder,
+  listHeadersDone,
+  repairListHeaders,
   repairThreading,
   rethreadDone,
   syncAccount
@@ -44,7 +50,6 @@ import {
   countDrafts,
   deleteAccount,
   listAccounts as storedAccounts,
-  countInbox,
   createDraft,
   searchContacts,
   accountOfMessage,
@@ -54,31 +59,27 @@ import {
   getMessage,
   getSettings,
   setSetting,
-  getMessageLocation,
   groupByAccount,
   getThread,
   listAttachments,
   listDrafts,
   listInlineParts,
-  getFolder,
   listFolders,
-  listInbox,
   moveMessage,
   removeFlag,
-  restoreMessage,
   searchMessages,
   toggleFlag,
-  unreadCounts,
   updateDraft
 } from '../src/core/store/repo.js'
+import { countView, listView, repairListDrift, unreadCounts } from '../src/core/store/listRows.js'
 import type { MoveTarget } from '../src/core/store/folderRoles.js'
-import type { Folder } from '../src/core/store/types.js'
 import { sanitizeEmailHtml, textToHtml } from '../src/core/render/sanitize.js'
 import { htmlToPlainText } from '../src/core/send/mime.js'
 import {
   cancelOutbox,
   enqueueOutbox,
-  listPendingOutbox
+  listPendingOutbox,
+  remindAtError
 } from '../src/core/send/outbox.js'
 import {
   addAccount as addAccountToState,
@@ -106,18 +107,17 @@ function logoMime(ext: string): string {
   return LOGO_MIMES[ext.toLowerCase()] ?? 'application/octet-stream'
 }
 
-export const UNDO_SEND_MS = 3_000
-export const UNDO_MOVE_MS = 3_000
-
 // All keyed by accountId — a shared flag would let one account's in-flight
 // sync suppress another's, and a shared writer would target the wrong server.
 const syncing = new Set<number>()
+/** Accounts with a one-time header repair running, so a second sync does not start another. */
+const repairing = new Set<number>()
 const bodySyncing = new Set<number>()
 const backfilling = new Set<number>()
 const flagWriters = new Map<number, FlagWriter>()
 const moveWriters = new Map<number, MoveWriter>()
 
-function flagWriterFor(accountId: number, config: AccountConfig): FlagWriter {
+export function flagWriterFor(accountId: number, config: AccountConfig): FlagWriter {
   let w = flagWriters.get(accountId)
   if (!w) {
     w = new FlagWriter(config)
@@ -150,21 +150,27 @@ function ownerOf(messageId: number): LiveAccount | null {
   return accountId === null ? null : getAccount(accountId)
 }
 
-interface PendingMove {
-  id: number
-  accountId: number
-  fromFolderId: number
-  fromPath: string
-  uid: number
-  toPath: string
-  uidValidity: number | null
-}
-
 let moveBatchSeq = 0
 const pendingMoves = new Map<
   number,
-  { jobs: PendingMove[]; timer: ReturnType<typeof setTimeout> }
+  {
+    jobs: PlannedMove[]
+    /** Fired reminders the move dropped; undo puts them back. */
+    reminders: ReminderSnapshot[]
+    timer: ReturnType<typeof setTimeout>
+  }
 >()
+
+/**
+ * Source uids of held moves out of one mailbox. The server still has them
+ * there until commitMove, so a backfill must not store them again.
+ */
+function heldSourceUids(accountId: number, fromPath: string): number[] {
+  const out: number[] = []
+  for (const b of pendingMoves.values())
+    for (const j of b.jobs) if (j.accountId === accountId && j.fromPath === fromPath) out.push(j.uid)
+  return out
+}
 
 /** Undo window elapsed — the IMAP MOVE is now safe to issue. */
 function commitMove(batchId: number): void {
@@ -260,18 +266,36 @@ interface ComposeAttachment {
 
 interface QueueSendPayload extends DraftPayload {
   draftId: number
-  sendAt: number
+  /** null = now, after the undo window. */
+  sendAt: number | null
   attachments?: ComposeAttachment[]
+  /** "Remind me if no reply": saved as a reminder once the mail is sent. */
+  remindAt?: number | null
 }
 
-function resolveMoveTarget(accountId: number, target: MoveTarget): Folder | undefined {
-  if ('role' in target) return folderByRole(accountId, target.role)
-  const f = getFolder(target.folderId)
-  return f?.account_id === accountId ? f : undefined
-}
-
-function missingTargetError(target: MoveTarget): string {
-  return 'role' in target ? `no ${target.role} folder` : 'unknown folder'
+/**
+ * Applies moves to SQLite now and holds the IMAP MOVEs for the undo window.
+ * Exported for triage handlers (Get me to zero) so every move shares one hold
+ * and one undo path.
+ */
+export function holdMove(
+  ids: number[],
+  target: MoveTarget
+):
+  | { ok: true; batchId: number; moved: number[]; holdMs: number }
+  | { ok: false; error: string } {
+  const r = planMoves(ids, target, (accountId) => getAccount(accountId)?.config.provider ?? null)
+  if (!r.ok) return r
+  const holdMs = undoWindowMs(getSettings())
+  if (!r.plan.length) return { ok: true, batchId: 0, moved: [], holdMs }
+  // Acting on a fired reminder's thread is what it was waiting for. By thread:
+  // the reminder may sit on a message this move does not touch (the Sent copy).
+  const reminders = dropFiredReminders(r.plan.map((p) => p.id))
+  for (const p of r.plan) moveMessage(p.id, p.toFolderId)
+  const batchId = ++moveBatchSeq
+  const timer = setTimeout(() => commitMove(batchId), holdMs)
+  pendingMoves.set(batchId, { jobs: r.plan, reminders, timer })
+  return { ok: true, batchId, moved: r.plan.map((p) => p.id), holdMs }
 }
 
 export function registerIpc(): void {
@@ -418,52 +442,25 @@ export function registerIpc(): void {
     }
   )
 
-  // Optimistic local move now; the IMAP MOVE is held for UNDO_MOVE_MS so undo
+  // Optimistic local move now; the IMAP MOVE is held for the undo window so undo
   // is a local rollback rather than a compensating reverse MOVE on the server.
-  ipcMain.handle('messages:move', (_e, ids: number[], target: MoveTarget) => {
-    // Resolve every destination before touching SQLite, so a missing folder on
-    // one account cannot leave a half-applied move behind.
-    const plan: { job: PendingMove; destId: number }[] = []
-    for (const [accountId, own] of groupByAccount(ids)) {
-      if (!getAccount(accountId)) continue
-      const dest = resolveMoveTarget(accountId, target)
-      if (!dest) return { ok: false as const, error: missingTargetError(target) }
-      for (const id of own) {
-        const loc = getMessageLocation(id)
-        // No uid: already mid-move (an earlier optimistic move nulled it).
-        if (!loc?.uid || loc.folder_id === dest.id) continue
-        plan.push({
-          destId: dest.id,
-          job: {
-            id,
-            accountId,
-            fromFolderId: loc.folder_id,
-            fromPath: loc.path,
-            uid: loc.uid,
-            toPath: dest.path,
-            uidValidity: getFolder(loc.folder_id)?.uidvalidity ?? null
-          }
-        })
-      }
-    }
-    if (!plan.length) return { ok: true as const, batchId: 0, moved: [] as number[] }
-
-    for (const p of plan) moveMessage(p.job.id, p.destId)
-    const jobs = plan.map((p) => p.job)
-    const batchId = ++moveBatchSeq
-    const timer = setTimeout(() => commitMove(batchId), UNDO_MOVE_MS)
-    pendingMoves.set(batchId, { jobs, timer })
-    return { ok: true as const, batchId, moved: jobs.map((j) => j.id) }
-  })
+  ipcMain.handle('messages:move', (_e, ids: number[], target: MoveTarget) => holdMove(ids, target))
 
   // Undo before the window expires: nothing reached the server, so putting the
   // rows back locally is the whole rollback.
+  // One transaction, run while the batch is still pending: if it fails nothing
+  // changed locally and the batch's timer still commits the move, so SQLite and
+  // the server never split.
   ipcMain.handle('messages:undoMove', (_e, batchId: number) => {
     const batch = pendingMoves.get(batchId)
     if (!batch) return { ok: false as const, error: 'undo window expired' }
+    try {
+      rollbackMoves(batch.jobs, batch.reminders)
+    } catch (e) {
+      return { ok: false as const, error: `Undo failed: ${(e as Error).message}` }
+    }
     clearTimeout(batch.timer)
     pendingMoves.delete(batchId)
-    for (const j of batch.jobs) restoreMessage(j.id, j.fromFolderId, j.uid)
     return { ok: true as const, restored: batch.jobs.map((j) => j.id) }
   })
 
@@ -547,8 +544,10 @@ export function registerIpc(): void {
     }))
   })
 
-  ipcMain.handle('messages:list', (_e, folderId: number, limit = 100, offset = 0) =>
-    listInbox(folderId, limit, offset)
+  ipcMain.handle(
+    'messages:list',
+    (_e, folderId: number, limit = 100, offset = 0, query = '') =>
+      listView(folderId, { limit, offset, query })
   )
 
   // Local drafts live outside any folder, so the Drafts view cannot be a plain
@@ -561,13 +560,13 @@ export function registerIpc(): void {
   })
 
   // Total rows behind the current view, so the UI can show "Page 2 of 41".
-  ipcMain.handle('messages:count', (_e, folderId: number) => {
+  ipcMain.handle('messages:count', (_e, folderId: number, query = '') => {
     const s = getBootState()
     if (!s.ok) return 0
     const drafts = folderByRole(s.accountId, 'drafts')
     return drafts && drafts.id === folderId
       ? countDrafts(s.accountId, drafts.id)
-      : countInbox(folderId)
+      : countView(folderId, { query })
   })
 
   ipcMain.handle('contacts:search', (_e, query: string, limit = 8) => {
@@ -593,7 +592,9 @@ export function registerIpc(): void {
     if (backfilling.has(s.accountId)) return { ok: false as const, error: 'already loading' }
     backfilling.add(s.accountId)
     try {
-      const r = await backfillFolder(s.accountId, s.config, folder, limit)
+      const r = await backfillFolder(s.accountId, s.config, folder, limit, () =>
+        heldSourceUids(s.accountId, folder.path)
+      )
       return { ok: true as const, ...r }
     } catch (e) {
       return { ok: false as const, error: (e as Error).message }
@@ -734,6 +735,9 @@ export function registerIpc(): void {
     if (!s.ok) return { ok: false as const, error: s.error }
     if (!payload.to?.trim()) return { ok: false as const, error: 'missing recipients' }
     try {
+      const sendAt = payload.sendAt ?? Date.now() + undoWindowMs(getSettings())
+      const remindErr = remindAtError(payload.remindAt, sendAt)
+      if (remindErr) return { ok: false as const, error: remindErr }
       const html = payload.body ?? ''
       const text = htmlToPlainText(html)
       updateDraft(payload.draftId, {
@@ -763,7 +767,8 @@ export function registerIpc(): void {
         attachments: payload.attachments?.length
           ? JSON.stringify(payload.attachments)
           : null,
-        send_at: payload.sendAt
+        send_at: sendAt,
+        remind_at: payload.remindAt ?? null
       })
       return { ok: true as const, outboxId: row.id, sendAt: row.send_at }
     } catch (e) {
@@ -781,7 +786,7 @@ export function registerIpc(): void {
     const s = getBootState()
     if (!s.ok) return []
     return listPendingOutbox(s.accountId)
-      .filter((r) => r.send_at > Date.now() + UNDO_SEND_MS)
+      .filter((r) => r.send_at > Date.now() + undoWindowMs(getSettings()))
       .map((r) => ({
         id: r.id,
         to_addrs: r.to_addrs,
@@ -966,18 +971,34 @@ export async function runSyncFor(
         for (const w of BrowserWindow.getAllWindows()) w.webContents.send('sync:progress', p)
       }
     })
+    // The read model is trigger-maintained; this catches anything that slipped
+    // past the triggers (a crash mid-rebuild, a manual DB edit).
+    const drifted = repairListDrift(s.accountId)
+    if (drifted.length) console.warn(`[listRows] repaired drift in folders ${drifted.join(', ')}`)
     // The server just answered, so moves deferred while offline can go now.
     resumePendingMoves(s.accountId, s.config)
-    // One-time threading repair, in the background: it re-reads every header
-    // in the mailbox and must not delay the list the user is waiting on.
-    if (!rethreadDone(s.accountId)) {
-      void repairThreading(s.accountId, s.config)
-        .then((r) => {
-          if (r.skipped || !r.updated) return
-          for (const w of BrowserWindow.getAllWindows())
-            w.webContents.send('threading:repaired', { updated: r.updated })
-        })
-        .catch((e) => console.error('[rethread] failed:', e))
+    // One-time header repairs, in the background: each re-reads every header
+    // in the mailbox and must not delay the list the user is waiting on. Run
+    // one after the other so they never hold two extra connections at once.
+    if (!repairing.has(s.accountId) && (!rethreadDone(s.accountId) || !listHeadersDone(s.accountId))) {
+      const { accountId, config } = s
+      repairing.add(accountId)
+      void (async () => {
+        try {
+          const r = await repairThreading(accountId, config)
+          if (!r.skipped && r.updated) {
+            for (const w of BrowserWindow.getAllWindows())
+              w.webContents.send('threading:repaired', { updated: r.updated })
+          }
+        } catch (e) {
+          console.error('[rethread] failed:', e)
+        }
+        try {
+          await repairListHeaders(accountId, config)
+        } catch (e) {
+          console.error('[listHeaders] backfill failed:', e)
+        }
+      })().finally(() => repairing.delete(accountId))
     }
     return { ok: true, ...result, skipped: false }
   } catch (e) {

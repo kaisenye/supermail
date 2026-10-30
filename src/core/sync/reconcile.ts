@@ -1,6 +1,7 @@
 import type { ImapFlow } from 'imapflow'
 import { deleteMessageLocal, listFlagState, setFlags } from '../store/repo.js'
-import { fetchFlags } from './imap.js'
+import { setMessageLabels } from '../store/labels.js'
+import { fetchFlags, fetchLabels } from './imap.js'
 
 export interface ReconcileResult {
   /** Messages whose flags differed from the server and were corrected. */
@@ -21,7 +22,7 @@ export async function reconcileFolder(
   client: ImapFlow,
   path: string,
   folderId: number,
-  opts: { skipIds?: Set<number>; dropVanished?: boolean } = {}
+  opts: { skipIds?: Set<number>; dropVanished?: boolean; labelsAccountId?: number } = {}
 ): Promise<ReconcileResult> {
   const skip = opts.skipIds ?? new Set<number>()
   const local = listFlagState(folderId)
@@ -51,6 +52,16 @@ export async function reconcileFolder(
     if (sameFlags(row.flags, serverFlags)) continue
     setFlags(row.id, JSON.stringify(serverFlags))
     updated++
+  }
+
+  // Gmail labels change in the web UI without touching flags or UIDNEXT.
+  if (opts.labelsAccountId !== undefined) {
+    const labels = await fetchLabels(client, path)
+    for (const row of local) {
+      const l = labels.get(row.uid)
+      if (!l || skip.has(row.id)) continue
+      if (setMessageLabels(row.id, opts.labelsAccountId, l)) updated++
+    }
   }
 
   return { updated, vanished }

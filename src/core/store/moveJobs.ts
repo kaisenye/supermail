@@ -37,3 +37,12 @@ export function listMoveJobs(accountId: number): MoveJobRow[] {
 export function deleteMoveJob(id: number): void {
   getDb().prepare('DELETE FROM move_jobs WHERE id = ?').run(id)
 }
+
+/** Source uids of queued moves out of one mailbox: the server still has them there until the MOVE lands. */
+export function queuedSourceUids(accountId: number, fromPath: string): number[] {
+  return (
+    getDb()
+      .prepare('SELECT uid FROM move_jobs WHERE account_id = ? AND from_path = ?')
+      .all(accountId, fromPath) as { uid: number }[]
+  ).map((r) => r.uid)
+}

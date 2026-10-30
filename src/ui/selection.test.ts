@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import { useStore } from './store.js'
 
 interface Sel {
   checkedIds: number[]
@@ -120,9 +121,26 @@ describe('row click wiring', () => {
   it('routes a shift-click on the row into the range handler', () => {
     // Anchored on onSelect so it cannot pass by matching the checkbox handler,
     // which has its own identical-looking shiftKey branch.
-    const rowHandler = list.match(/onClick=\{\(e\) => \{[\s\S]*?onSelect\(item\.index\)[\s\S]*?\}\}/)
+    const rowHandler = list.match(/onClick=\{\(e\) => \{[\s\S]*?onSelect\(index\)[\s\S]*?\}\}/)
     expect(rowHandler).not.toBeNull()
     expect(rowHandler?.[0]).toContain('e.shiftKey')
-    expect(rowHandler?.[0]).toContain('onToggleCheck(r.id, item.index, true)')
+    expect(rowHandler?.[0]).toContain('onToggleCheck(r.id, index, true)')
+  })
+})
+
+describe('extendSelection (⇧J / ⇧K)', () => {
+  it('checks the cursor row and the next one, and moves the cursor', () => {
+    useStore.setState({
+      rows: ROWS.map((r) => ({ id: r.id })) as never,
+      selectedIndex: 2,
+      checkedIds: [],
+      lastCheckedIndex: null
+    })
+    useStore.getState().extendSelection(1)
+    useStore.getState().extendSelection(1)
+    expect(useStore.getState().checkedIds).toEqual([102, 103, 104])
+    expect(useStore.getState().selectedIndex).toBe(4)
+    useStore.getState().extendSelection(-10)
+    expect(useStore.getState().selectedIndex).toBe(0)
   })
 })

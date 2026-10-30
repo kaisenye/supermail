@@ -61,14 +61,24 @@ Built for power users and small teams who want Superhuman-like speed without sur
 **Accounts**
 - Gmail and Microsoft 365 / Outlook via OAuth (no app passwords)
 - Any IMAP/SMTP host with a password (Exmail, Fastmail, iCloud, …)
-- Gmail syncs system folders only (INBOX, Sent, Drafts, Trash, Spam); labels arrive in a later phase
+- Gmail syncs system folders only (INBOX, Sent, Drafts, Trash, Spam); labels are read and written with `X-GM-LABELS`
+
+**Triage**
+- Done / Not done with undo (`e` / `⇧E` / `z`); the undo window is adjustable (3 / 5 / 10 / 20 s)
+- Split inbox with Important / Other / VIP and custom splits (`Tab` / `⇧Tab`)
+- Filter chips (unread, needs reply, waiting, starred) and date grouping
+- Remind me (`h`): local only, natural-language times; `⌘⇧H` in compose reminds if no reply
+- Mute (`⇧M`), local only
+- Move to folder (`v`) and Gmail labels (`l`)
+- One-click unsubscribe (`⌘U`), always confirms first
+- Get me to zero: bulk Done with undo, an inbox-zero state and a local streak
 
 **Write path**
 - Compose / reply / reply-all / forward, rich-text editor
 - Recipient autocomplete on To / Cc / Bcc, mined from existing mail
 - Signature with links and an inline logo; light / dark / system theme
 - Attachments in and out, inline images sent as `multipart/related`
-- Schedule send + 3s undo; 3s undo on trash
+- Schedule send + undo send; undo on trash (same adjustable window)
 - Optimistic star, read/unread, trash (IMAP write-back)
 
 **Speed**
@@ -122,7 +132,7 @@ MAIN_VITE_MS_CLIENT_ID=
   `openid`, `email`. Work or school tenants may have IMAP or SMTP AUTH disabled;
   the app explains it when so.
 - Gmail syncs only its system folders (INBOX, Sent, Drafts, Trash, Spam).
-  Labels arrive in a later phase.
+  Labels are set from the label picker (`l`); Done moves to All Mail.
 
 <details>
 <summary><code>.env.local</code> (optional — pre-seed instead of the setup screen)</summary>
@@ -161,15 +171,27 @@ pnpm build       # production bundle
 | `j` / `k` | Move selection |
 | `Enter` | Open thread |
 | `x` | Toggle checkbox |
+| `⇧J` / `⇧K` / `⌘A` | Extend selection down / up · select all |
 | `u` | Toggle read / unread |
 | `s` | Star |
 | `⌫` | Trash |
+| `e` / `⇧E` | Done / Not done |
+| `z` | Undo |
+| `h` | Remind me |
+| `v` / `l` | Move / Gmail label |
+| `⇧M` | Mute |
+| `!` | Spam |
+| `⌘U` | Unsubscribe |
+| `Tab` / `⇧Tab` | Next / previous split |
+| `⇧U` / `⇧R` / `⇧S` | Filter unread / needs reply / starred (in list) |
+| `⇧D` | Group by date |
 | `c` | Compose |
-| `,` | Settings |
+| `⌘,` | Settings |
 | `r` / `⇧R` / `f` | Reply / reply-all / forward (in thread) |
 | `/` or `⌘K` | Search & command palette |
 | `⌘↵` | Send (in compose) |
-| `g` then `i`/`s`/`t`/`d`/`j` | Jump Inbox / Sent / Trash / Drafts / Junk |
+| `⌘⇧H` | Remind me if no reply (in compose) |
+| `g` then `i`/`s`/`t`/`d`/`j`/`e`/`h` | Jump Inbox / Sent / Trash / Drafts / Junk / Done / Reminders |
 | `Esc` | Clear selection · close thread · close palette |
 
 ---
@@ -209,6 +231,7 @@ src/core/store/    SQLite schema, migrations, repo
 src/core/sync/     IMAP sync, IDLE, pool, reconcile, bodies, flag/move writers
 src/core/send/     SMTP + outbox (schedule / undo)
 src/core/pipeline/ Parse + processors (Stage 2 AI hooks)
+src/core/triage/   Move planning, reminders, mute / VIP, unsubscribe, zero
 src/ui/            React app
 ```
 
@@ -229,7 +252,7 @@ Agent notes for contributors: see [`CLAUDE.md`](./CLAUDE.md).
 - [x] Secure credential store (OS keychain via `safeStorage`)
 - [x] Multi-account
 - [x] Gmail and Outlook sign-in (OAuth2 on IMAP/SMTP)
-- [ ] Snooze / split inbox
+- [x] Triage: Done, undo, split inbox, filter chips, Remind me, mute, labels, unsubscribe, Get me to zero
 - [ ] AI triage (summaries, labels) — Stage 2 pipeline
 
 PRs welcome. Keep the surface small.
@@ -240,7 +263,7 @@ PRs welcome. Keep the surface small.
 
 - Never commit `.env.local`.
 - Treat app passwords and OAuth client secrets like production secrets.
-- Scheduled sends only flush **while the app is running**.
+- Scheduled sends and reminders only act **while the app is running**.
 - This is early software — use a dedicated / secondary mailbox if you’re cautious.
 
 ---

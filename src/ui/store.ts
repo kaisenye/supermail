@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Folder, MessageListRow } from '../core/store/types'
+import type { ChipId } from './chips'
 
 export interface ComposeAttachment {
   path: string
@@ -19,20 +20,15 @@ export interface ComposeState {
   inReplyTo: string | null
   references: string | null
   mode: 'new' | 'reply' | 'replyAll' | 'forward'
+  /** ⌘⇧H: "remind me if no reply" at this time, saved by main after the send. */
+  remindAt: number | null
 }
 
-export interface UndoToast {
-  outboxId: number
-  subject: string
-  expiresAt: number
-}
-
-/** Trash undo. Rows are held here so undo can restore their position. */
-export interface MoveToast {
-  batchId: number
+/** The single action `z` or the toast can still take back. Each new one replaces it. */
+export interface UndoEntry {
   label: string
   expiresAt: number
-  removed: { index: number; row: MessageListRow }[]
+  run: () => Promise<void>
 }
 
 interface AppState {
@@ -52,8 +48,7 @@ interface AppState {
   openThread: { threadId: string; messageId: number } | null
   paletteOpen: boolean
   compose: ComposeState | null
-  undoToast: UndoToast | null
-  moveToast: MoveToast | null
+  undo: UndoEntry | null
   unread: Record<number, number>
   /** Local page cursor plus whether the server still has older mail. */
   loadingMore: boolean
@@ -62,6 +57,11 @@ interface AppState {
   page: number
   /** Total rows behind the active folder, for the page indicator. */
   totalRows: number
+  /** Active split in the Inbox ('all' = no split). */
+  splitId: string
+  /** Active filter chip, any folder. */
+  chip: ChipId | null
+  groupByDate: boolean
 
   openThreadView: (threadId: string, messageId: number) => void
   closeThread: () => void
@@ -83,19 +83,30 @@ interface AppState {
   clearChecked: () => void
   setSync: (syncing: boolean, label?: string | null) => void
   setSyncError: (error: string | null) => void
+  /**
+   * A triage action that could not run (no Done folder, not Gmail, …). Kept
+   * apart from syncError: it is not a sync failure, and must not turn the
+   * empty list into "Could not load mail" or block the inbox-zero state.
+   */
+  actionError: string | null
+  setActionError: (error: string | null) => void
   setSyncedOnce: () => void
   openPalette: () => void
   closePalette: () => void
   openCompose: (state: ComposeState) => void
   updateCompose: (patch: Partial<ComposeState>) => void
   closeCompose: () => void
-  setUndoToast: (toast: UndoToast | null) => void
-  setMoveToast: (toast: MoveToast | null) => void
+  setUndo: (u: UndoEntry | null) => void
   setUnread: (unread: Record<number, number>) => void
   setLoadingMore: (loading: boolean) => void
   setExhausted: (exhausted: boolean) => void
   setPage: (page: number) => void
   setTotalRows: (totalRows: number) => void
+  setSplit: (id: string) => void
+  setChip: (chip: ChipId | null) => void
+  setGroupByDate: (on: boolean) => void
+  /** ⇧J / ⇧K: check the cursor row and the next one, and move the cursor there. */
+  extendSelection: (delta: number) => void
 }
 
 export function emptyCompose(): ComposeState {
@@ -109,9 +120,13 @@ export function emptyCompose(): ComposeState {
     attachments: [],
     inReplyTo: null,
     references: null,
-    mode: 'new'
+    mode: 'new',
+    remindAt: null
   }
 }
+
+/** activeFolderId sentinel for the Reminders view, which is not an IMAP folder. */
+export const REMINDERS_VIEW_ID = -1
 
 export const useStore = create<AppState>((set, get) => ({
   email: null,
@@ -125,17 +140,20 @@ export const useStore = create<AppState>((set, get) => ({
   syncing: false,
   syncLabel: null,
   syncError: null,
+  actionError: null,
   hasSyncedOnce: false,
   openThread: null,
   paletteOpen: false,
   compose: null,
-  undoToast: null,
-  moveToast: null,
+  undo: null,
   unread: {},
   loadingMore: false,
   exhausted: false,
   page: 0,
   totalRows: 0,
+  splitId: 'all',
+  chip: null,
+  groupByDate: false,
 
   openThreadView: (threadId, messageId) => set({ openThread: { threadId, messageId } }),
   closeThread: () => set({ openThread: null }),
@@ -182,7 +200,9 @@ export const useStore = create<AppState>((set, get) => ({
         rows,
         selectedIndex: Math.min(s.selectedIndex, Math.max(0, rows.length - 1)),
         checkedIds: s.checkedIds.filter((id) => !drop.has(id)),
-        lastCheckedIndex: null
+        lastCheckedIndex: null,
+        // The pager and the inbox-zero check read this, not rows.length.
+        totalRows: Math.max(0, s.totalRows - removed.length)
       }
     })
     return removed
@@ -197,7 +217,7 @@ export const useStore = create<AppState>((set, get) => ({
       for (const { index, row } of [...removed].sort((a, b) => a.index - b.index)) {
         rows.splice(Math.min(index, rows.length), 0, row)
       }
-      return { rows }
+      return { rows, totalRows: s.totalRows + removed.length }
     }),
   updateRowFlags: (id, flags) =>
     set((s) => ({ rows: s.rows.map((r) => (r.id === id ? { ...r, flags } : r)) })),
@@ -249,6 +269,7 @@ export const useStore = create<AppState>((set, get) => ({
   clearChecked: () => set({ checkedIds: [], lastCheckedIndex: null }),
   setSync: (syncing, syncLabel = null) => set({ syncing, syncLabel }),
   setSyncError: (syncError) => set({ syncError }),
+  setActionError: (actionError) => set({ actionError }),
   setSyncedOnce: () => set({ hasSyncedOnce: true }),
   openPalette: () => set({ paletteOpen: true }),
   closePalette: () => set({ paletteOpen: false }),
@@ -259,11 +280,22 @@ export const useStore = create<AppState>((set, get) => ({
     set({ compose: { ...cur, ...patch } })
   },
   closeCompose: () => set({ compose: null }),
-  setUndoToast: (undoToast) => set({ undoToast }),
-  setMoveToast: (moveToast) => set({ moveToast }),
+  setUndo: (undo) => set({ undo }),
   setUnread: (unread) => set({ unread }),
   setLoadingMore: (loadingMore) => set({ loadingMore }),
   setExhausted: (exhausted) => set({ exhausted }),
   setPage: (page) => set({ page }),
-  setTotalRows: (totalRows) => set({ totalRows })
+  setTotalRows: (totalRows) => set({ totalRows }),
+  setSplit: (splitId) => set({ splitId }),
+  setChip: (chip) => set({ chip }),
+  setGroupByDate: (groupByDate) => set({ groupByDate }),
+  extendSelection: (delta) => {
+    const { rows, selectedIndex, checkedIds } = get()
+    if (!rows.length) return
+    const next = Math.max(0, Math.min(rows.length - 1, selectedIndex + delta))
+    const ids = new Set(checkedIds)
+    if (rows[selectedIndex]) ids.add(rows[selectedIndex].id)
+    if (rows[next]) ids.add(rows[next].id)
+    set({ checkedIds: [...ids], selectedIndex: next, lastCheckedIndex: next })
+  }
 }))

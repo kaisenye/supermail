@@ -1,6 +1,7 @@
 import type { ImapFlow } from 'imapflow'
 import { getDb } from '../store/db.js'
 import { ensureMessageIdFormat, parseReferences } from './imap.js'
+import { threadKey } from '../pipeline/threadKey.js'
 
 /**
  * Repairs threading for mail synced before References was fetched.
@@ -75,20 +76,70 @@ function folderMessages(accountId: number, folderId: number): { id: number; uid:
 
 const BATCH = 500
 
-interface Parsed {
+export interface Parsed {
   id: number
   own: string | null
   irt: string | null
-  ids: string[]
+  refs: string[]
 }
 
-/** Reads one folder's threading headers into the shared union. */
+/**
+ * Thread id per message row: one per union-find set.
+ *
+ * The set's representative is whichever id happened to be linked first, which
+ * depends on scan order (often a Sent reply's own id). The pipeline instead
+ * derives threadKey per message, so using the raw representative made threads
+ * flip as body backfill reached each message. Each set is named by the
+ * threadKey most of its members derive (ties: the smallest), so new mail
+ * keyed the usual way lands in the same thread.
+ */
+export function assignThreads(parsed: Parsed[]): Map<number, string> {
+  const union = new Union()
+  const idsOf = (p: Parsed) => [...new Set([...(p.own ? [p.own] : []), ...(p.irt ? [p.irt] : []), ...p.refs])]
+  for (const p of parsed) {
+    const ids = idsOf(p)
+    // Every id this message mentions belongs to one conversation.
+    for (const other of ids) if (other !== ids[0]) union.link(ids[0], other)
+  }
+
+  const votes = new Map<string, Map<string, number>>()
+  for (const p of parsed) {
+    const ids = idsOf(p)
+    const key = threadKey(p.refs, p.irt, p.own)
+    if (!ids.length || !key) continue
+    const root = union.find(ids[0])
+    const v = votes.get(root) ?? new Map<string, number>()
+    v.set(key, (v.get(key) ?? 0) + 1)
+    votes.set(root, v)
+  }
+  const name = new Map<string, string>()
+  for (const [root, v] of votes) {
+    const best = [...v.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]
+    name.set(root, best[0])
+  }
+
+  const out = new Map<number, string>()
+  for (const p of parsed) {
+    const ids = idsOf(p)
+    // Bulk senders often omit Message-ID entirely. Falling back to a per-row
+    // key keeps those as threads of one rather than collapsing every id-less
+    // message in the mailbox into a single bucket.
+    if (!ids.length) {
+      out.set(p.id, `local:${p.id}`)
+      continue
+    }
+    const root = union.find(ids[0])
+    out.set(p.id, name.get(root) ?? root)
+  }
+  return out
+}
+
+/** Reads one folder's threading headers. */
 async function scanFolder(
   client: ImapFlow,
   accountId: number,
   folderId: number,
   path: string,
-  union: Union,
   out: Parsed[]
 ): Promise<number> {
   const targets = folderMessages(accountId, folderId)
@@ -119,10 +170,7 @@ async function scanFolder(
           .map(validId)
           .filter((r): r is string => r !== null)
 
-        const ids = [...new Set([...(own ? [own] : []), ...(irt ? [irt] : []), ...refs])]
-        // Every id this message mentions belongs to one conversation.
-        for (const other of ids) if (other !== ids[0]) union.link(ids[0], other)
-        out.push({ id, own, irt, ids })
+        out.push({ id, own, irt, refs })
       }
     }
   } finally {
@@ -144,27 +192,18 @@ export async function rethreadAccount(
   accountId: number,
   folders: { id: number; path: string }[]
 ): Promise<RethreadResult> {
-  const union = new Union()
   const parsed: Parsed[] = []
   let scanned = 0
 
   for (const f of folders) {
-    scanned += await scanFolder(client, accountId, f.id, f.path, union, parsed)
+    scanned += await scanFolder(client, accountId, f.id, f.path, parsed)
   }
   if (!parsed.length) return { scanned, updated: 0 }
 
-  // Assign only after every folder is linked: a set's representative is not
+  // Assign only after every folder is read: a set's membership is not
   // stable until the last message that could merge two sets has been seen.
-  const rows = parsed
-    .map((p) => ({
-      id: p.id,
-      irt: p.irt,
-      // Bulk senders often omit Message-ID entirely. Falling back to a
-      // per-row key keeps those as threads of one rather than collapsing
-      // every id-less message in the mailbox into a single bucket.
-      thread: p.ids.length ? union.find(p.ids[0]) : (p.own ?? `local:${p.id}`)
-    }))
-    .filter((r) => r.thread)
+  const threads = assignThreads(parsed)
+  const rows = parsed.map((p) => ({ id: p.id, irt: p.irt, thread: threads.get(p.id) ?? `local:${p.id}` }))
 
   const update = getDb().prepare(
     'UPDATE messages SET thread_id = ?, in_reply_to = ? WHERE id = ?'

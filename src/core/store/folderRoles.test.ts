@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assignRoles } from './folderRoles.js'
+import { assignRoles, doneRole } from './folderRoles.js'
 
 const box = (path: string, specialUse: string | null = null) => ({ path, specialUse })
 
@@ -79,5 +79,13 @@ describe('assignRoles', () => {
   it('gives each role to one folder only', () => {
     const roles = assignRoles([box('A', '\\Sent'), box('B', '\\Sent')])
     expect([...roles.values()].filter((r) => r === 'sent')).toHaveLength(1)
+  })
+})
+
+describe('doneRole', () => {
+  it('archives to All Mail on Gmail and to the archive folder elsewhere', () => {
+    expect(doneRole('gmail')).toBe('all')
+    expect(doneRole('microsoft')).toBe('archive')
+    expect(doneRole('imap')).toBe('archive')
   })
 })

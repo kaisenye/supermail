@@ -1,10 +1,12 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Clock } from 'lucide-react'
 import type { MessageListRow } from '../../core/store/types'
 import { formatDate, isFlagged, isUnread, recipientLabel, senderLabel } from '../format'
+import { withDateGroups, type ListItem } from '../listGroups'
 
 const ROW_HEIGHT = 32
+const GROUP_HEIGHT = 24
 
 interface Props {
   rows: MessageListRow[]
@@ -20,8 +22,12 @@ interface Props {
   onPage?: (page: number) => void
   emptyTitle?: string
   emptySub?: string
+  /** Replaces the empty message entirely (the inbox-zero art). */
+  emptyNode?: ReactNode
   /** Sent/Drafts: the sender is always the user, so show the recipient. */
   showRecipient?: boolean
+  /** Date headers (Today, Yesterday, …) between runs of rows. */
+  groupByDate?: boolean
 }
 
 export function MessageList({
@@ -38,25 +44,53 @@ export function MessageList({
   onPage,
   emptyTitle = 'No messages',
   emptySub,
-  showRecipient = false
+  emptyNode,
+  showRecipient = false,
+  groupByDate = false
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   /** Set by a shift-click so the change that follows it is ignored. */
   const shiftHandled = useRef(false)
   const checked = new Set(checkedIds)
 
+  const items = useMemo<ListItem[]>(
+    () =>
+      groupByDate
+        ? withDateGroups(rows, new Date())
+        : rows.map((_, index) => ({ kind: 'row' as const, index })),
+    [rows, groupByDate]
+  )
+  /** Row index -> item index, so the keyboard cursor can scroll a grouped list. */
+  const itemOfRow = useMemo(() => {
+    const out: number[] = []
+    items.forEach((it, i) => {
+      if (it.kind === 'row') out[it.index] = i
+    })
+    return out
+  }, [items])
+  // Sizes are recomputed only when count or getItemKey changes; a refresh can
+  // move a header without changing the count, so the key function follows items.
+  const getItemKey = useCallback(
+    (i: number) => {
+      const it = items[i]
+      return it.kind === 'header' ? `h${i}:${it.label}` : rows[it.index].id
+    },
+    [items, rows]
+  )
+
   const virtualizer = useVirtualizer({
-    count: rows.length,
+    count: items.length,
+    getItemKey,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: (i) => (items[i]?.kind === 'header' ? GROUP_HEIGHT : ROW_HEIGHT),
     overscan: 12
   })
 
   useEffect(() => {
-    if (rows.length) virtualizer.scrollToIndex(selectedIndex, { align: 'auto' })
-  }, [selectedIndex, rows.length, virtualizer])
+    if (rows.length) virtualizer.scrollToIndex(itemOfRow[selectedIndex] ?? 0, { align: 'auto' })
+  }, [selectedIndex, rows.length, itemOfRow, virtualizer])
 
-  const items = virtualizer.getVirtualItems()
+  const virtualItems = virtualizer.getVirtualItems()
 
   // A new page replaces the rows, so start it at the top rather than wherever
   // the previous page happened to be scrolled.
@@ -98,10 +132,12 @@ export function MessageList({
     return (
       <>
         <div className="list-scroll">
-          <div className="empty">
-            <span className="empty-title">{emptyTitle}</span>
-            {emptySub && <span className="empty-sub">{emptySub}</span>}
-          </div>
+          {emptyNode ?? (
+            <div className="empty">
+              <span className="empty-title">{emptyTitle}</span>
+              {emptySub && <span className="empty-sub">{emptySub}</span>}
+            </div>
+          )}
         </div>
         {pager}
       </>
@@ -118,11 +154,19 @@ export function MessageList({
             top: 0,
             left: 0,
             width: '100%',
-            transform: `translateY(${items[0]?.start ?? 0}px)`
+            transform: `translateY(${virtualItems[0]?.start ?? 0}px)`
           }}
         >
-          {items.map((item) => {
-            const r = rows[item.index]
+          {virtualItems.map((item) => {
+            const it = items[item.index]
+            if (it.kind === 'header')
+              return (
+                <div key={item.key} className="row-group" style={{ height: GROUP_HEIGHT }}>
+                  {it.label}
+                </div>
+              )
+            const index = it.index
+            const r = rows[index]
             // A thread is unread if any message in it is; flags alone describe
             // only the newest one.
             const unread =
@@ -133,7 +177,7 @@ export function MessageList({
                 key={r.id}
                 className="row"
                 style={{ height: ROW_HEIGHT }}
-                data-selected={item.index === selectedIndex}
+                data-selected={index === selectedIndex}
                 data-checked={isChecked}
                 data-unread={unread}
                 onClick={(e) => {
@@ -141,12 +185,12 @@ export function MessageList({
                   // the checkbox — clicking the row is the usual way to do it.
                   if (e.shiftKey) {
                     e.preventDefault()
-                    onToggleCheck(r.id, item.index, true)
+                    onToggleCheck(r.id, index, true)
                     return
                   }
-                  onSelect(item.index)
+                  onSelect(index)
                 }}
-                onDoubleClick={() => onOpen?.(item.index)}
+                onDoubleClick={() => onOpen?.(index)}
               >
                 <label
                   className="row-check"
@@ -164,7 +208,7 @@ export function MessageList({
                       if (e.shiftKey) {
                         e.preventDefault()
                         shiftHandled.current = true
-                        onToggleCheck(r.id, item.index, true)
+                        onToggleCheck(r.id, index, true)
                       }
                     }}
                     onChange={() => {
@@ -172,7 +216,7 @@ export function MessageList({
                         shiftHandled.current = false
                         return
                       }
-                      onToggleCheck(r.id, item.index, false)
+                      onToggleCheck(r.id, index, false)
                     }}
                     aria-label="Select message"
                   />
@@ -191,12 +235,15 @@ export function MessageList({
                 </span>
                 <span className="row-snippet">{r.snippet}</span>
                 <span className="row-trailing">
+                  {r.reminder_fired ? (
+                    <Clock className="row-reminder" size={12} strokeWidth={2} aria-label="Reminder" />
+                  ) : null}
                   {isFlagged(r.flags) && (
                     <span className="row-flag" aria-label="Flagged">
                       ●
                     </span>
                   )}
-                  <span className="row-date">{formatDate(r.date)}</span>
+                  <span className="row-date">{formatDate(r.remind_at ?? r.date)}</span>
                 </span>
               </div>
             )

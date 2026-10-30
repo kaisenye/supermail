@@ -2,12 +2,14 @@ import { readFileSync } from 'fs'
 import { formatFromHeader, type AccountConfig } from '../accounts/config.js'
 import { getPool } from '../sync/pool.js'
 import { deleteDraft, folderByRole, getMessage } from '../store/repo.js'
+import { setReminder } from '../triage/reminders.js'
 import {
   getOutbox,
   listDueOutbox,
   markOutboxFailed,
   markOutboxSending,
   markOutboxSent,
+  reminderTimeAfterSend,
   type OutboxRow
 } from './outbox.js'
 import {
@@ -149,6 +151,23 @@ export async function flushOutboxRow(
     })
     // Mark sent as soon as SMTP succeeds: the mail is irreversibly out.
     markOutboxSent(row.id)
+
+    // "Remind me if no reply" was chosen in compose. Keyed by the Message-ID we
+    // just sent, which is also what the Sent copy will carry once it syncs.
+    const remindAt = reminderTimeAfterSend(row, Date.now())
+    if (remindAt !== null) {
+      try {
+        setReminder({
+          accountId: row.account_id,
+          messageId: result.messageId || messageId,
+          subject: row.subject,
+          remindAt,
+          ifNoReply: true
+        })
+      } catch (err) {
+        console.error('[outbox] reminder not saved:', err)
+      }
+    }
 
     // Only APPEND when the server does NOT file sent mail itself. Exmail (and
     // most SMTP-with-save hosts) already store a copy, so appending puts two
