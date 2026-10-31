@@ -1019,103 +1019,54 @@ button > svg {
 .split-bar {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
   padding: var(--space-3) var(--space-4) var(--space-2);
 }
 
-.split-switch {
-  position: relative;
-}
-
-/* Round inbox button (Scape); widens to name the split when one is on. */
-.split-switch-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 34px;
-  height: 34px;
-  padding: 0 var(--space-2);
+/* Scape's row: small round "All" (× once filtered), then small pills. The
+   active one is filled grey, not outlined in colour. */
+.split-all {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 50%;
   background: var(--bg-raised);
-  font-size: var(--text-sm);
   color: var(--text-secondary);
 }
 
-.split-switch-btn:hover,
-.split-switch-btn[aria-expanded='true'] {
+.split-all[data-on='true'] {
+  border-color: transparent;
+  background: var(--compose-bg-hover);
+  cursor: default;
+}
+
+.split-all[data-on='false']:hover {
   background: var(--surface-hover);
   color: var(--text-primary);
 }
 
-.split-switch-btn[data-filtered='true'] {
-  padding: 0 var(--space-3);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.split-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  min-width: 180px;
-  padding: var(--space-1);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  background: var(--bg-raised);
-  box-shadow: var(--shadow-md);
-  animation: palette-rise var(--duration-fast) var(--ease-out);
-}
-
-.split-menu button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: 7px var(--space-2);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  text-align: left;
-  color: var(--text-primary);
-}
-
-.split-menu button:hover {
-  background: var(--surface-hover);
-}
-
-.split-menu button svg {
-  color: var(--accent);
-}
-
-.split-chips {
-  display: flex;
-  gap: var(--space-2);
-}
-
-/* Pills like Scape's: rounded, bordered, calm until on. */
-.split-chips button {
-  height: 34px;
-  padding: 0 var(--space-3);
+.split-pill {
+  height: 28px;
+  padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-raised);
-  font-size: var(--text-sm);
+  font-size: 12.5px;
   color: var(--text-primary);
   white-space: nowrap;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.02);
 }
 
-.split-chips button:hover {
+.split-pill:hover {
   background: var(--surface-hover);
 }
 
-.split-chips button[data-on='true'] {
-  border-color: var(--accent);
-  background: var(--surface-active);
-  color: var(--accent);
+.split-pill[data-on='true'] {
+  border-color: transparent;
+  background: var(--compose-bg-hover);
 }
 
 /* Date header between runs of rows; display only, never selectable. */
@@ -3828,8 +3779,8 @@ button.sidebar-account svg {
 .settings-body,
 .sidebar .folder-item,
 .settings-nav-item,
-.split-tabs button,
-.split-chips button {
+.split-pill,
+.split-all {
   transition:
     background-color var(--duration-fast) var(--ease-out),
     color var(--duration-fast) var(--ease-out),

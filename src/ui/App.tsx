@@ -1226,6 +1226,13 @@ export default function App() {
     [setChip, reloadActive]
   )
 
+  /** The filter row's ×: no chip and the All split. */
+  const clearFilters = useCallback(() => {
+    setChip(null)
+    setSplit('all')
+    reloadActive()
+  }, [setChip, setSplit, reloadActive])
+
   const gotoFolder = useCallback(
     (role: FolderRole) => {
       const f = useStore.getState().folders.find((x) => x.role === role)
@@ -1890,11 +1897,8 @@ export default function App() {
                 splits={active?.role === 'inbox' || activeFolderId === UNIFIED_VIEW_ID ? splits : null}
                 activeSplit={splitId}
                 chip={chip}
-                onSplit={(id) => {
-                  setSplit(id)
-                  reloadActive()
-                }}
                 onChip={toggleChip}
+                onClear={clearFilters}
               />
             )}
             {/* Only while something is checked: the row checkboxes show on hover. */}
