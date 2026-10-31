@@ -328,7 +328,13 @@ export function Settings({
                     <div className="setting-label">Appearance</div>
                     <div className="setting-desc">Match your system theme or choose a fixed one.</div>
                   </div>
-                  <div className="settings-segmented" role="radiogroup" aria-label="Appearance">
+                  <div
+                    className="settings-segmented"
+                    role="radiogroup"
+                    aria-label="Appearance"
+                    style={{ '--i': Math.max(0, THEMES.findIndex((t) => t.id === theme)) } as React.CSSProperties}
+                  >
+                    <span className="settings-segmented-thumb" aria-hidden />
                     {THEMES.map(({ id, label, icon: Icon }) => (
                       <button
                         key={id}

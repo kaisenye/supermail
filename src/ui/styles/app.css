@@ -2081,9 +2081,12 @@ div.compose-body[data-empty='true']::before {
   filter: brightness(1.08);
 }
 
-/* A row of exclusive choices in one pill (Appearance: System / Light / Dark). */
+/* A row of exclusive choices in one pill (Appearance: System / Light / Dark).
+   Equal columns let one thumb slide under the chosen option: --i is its index. */
 .settings-segmented {
-  display: inline-flex;
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
   flex-shrink: 0;
   gap: 2px;
   padding: 3px;
@@ -2092,9 +2095,24 @@ div.compose-body[data-empty='true']::before {
   background: var(--bg-sunken);
 }
 
+.settings-segmented-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px - 4px) / 3);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 1px var(--border);
+  transform: translateX(calc(var(--i, 0) * (100% + 2px)));
+  transition: transform 260ms cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+
 .settings-segmented button {
+  position: relative;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   height: 28px;
   padding: 0 var(--space-3);
@@ -2102,20 +2120,18 @@ div.compose-body[data-empty='true']::before {
   font-size: var(--text-sm);
   color: var(--text-tertiary);
   cursor: pointer;
-  transition:
-    background var(--duration-base) var(--ease-out),
-    color var(--duration-base) var(--ease-out),
-    box-shadow var(--duration-base) var(--ease-out);
+  transition: color 260ms var(--ease-out);
 }
 
-.settings-segmented button:hover {
-  color: var(--text-primary);
-}
-
+.settings-segmented button:hover,
 .settings-segmented button[aria-checked='true'] {
-  background: var(--bg-raised);
   color: var(--text-primary);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 1px var(--border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-segmented-thumb {
+    transition: none;
+  }
 }
 
 .settings-link {
