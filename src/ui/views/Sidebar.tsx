@@ -55,6 +55,9 @@ export function Sidebar({
   unread,
   showUnified
 }: Props) {
+  // Tasks opens over the current view; while it is open nothing else in the
+  // sidebar is the current page.
+  const current = tasksActive ? null : activeFolderId
   const sorted = [...folders].sort(
     (a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path)
   )
@@ -78,7 +81,7 @@ export function Sidebar({
         <button
           className="folder-item"
           title="Search (/)"
-          aria-current={activeFolderId === SEARCH_VIEW_ID}
+          aria-current={current === SEARCH_VIEW_ID}
           onClick={(e) => {
             e.currentTarget.blur()
             onSearch()
@@ -108,7 +111,7 @@ export function Sidebar({
           <li>
             <button
               className="folder-item"
-              aria-current={activeFolderId === UNIFIED_VIEW_ID}
+              aria-current={current === UNIFIED_VIEW_ID}
               onClick={(e) => {
                 e.currentTarget.blur()
                 onSelect(UNIFIED_VIEW_ID)
@@ -129,7 +132,7 @@ export function Sidebar({
             <li key={f.id}>
               <button
                 className="folder-item"
-                aria-current={f.id === activeFolderId}
+                aria-current={f.id === current}
                 onClick={(e) => {
                   // Keep focus on the document so j/k keeps working after a click.
                   e.currentTarget.blur()
@@ -148,7 +151,7 @@ export function Sidebar({
       <div className="sidebar-tasks">
         <button
           className="folder-item"
-          aria-current={activeFolderId === REMINDERS_VIEW_ID}
+          aria-current={current === REMINDERS_VIEW_ID}
           onClick={(e) => {
             e.currentTarget.blur()
             onSelect(REMINDERS_VIEW_ID)

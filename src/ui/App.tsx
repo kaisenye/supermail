@@ -45,7 +45,6 @@ import { Onboarding } from './views/Onboarding'
 import { SyncProgress, TabBar } from './views/TabBar'
 import { SearchPage } from './views/SearchPage'
 import { ContactPane } from './views/ContactPane'
-import { Plus } from 'lucide-react'
 import { folderLabel, isFlagged, isUnread } from './format'
 import { goDoneTarget, reloadFolders } from './folders'
 import { doneAction, pushSyncTarget, undoRepaint, viewKey, type ViewKey } from './viewScope'
@@ -278,7 +277,6 @@ export default function App() {
   // Tasks replaces the mail pane rather than overlaying it: it is a separate
   // place to be, not a modal on top of the inbox.
   const [tasksOpen, setTasksOpen] = useState(false)
-  const [creatingTask, setCreatingTask] = useState(false)
   const [openTasks, setOpenTasks] = useState(0)
 
   const refreshTaskCount = useCallback(async () => {
@@ -1797,7 +1795,11 @@ export default function App() {
       <main className="main">
         {workspace && (
           <TabBar
-            tabs={workspace.tabs.map((t) => ({ id: t.id, label: viewLabel(t.history[t.index]) }))}
+            tabs={workspace.tabs.map((t, i) => ({
+              id: t.id,
+              // Tasks opens over the current view, so the active tab names it.
+              label: tasksOpen && i === workspace.active ? 'Tasks' : viewLabel(t.history[t.index])
+            }))}
             active={workspace.active}
             canBack={canGoBack(workspace)}
             canForward={canGoForward(workspace)}
@@ -1839,27 +1841,7 @@ export default function App() {
         {compose && !composeInline ? (
           composer
         ) : tasksOpen ? (
-          <>
-            {/* The title lives in the tab bar now; only the action stays. */}
-            <div className="page-tools">
-              <button
-                className="header-compose"
-                title="New task"
-                onClick={(e) => {
-                  e.currentTarget.blur()
-                  setCreatingTask(true)
-                }}
-              >
-                <Plus size={12} strokeWidth={2.5} />
-                Add task
-              </button>
-            </div>
-            <Tasks
-              onChange={refreshTaskCount}
-              creating={creatingTask}
-              onCloseCreate={() => setCreatingTask(false)}
-            />
-          </>
+          <Tasks onChange={refreshTaskCount} onClose={() => setTasksOpen(false)} />
         ) : openThread ? (
           <div className="thread-layout">
             <Thread
