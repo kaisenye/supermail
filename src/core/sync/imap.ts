@@ -131,6 +131,7 @@ export const ENVELOPE_QUERY: FetchQueryObject = {
   uid: true,
   envelope: true,
   flags: true,
+  internalDate: true,
   labels: true,
   headers: [...ENVELOPE_HEADERS]
 }
@@ -154,6 +155,7 @@ export function envelopeToRaw(msg: FetchMessageObject, accountId: number, folder
       date: msg.envelope?.date ?? null
     },
     flags: msg.flags ? [...msg.flags] : [],
+    internalDate: msg.internalDate ? new Date(msg.internalDate) : null,
     listHeaders: msg.headers ? listHeadersFrom(msg.headers.toString('utf8')) : undefined,
     labels: msg.labels ? [...msg.labels] : undefined
   }
@@ -166,7 +168,14 @@ export function envelopeToRaw(msg: FetchMessageObject, accountId: number, folder
 export async function fetchEnvelopes(
   client: ImapFlow,
   path: string,
-  opts: { sinceUid: number; limit: number; accountId: number; folderId: number }
+  opts: {
+    sinceUid: number
+    limit: number
+    accountId: number
+    folderId: number
+    /** Called with the running count as envelopes stream in. */
+    onFetched?: (count: number) => void
+  }
 ): Promise<{ status: MailboxStatus; messages: RawMessage[] }> {
   // imapflow skips SELECT when `path` is already open (a pooled connection
   // that refreshed this folder before) and never updates uidNext after that,
@@ -200,6 +209,7 @@ export async function fetchEnvelopes(
       // `n:*` always returns at least one message even when none match.
       if (msg.uid <= opts.sinceUid) continue
       messages.push(envelopeToRaw(msg, opts.accountId, opts.folderId))
+      opts.onFetched?.(messages.length)
     }
 
     // Newest first, so the most recent N survive the cap.

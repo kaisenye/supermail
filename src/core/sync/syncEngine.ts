@@ -2,6 +2,8 @@ import type { ImapFlow } from 'imapflow'
 import type { AccountConfig } from '../accounts/config.js'
 import { processors } from '../pipeline/index.js'
 import { runPipeline } from '../pipeline/pipeline.js'
+import { latencySummary, noteArrival } from './latency.js'
+import { SyncCounter } from './progress.js'
 import { getDb } from '../store/db.js'
 import { queuedSourceUids } from '../store/moveJobs.js'
 import { assignRoles } from '../store/folderRoles.js'
@@ -45,7 +47,12 @@ export interface SyncOptions {
 
 export interface SyncProgress {
   phase: 'connect' | 'folders' | 'folder' | 'done' | 'error'
+  /** Which account; several sync at once in All inboxes. */
+  email?: string
   folder?: string
+  /** Messages synced so far this pass, of `expected` (see SyncCounter). */
+  count?: number
+  expected?: number
   synced?: number
   total?: number
   error?: string
@@ -91,7 +98,8 @@ export async function syncAccount(
   const maxPerFolder = opts.maxPerFolder ?? DEFAULTS.maxPerFolder
   const sinceDays = opts.sinceDays ?? DEFAULTS.sinceDays
   const cutoff = forwardCutoff(sinceDays)
-  const progress = opts.onProgress ?? (() => {})
+  const emit = opts.onProgress ?? (() => {})
+  const progress = (p: SyncProgress): void => emit({ ...p, email: config.email })
 
   const pendingFlagIds = opts.pendingFlagIds ?? new Set<number>()
   const result: SyncResult = { folders: 0, messages: 0, reconciled: 0, errors: [] }
@@ -141,8 +149,28 @@ export async function syncAccount(
       })
     )
 
+    const counter = new SyncCounter(
+      folders.map((f) => ({ id: f.id, exists: statuses.get(f.id)?.exists ?? 0, local: countLocal(f.id) })),
+      maxPerFolder
+    )
+    const counted = (folder: string): SyncProgress => ({
+      phase: 'folder',
+      folder,
+      count: counter.done,
+      expected: counter.expected
+    })
+    // Envelopes stream in by the hundred; the window only needs a few frames a second.
+    let lastEmit = 0
+    const streaming = (folder: { id: number; path: string }) => (n: number) => {
+      counter.fetched(folder.id, n)
+      const now = Date.now()
+      if (now - lastEmit < 150) return
+      lastEmit = now
+      progress(counted(folder.path))
+    }
+
     for (const folder of folders) {
-      progress({ phase: 'folder', folder: folder.path })
+      progress(counted(folder.path))
       try {
         // Skipping an unchanged folder avoids the SELECT round-trip, which
         // dominates sync wall-clock.
@@ -169,7 +197,8 @@ export async function syncAccount(
         }
 
         if (noNewMail) {
-          progress({ phase: 'folder', folder: folder.path, synced: 0 })
+          counter.folderDone(folder.id)
+          progress({ ...counted(folder.path), synced: 0 })
           continue
         }
 
@@ -177,7 +206,8 @@ export async function syncAccount(
           sinceUid: folder.last_uid,
           limit: maxPerFolder,
           accountId,
-          folderId: folder.id
+          folderId: folder.id,
+          onFetched: streaming(folder)
         })
 
         // UIDVALIDITY change means the server renumbered UIDs; cached rows are
@@ -190,9 +220,10 @@ export async function syncAccount(
             accountId,
             folderId: folder.id
           })
-          result.messages += await store(fresh.messages, cutoff)
+          result.messages += await store(fresh.messages, cutoff, false)
           setLastUid(folder.id, maxUid(fresh.messages))
-          progress({ phase: 'folder', folder: folder.path, synced: fresh.messages.length })
+          counter.folderDone(folder.id)
+          progress({ ...counted(folder.path), synced: fresh.messages.length })
           continue
         }
 
@@ -202,11 +233,13 @@ export async function syncAccount(
             .run(status.uidValidity, folder.id)
         }
 
-        const n = await store(messages, cutoff)
+        const n = await store(messages, cutoff, folder.last_uid > 0)
         result.messages += n
         setLastUid(folder.id, maxUid(messages))
-        progress({ phase: 'folder', folder: folder.path, synced: n })
+        counter.folderDone(folder.id)
+        progress({ ...counted(folder.path), synced: n })
       } catch (e) {
+        counter.folderDone(folder.id)
         result.errors.push({ folder: folder.path, message: (e as Error).message })
       }
     }
@@ -404,7 +437,7 @@ export async function backfillFolder(
       // Re-read after the fetch, so a move made while it ran is skipped too.
       const { page } = backfillPage(raw, skip(), limit)
       // Backfill is explicit user intent, so the sinceDays cutoff must not apply.
-      const messages = await store(page, 0)
+      const messages = await store(page, 0, false)
       return { messages, more: plan.more }
     } finally {
       lock.release()
@@ -471,7 +504,7 @@ export async function fetchUids(
   } finally {
     lock.release()
   }
-  return store(raw, 0)
+  return store(raw, 0, false)
 }
 
 /**
@@ -496,9 +529,12 @@ export async function serverSearchFolder(
 
 async function store(
   messages: Parameters<typeof runPipeline>[0][],
-  cutoff: number
+  cutoff: number,
+  /** False for a folder's first fetch: old mail would read as a slow push. */
+  measure = true
 ): Promise<number> {
   let n = 0
+  let slowest: number | null = null
   const dropped = new Set<number>()
   for (const raw of messages) {
     const date = raw.envelope?.date
@@ -507,7 +543,17 @@ async function store(
       continue
     }
     const r = await runPipeline(raw, processors)
-    if (r.id !== null) n++
+    if (r.id === null) continue
+    n++
+    const ms = measure ? noteArrival(raw.internalDate) : null
+    if (ms !== null) slowest = Math.max(slowest ?? 0, ms)
+  }
+  if (slowest !== null) {
+    const s = latencySummary()
+    console.log(
+      `[sync] new mail stored ${(slowest / 1000).toFixed(1)}s after the server got it ` +
+        `(p50 ${(s.p50 / 1000).toFixed(1)}s, p90 ${(s.p90 / 1000).toFixed(1)}s over ${s.count})`
+    )
   }
   // The caller still moves last_uid past dropped mail; leave it to backfill.
   for (const id of dropped) reopenHistory(id)
@@ -540,7 +586,7 @@ export async function refreshFolderNow(
   const known = folderUidValidity(folder.id)
   if (known !== null && known !== status.uidValidity) return 0
   if (!messages.length) return 0
-  const n = await store(messages, cutoff)
+  const n = await store(messages, cutoff, folder.last_uid > 0)
   setLastUid(folder.id, maxUid(messages))
   return n
 }

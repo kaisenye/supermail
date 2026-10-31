@@ -3,9 +3,11 @@ import type { AccountConfig } from '../accounts/config.js'
 import { createClient } from './imap.js'
 
 /**
- * Push notification for new INBOX mail. A dedicated connection sits in IDLE
+ * Push notification for one mailbox. A dedicated connection sits in IDLE
  * (imapflow starts it automatically) and fires `onNewMail` instead of waiting
- * for the 60s poll. The poll stays as the safety net if this never connects.
+ * for the 60s poll. IMAP IDLE watches only the selected mailbox, so each
+ * watched folder (INBOX, Sent) costs one parked connection. The poll stays as
+ * the safety net if this never connects.
  */
 const DEBOUNCE_MS = 1_000
 const BACKOFF_MS = [2_000, 5_000, 15_000, 30_000, 60_000]
@@ -19,6 +21,7 @@ export class IdleWatcher {
 
   constructor(
     private config: AccountConfig,
+    readonly path: string,
     private onNewMail: () => void
   ) {}
 
@@ -54,8 +57,12 @@ export class IdleWatcher {
 
     try {
       await client.connect()
-      await client.mailboxOpen('INBOX')
+      await client.mailboxOpen(this.path)
       this.attempt = 0
+      // imapflow only starts IDLE after 15 s without a command; until then the
+      // server holds back EXISTS, so mail arriving just after a (re)connect
+      // would wait for the poll. Resolves when IDLE ends, so not awaited.
+      void client.idle().catch(() => {})
     } catch {
       // No IDLE support, bad creds, offline — back off and let the poll cover us.
       if (this.client === client) this.scheduleReconnect()
@@ -89,6 +96,23 @@ export class IdleWatcher {
     }, delay)
   }
 
+  /**
+   * Drops the connection and opens a fresh one now. After sleep or a network
+   * change the old socket is often half-open: it looks connected, but no push
+   * arrives until the OS gives up on it minutes later.
+   */
+  restart(): void {
+    if (this.stopped) return
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
+    this.attempt = 0
+    const c = this.client
+    // Cleared first, so the old socket's late 'close' schedules nothing.
+    this.client = null
+    if (c) void c.logout().catch(() => {})
+    void this.connect()
+  }
+
   stop(): void {
     this.stopped = true
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
@@ -101,23 +125,41 @@ export class IdleWatcher {
   }
 }
 
-// One parked IDLE connection per account: a shared watcher would leave every
-// account but the first with no push at all.
+// One parked IDLE connection per account and mailbox: a shared watcher would
+// leave every account but the first with no push at all.
 const watchers = new Map<string, IdleWatcher>()
 
-export function startIdleWatcher(config: AccountConfig, onNewMail: () => void): void {
-  const key = config.email.toLowerCase()
-  if (watchers.has(key)) return
-  const w = new IdleWatcher(config, onNewMail)
+const accountKey = (email: string): string => `${email.toLowerCase()}\n`
+
+/**
+ * Watches `path` for `config`'s account under `role` (inbox, sent). A second
+ * call for the same role is a no-op, unless the role's folder moved.
+ */
+export function watchMailbox(config: AccountConfig, role: string, path: string, onNewMail: () => void): void {
+  const key = accountKey(config.email) + role
+  const current = watchers.get(key)
+  if (current?.path === path) return
+  current?.stop()
+  const w = new IdleWatcher(config, path, onNewMail)
   watchers.set(key, w)
   w.start()
 }
 
-/** Stops one account's watcher, or every watcher when called with no argument. */
+/** INBOX push, which every account has from boot. */
+export function startIdleWatcher(config: AccountConfig, onNewMail: () => void): void {
+  watchMailbox(config, 'inbox', 'INBOX', onNewMail)
+}
+
+/** Every watcher reconnects now: after wake or a network change. */
+export function restartIdleWatchers(): void {
+  for (const w of watchers.values()) w.restart()
+}
+
+/** Stops one account's watchers, or every watcher when called with no argument. */
 export function stopIdleWatcher(email?: string): void {
-  const keys = email ? [email.toLowerCase()] : [...watchers.keys()]
-  for (const k of keys) {
-    watchers.get(k)?.stop()
+  for (const [k, w] of watchers) {
+    if (email && !k.startsWith(accountKey(email))) continue
+    w.stop()
     watchers.delete(k)
   }
 }

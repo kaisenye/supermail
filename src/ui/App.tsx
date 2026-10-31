@@ -42,7 +42,7 @@ import { Settings } from './views/Settings'
 import { Tasks } from './views/Tasks'
 import { ShortcutHelp } from './views/ShortcutHelp'
 import { Onboarding } from './views/Onboarding'
-import { TabBar } from './views/TabBar'
+import { SyncProgress, TabBar } from './views/TabBar'
 import { SearchPage } from './views/SearchPage'
 import { ContactPane } from './views/ContactPane'
 import { PenSquare, Plus } from 'lucide-react'
@@ -62,6 +62,7 @@ import { textToHtml } from './aiText'
 import { namedAddress, replyAllCc } from './intro'
 import { applyTheme, isTheme, type Theme } from './theme'
 import { latestOnly } from './latest'
+import { syncBar, trackSync, type SyncCounts } from './syncBar'
 import {
   back,
   backOutOf,
@@ -223,6 +224,7 @@ export default function App() {
   }, [folders, activeFolderId])
 
   const [accounts, setAccounts] = useState<AccountSummary[]>([])
+  const [syncCounts, setSyncCounts] = useState<SyncCounts>({})
   const [activeAccountId, setActiveAccountId] = useState<number | null>(null)
   const [addingAccount, setAddingAccount] = useState(false)
   const [reauthEmail, setReauthEmail] = useState<string | null>(null)
@@ -526,7 +528,9 @@ export default function App() {
 
   const backgroundSync = useCallback(async () => {
     const before = useStore.getState()
-    if (before.syncing || !before.email) return
+    // No check of `syncing`: main skips an overlapping pass and runs one more
+    // after it, so a push during a sync still lands promptly.
+    if (!before.email) return
     const res = await (before.activeFolderId === UNIFIED_VIEW_ID ? window.api.runSyncAll() : window.api.runSync())
     const after = useStore.getState()
     if (res.ok) {
@@ -556,6 +560,10 @@ export default function App() {
       void backgroundSync()
     }
     window.addEventListener('focus', onFocus)
+    // Wake from sleep is caught in main; a network change without sleep only
+    // shows here. Main reconnects and replies with mail:new per account.
+    const onOnline = (): void => window.api.networkOnline()
+    window.addEventListener('online', onOnline)
     // IDLE push is the fast path; the timer stays as the fallback for when the
     // connection drops or the server never pushes.
     // A push from another account syncs that account; runSync would only
@@ -569,8 +577,14 @@ export default function App() {
         if (res.ok && !res.skipped && res.messages > 0) void refreshUnread()
       })
     })
-    // Sent gets no IDLE push (the watcher holds INBOX), so the main process
-    // tells us when the just-sent copy has landed locally.
+    // Main ran a follow-up pass on its own (a push arrived mid-sync).
+    const offStored = window.api.onSyncStored(() => {
+      const id = useStore.getState().activeFolderId
+      if (id) void loadRows(id, true)
+      void refreshUnread()
+    })
+    // Main tells us when a Sent copy has landed locally (after a send, or a
+    // push on the Sent folder).
     const offSentStored = window.api.onSentStored(() => {
       const id = useStore.getState().activeFolderId
       if (id) void loadRows(id, true)
@@ -613,8 +627,10 @@ export default function App() {
       offAi()
       offRethread()
       offSentStored()
+      offStored()
       clearInterval(timer)
       window.removeEventListener('focus', onFocus)
+      window.removeEventListener('online', onOnline)
       offNewMail()
       offSendFailed()
       offCancelled()
@@ -738,10 +754,27 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false
+    let lastListRefresh = 0
 
     const off = window.api.onSyncProgress((p) => {
       if (cancelled) return
       setSync(p.phase !== 'done' && p.phase !== 'error', p.folder ?? null)
+      setSyncCounts((prev) => trackSync(prev, p))
+      // A long sync stores folder by folder, INBOX first: show what has landed
+      // instead of an empty list until every folder is done.
+      const now = performance.now()
+      if (p.count == null || (p.expected ?? 0) < 50 || now - lastListRefresh < 1_000) return
+      lastListRefresh = now
+      void (async () => {
+        const fid = useStore.getState().activeFolderId
+        if (fid) return loadRows(fid, true)
+        const fs = await window.api.listFolders()
+        const inbox = fs.find((f) => f.role === 'inbox')
+        if (cancelled || !inbox || useStore.getState().activeFolderId) return
+        setFolders(fs)
+        setActiveFolder(inbox.id)
+        await loadRows(inbox.id)
+      })()
     })
 
     let lastRefresh = 0
@@ -1692,6 +1725,8 @@ export default function App() {
     return f ? folderLabel(f) : 'Mail'
   }
 
+  const bar = syncBar(syncCounts)
+
   return (
     <div className="app">
       <div className="titlebar-drag" />
@@ -1734,7 +1769,15 @@ export default function App() {
             }}
             onBack={() => showWorkspace(back(workspace))}
             onForward={() => showWorkspace(forward(workspace))}
+            progress={bar}
           />
+        )}
+        {/* A first sync has no workspace (and no tabs) until it finishes. */}
+        {!workspace && bar && (
+          <div className="tab-bar">
+            <div className="tab-list" />
+            <SyncProgress {...bar} />
+          </div>
         )}
         {reauthEmail && (
           <div className="reauth-banner" role="alert">

@@ -188,6 +188,17 @@ export class ImapPool {
     }
   }
 
+  /**
+   * Logs out every connection not in use. After sleep or a network change a
+   * pooled socket can be half-open: it still reports `usable`, and the next
+   * command would wait out the socket timeout before failing.
+   */
+  dropIdle(): void {
+    const idle = this.entries.filter((e) => !e.busy)
+    this.entries = this.entries.filter((e) => e.busy)
+    for (const e of idle) void e.client.logout().catch(() => {})
+  }
+
   async close(): Promise<void> {
     this.closed = true
     if (this.keepalive) clearInterval(this.keepalive)
@@ -222,4 +233,9 @@ export async function closePool(email?: string): Promise<void> {
     pools.delete(k)
   }
   await Promise.all(doomed.map((p) => p.close()))
+}
+
+/** Every account's idle connections, after wake or a network change. */
+export function dropIdleConnections(): void {
+  for (const p of pools.values()) p.dropIdle()
 }

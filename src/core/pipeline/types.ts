@@ -20,6 +20,8 @@ export interface RawMessage {
     date?: Date | null
   }
   flags?: string[]
+  /** When the server received it (INTERNALDATE). Only used to measure sync speed. */
+  internalDate?: Date | null
   /** List-Unsubscribe / bulk headers from the envelope fetch. Absent on body passes. */
   listHeaders?: ListHeaders
   /** Gmail X-GM-LABELS as fetched. Absent means "no authority": stored labels stay. */

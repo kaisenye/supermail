@@ -33,7 +33,8 @@ import {
 } from '../src/core/accounts/manage.js'
 import { authUrl, createPkce, exchangeCode, primeAccessToken } from '../src/core/accounts/oauth.js'
 import { waitForRedirect } from '../src/core/accounts/oauthFlow.js'
-import { startAccountWorkers, stopAccountWorkers } from './workers.js'
+import { createSyncGuard } from './syncGuard.js'
+import { startAccountWorkers, stopAccountWorkers, watchSentFolder } from './workers.js'
 import { syncAllAccounts } from './syncAll.js'
 import { runBackfillExclusive } from './backfillLock.js'
 import {
@@ -112,7 +113,7 @@ function logoMime(ext: string): string {
 
 // All keyed by accountId — a shared flag would let one account's in-flight
 // sync suppress another's, and a shared writer would target the wrong server.
-const syncing = new Set<number>()
+const syncing = createSyncGuard()
 /** Accounts with a one-time header repair running, so a second sync does not start another. */
 const repairing = new Set<number>()
 const bodySyncing = new Set<number>()
@@ -830,6 +831,7 @@ export function registerIpc(): void {
     bodySyncing.add(s.accountId)
     try {
       const result = await syncBodies(s.accountId, s.config, {
+        waitTurn: () => syncing.whenIdle(),
         onProgress: (p) => {
           for (const w of BrowserWindow.getAllWindows())
             w.webContents.send('bodySync:progress', p)
@@ -994,12 +996,12 @@ export async function runSyncFor(
   | { ok: false; error: string }
 > {
   if (!s.ok) return { ok: false, error: s.error }
-  // Overlap is normal (timer + focus + boot) — skip quietly, not an error.
-  if (syncing.has(s.accountId)) {
+  // Overlap is normal (timer + focus + push) — skip quietly, not an error. The
+  // guard owes one more pass, so mail pushed mid-pass is not left for the poll.
+  if (!syncing.begin(s.accountId)) {
     return { ok: true, folders: 0, messages: 0, reconciled: 0, errors: [], skipped: true }
   }
 
-  syncing.add(s.accountId)
   try {
     const result = await syncAccount(s.accountId, s.config, {
       // Server state must not clobber a local flag change still in the queue.
@@ -1014,6 +1016,8 @@ export async function runSyncFor(
     if (drifted.length) console.warn(`[listRows] repaired drift in folders ${drifted.join(', ')}`)
     // The server just answered, so moves deferred while offline can go now.
     resumePendingMoves(s.accountId, s.config)
+    // Roles are now known, so a new account's Sent folder gets its push too.
+    watchSentFolder(s.accountId, s.config)
     // One-time header repairs, in the background: each re-reads every header
     // in the mailbox and must not delay the list the user is waiting on. Run
     // one after the other so they never hold two extra connections at once.
@@ -1041,6 +1045,12 @@ export async function runSyncFor(
   } catch (e) {
     return { ok: false, error: (e as Error).message }
   } finally {
-    syncing.delete(s.accountId)
+    if (syncing.end(s.accountId)) {
+      // Nobody awaits this pass, so tell the windows when it stored mail.
+      void runSyncFor(s).then((r) => {
+        if (!r.ok || r.skipped || r.messages === 0) return
+        for (const w of BrowserWindow.getAllWindows()) w.webContents.send('sync:stored', s.email)
+      })
+    }
   }
 }

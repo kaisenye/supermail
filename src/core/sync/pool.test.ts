@@ -48,6 +48,31 @@ afterEach(async () => {
 })
 
 describe('ImapPool', () => {
+  it('drops idle connections on wake but leaves one in use alone', async () => {
+    const made: ReturnType<typeof fakeClient>[] = []
+    mocked.mockImplementation(async () => {
+      const c = fakeClient()
+      made.push(c)
+      return c as never
+    })
+    pool = new ImapPool(config)
+    const p = pool
+    const busy = deferred<void>()
+    const held = p.withConnection(async () => busy.promise)
+    // made[0] is held, so this lease opens made[1], which then sits idle.
+    await p.withConnection(async () => {})
+
+    p.dropIdle()
+    expect(made[1].logout).toHaveBeenCalled()
+    expect(made[0].logout).not.toHaveBeenCalled()
+    busy.resolve()
+    await held
+
+    // A later lease gets the connection that was busy, never the dropped one.
+    const used = await p.withConnection(async (c) => c)
+    expect(used).not.toBe(made[1])
+  })
+
   it('wakes a parked waiter when a connection attempt fails', async () => {
     let calls = 0
     mocked.mockImplementation(async () => {

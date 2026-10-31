@@ -30,6 +30,8 @@ export async function syncBodies(
   opts: {
     onProgress?: (p: BodySyncProgress) => void
     signal?: () => boolean
+    /** Resolves when it is fine to parse the next body (no mail sync running). */
+    waitTurn?: () => Promise<void>
   } = {}
 ): Promise<{ fetched: number }> {
   const progress = opts.onProgress ?? (() => {})
@@ -57,6 +59,7 @@ export async function syncBodies(
         if (cancelled()) break
         const slice = uids.slice(i, i + BATCH)
         await fetchSourcesBatch(client, folder.path, slice, async (uid, source) => {
+          await opts.waitTurn?.()
           // Parse+store is ~120ms and the next message's ~360ms network wait
           // dominates, so serial pipelining here is fine and keeps memory flat.
           try {

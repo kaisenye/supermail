@@ -505,6 +505,14 @@ const api = {
     return () => ipcRenderer.off('reminders:fired', h)
   },
   /** IDLE push: new mail for the account with this email. */
+  /** A follow-up sync main ran on its own stored new mail for this account. */
+  onSyncStored: (cb: (email: string) => void): (() => void) => {
+    const h = (_e: unknown, email: string): void => cb(email)
+    ipcRenderer.on('sync:stored', h)
+    return () => ipcRenderer.off('sync:stored', h)
+  },
+  /** The network came back: main reconnects IDLE and the pool, then syncs. */
+  networkOnline: (): void => ipcRenderer.send('net:online'),
   onNewMail: (cb: (email: string | undefined) => void): (() => void) => {
     const h = (_e: unknown, email?: string): void => cb(email)
     ipcRenderer.on('mail:new', h)

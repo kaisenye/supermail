@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, powerMonitor, shell } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
@@ -27,9 +27,9 @@ import { createOpenAiProvider } from '../src/core/services/ai/openai.js'
 import { aiKey } from '../src/core/services/ai/keys.js'
 import { onScheduledCancelled } from '../src/core/send/cancelOnReply.js'
 import { startOutboxWorker } from '../src/core/send/flush.js'
-import { stopIdleWatcher } from '../src/core/sync/idle.js'
-import { closePool } from '../src/core/sync/pool.js'
-import { refreshSentFolder, startAccountWorkers } from './workers.js'
+import { restartIdleWatchers, stopIdleWatcher } from '../src/core/sync/idle.js'
+import { closePool, dropIdleConnections } from '../src/core/sync/pool.js'
+import { refreshSentFolder, startAccountWorkers, watchSentFolder } from './workers.js'
 import { addAccount, getAccount, listAccounts, markNeedsReauth, setBootError } from './state.js'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -222,15 +222,37 @@ app.whenReady().then(() => {
   // pushes for all of them rather than only whichever is on screen.
   for (const a of listAccounts()) {
     startAccountWorkers(a.config)
+    watchSentFolder(a.accountId, a.config)
     resumePendingMoves(a.accountId, a.config)
   }
   startBackgroundSync()
+  powerMonitor.on('resume', () => reconnectAndSync('wake'))
+  ipcMain.on('net:online', () => reconnectAndSync('network back'))
   createWindow()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
+
+/**
+ * After sleep or a network change, every parked IDLE socket and pooled
+ * connection may be half-open: they look connected, but pushes stop and the
+ * next command waits out the socket timeout. Reconnect them all and sync every
+ * account now instead of at the next poll.
+ */
+function reconnectAndSync(reason: string): void {
+  console.log(`[sync] ${reason}: reconnecting and syncing`)
+  restartIdleWatchers()
+  dropIdleConnections()
+  const windows = BrowserWindow.getAllWindows()
+  for (const a of listAccounts()) {
+    // A window syncs through its own path so the list repaints; with none
+    // open (macOS keeps the app resident) sync here.
+    if (windows.length) for (const w of windows) w.webContents.send('mail:new', a.email)
+    else void runSyncFor({ ok: true, accountId: a.accountId, email: a.email, config: a.config })
+  }
+}
 
 /**
  * Keeps mail current while no window is open.

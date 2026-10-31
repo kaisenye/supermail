@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 import type { AccountConfig } from '../src/core/accounts/config.js'
-import { startIdleWatcher, stopIdleWatcher } from '../src/core/sync/idle.js'
+import { startIdleWatcher, stopIdleWatcher, watchMailbox } from '../src/core/sync/idle.js'
 import { closePool, getPool } from '../src/core/sync/pool.js'
 import { refreshFolderNow } from '../src/core/sync/syncEngine.js'
 import { findFolderByPath, folderByRole } from '../src/core/store/repo.js'
@@ -16,6 +16,18 @@ export function startAccountWorkers(config: AccountConfig): void {
   })
 }
 
+/**
+ * Push for the account's Sent folder, on its own parked connection: mail sent
+ * from webmail or a phone shows up in seconds instead of at the next poll.
+ * Idempotent; called at boot and after every sync, since a new account's Sent
+ * folder is only known once its first sync has assigned roles.
+ */
+export function watchSentFolder(accountId: number, config: AccountConfig): void {
+  const path = folderByRole(accountId, 'sent')?.path
+  if (!path) return
+  watchMailbox(config, 'sent', path, () => void refreshSentFolder(accountId, config, null, 1))
+}
+
 export function stopAccountWorkers(email: string): void {
   stopIdleWatcher(email)
   void closePool(email)
@@ -26,15 +38,18 @@ const sentRefreshes = serialPerKey()
 /**
  * Pulls the just-sent copy into the local Sent folder.
  *
- * The server files it asynchronously and the IDLE watcher only holds INBOX
- * open, so without this the message waits for the 60s background poll. Waits
+ * The server files it asynchronously, and the Sent watcher may not be
+ * connected (or the server may not push for its own APPEND), so without this
+ * the message can wait for the 60s background poll. Waits
  * for `messageId` itself: with two quick sends, a poll can bring the other
  * send's copy. One refresh per account at a time, on the shared pool.
  */
 export function refreshSentFolder(
   accountId: number,
   config: AccountConfig,
-  messageId: string | null
+  messageId: string | null,
+  /** 1 for a push: the server already said something arrived. */
+  attempts?: number
 ): Promise<void> {
   return sentRefreshes(accountId, async () => {
     const path = folderByRole(accountId, 'sent')?.path
@@ -42,6 +57,7 @@ export function refreshSentFolder(
     let storedAny = false
     try {
       const found = await waitForSentCopy({
+        attempts,
         poll: async () => {
           // Re-read: last_uid moves when a poll or the background sync stores
           // rows, and a stale cursor would re-fetch what is already local.
@@ -68,7 +84,7 @@ export function refreshSentFolder(
           return messageId ? hasSentCopy(accountId, folder.id, messageId) : storedAny
         }
       })
-      if (!found) console.warn(`[send] Sent copy ${messageId ?? ''} not seen yet; background sync will pick it up`)
+      if (!found && messageId) console.warn(`[send] Sent copy ${messageId ?? ''} not seen yet; background sync will pick it up`)
     } catch (err) {
       // The background sync still picks it up; this is only the fast path.
       console.error('[send] Sent refresh failed:', err)

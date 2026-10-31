@@ -11,10 +11,12 @@ interface Props {
   onNew: () => void
   onBack: () => void
   onForward: () => void
+  /** A first sync or a large catch-up; null hides it. */
+  progress?: { done: number; expected: number; pct: number } | null
 }
 
 /** Workspace tabs (Scape): ⌘T, ⌘W, ⌘1–9, ⌃Tab; back / forward per tab with ⌘[ / ⌘]. */
-export function TabBar({ tabs, active, canBack, canForward, onSelect, onClose, onNew, onBack, onForward }: Props) {
+export function TabBar({ tabs, active, canBack, canForward, onSelect, onClose, onNew, onBack, onForward, progress }: Props) {
   // Mouse use must not keep focus on a button, or j/k stop working.
   const blur = (e: MouseEvent<HTMLElement>): void => e.currentTarget.blur()
   return (
@@ -48,6 +50,28 @@ export function TabBar({ tabs, active, canBack, canForward, onSelect, onClose, o
           <Plus size={13} strokeWidth={2} />
         </button>
       </div>
+      {progress && <SyncProgress {...progress} />}
+    </div>
+  )
+}
+
+/** "Syncing N of M" with a thin bar, at the right of the top bar. */
+export function SyncProgress({ done, expected, pct }: { done: number; expected: number; pct: number }) {
+  return (
+    <div
+      className="sync-progress"
+      role="progressbar"
+      aria-label="Syncing mail"
+      aria-valuemin={0}
+      aria-valuemax={expected}
+      aria-valuenow={done}
+    >
+      <span className="sync-progress-label">
+        Syncing {done.toLocaleString()} of {expected.toLocaleString()}
+      </span>
+      <span className="sync-progress-track">
+        <span className="sync-progress-fill" style={{ width: `${pct}%` }} />
+      </span>
     </div>
   )
 }
