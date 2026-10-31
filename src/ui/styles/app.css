@@ -884,21 +884,23 @@ button > svg {
   text-decoration: underline;
 }
 
+/* Folded quoted history: a small "•••" pill under the message (Gmail, Scape). */
 .quotes-toggle {
-  margin-bottom: var(--space-3);
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 20px;
+  margin: var(--space-1) 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text-tertiary);
 }
 
-.quotes-toggle button {
-  color: var(--accent);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  transition:
-    background var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
-}
-
-.quotes-toggle button:hover {
-  text-decoration: underline;
+.quotes-toggle:hover,
+.quotes-toggle[aria-expanded='true'] {
+  background: var(--surface-hover);
+  color: var(--text-primary);
 }
 
 .body-links {

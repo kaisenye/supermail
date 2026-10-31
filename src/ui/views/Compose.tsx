@@ -63,7 +63,7 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
   const [linking, setLinking] = useState(false)
   /** Cc and Bcc rows stay folded behind "Cc / Bcc" until used (Scape). */
   const [showCc, setShowCc] = useState(() => !!(compose.cc || compose.bcc))
-  /** A reply's quoted original folds behind "…" (Scape); it is still sent. */
+  /** A reply's quote or a forward's message folds behind "…" (Scape); it is still sent. */
   const [showQuote, setShowQuote] = useState(false)
   const editorRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
@@ -437,8 +437,8 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
   const showSubject = !inline || compose.mode === 'forward'
   // Bcc-only (undisclosed recipients) mail is valid, so any recipient field counts.
   const canSend = !sending && !!(compose.to.trim() || compose.cc.trim() || compose.bcc.trim())
-  const isReply = compose.mode === 'reply' || compose.mode === 'replyAll'
-  const quoteFolded = isReply && !showQuote && compose.body.includes('supermail-quote')
+  // A reply's quoted original and a forward's forwarded message both fold.
+  const quoteFolded = compose.mode !== 'new' && !showQuote && compose.body.includes('supermail-quote')
 
   // An inline reply scrolls into view and takes the caret, like Scape's.
   useEffect(() => {
@@ -568,7 +568,7 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
         onKeyUp={refreshFormats}
       />
       {quoteFolded && (
-        <button type="button" className="compose-quote-toggle" title="Show quoted text" aria-label="Show quoted text" onClick={() => setShowQuote(true)}>
+        <button type="button" className="compose-quote-toggle" title={compose.mode === 'forward' ? 'Show forwarded message' : 'Show quoted text'} aria-label={compose.mode === 'forward' ? 'Show forwarded message' : 'Show quoted text'} onClick={() => setShowQuote(true)}>
           <Ellipsis size={14} strokeWidth={2} />
         </button>
       )}

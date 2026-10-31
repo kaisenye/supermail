@@ -30,9 +30,22 @@ const QUOTE_ATTR = 'data-quoted'
 const QUOTE_CLASS_ID =
   /^(gmail_quote(_container)?|divRplyFwdMsg|OutlookMessageHeader|moz-cite-prefix|appendonsend|yahoo_quoted|protonmail_quote)$/i
 
+/**
+ * Exmail / QQ's quoted-header block (From / Date / To / Subject). Forwarding
+ * through Outlook prefixes the id with x_, once per hop.
+ */
+const EXMAIL_HEADER_ID = /^(x_)*menu_sender$/i
+
+/**
+ * Exmail's divider line, in the spacings and languages seen in real mail:
+ * "------------------ Original ------------------", "-----Original Message-----",
+ * "------------------ 原始邮件 ------------------".
+ */
+const DIVIDER_RE = /^[-_\s]{4,}\s*(original(\s+message)?|原始邮件|原始郵件)\s*[-_\s]{4,}$/i
+
 function isQuoteWrapper(node: Element): boolean {
   const id = node.getAttribute?.('id')
-  if (id && QUOTE_CLASS_ID.test(id)) return true
+  if (id && (QUOTE_CLASS_ID.test(id) || EXMAIL_HEADER_ID.test(id))) return true
   const cls = node.getAttribute?.('class')
   return !!cls && cls.split(/\s+/).some((c) => QUOTE_CLASS_ID.test(c))
 }
@@ -62,6 +75,22 @@ const purify = createDOMPurify(window as unknown as Window & typeof globalThis)
  * are marked — nesting a marker inside a marked quote buys the UI nothing.
  */
 function markQuotedBlocks(root: Element): void {
+  // History is everything from its first marker on: a divider line or a
+  // client's quote wrapper. Blockquotes are not used as a start, since replies
+  // written between quoted lines must stay visible.
+  const divider = [...root.querySelectorAll('div,p,span,font,b,strong,td')].find((el) => {
+    const t = (el.textContent ?? '').replace(/\u00a0/g, ' ').trim()
+    return t.length < 80 && DIVIDER_RE.test(t)
+  })
+  const wrapper = root.querySelector(`[${QUOTE_ATTR}]`)
+  const start =
+    divider && wrapper
+      ? divider.compareDocumentPosition(wrapper) & 4 /* wrapper follows */
+        ? divider
+        : wrapper
+      : (divider ?? wrapper)
+  if (start) markFrom(start, root)
+
   for (const el of root.querySelectorAll(`blockquote,[${QUOTE_ATTR}]`)) {
     if (el.parentElement?.closest(`[${QUOTE_ATTR}]`)) el.removeAttribute(QUOTE_ATTR)
     else el.setAttribute(QUOTE_ATTR, '')
@@ -73,6 +102,30 @@ function markQuotedBlocks(root: Element): void {
     for (let n = hr as Element | null; n; n = n.nextElementSibling) {
       if (!n.closest(`[${QUOTE_ATTR}]`)) n.setAttribute(QUOTE_ATTR, '')
     }
+  }
+}
+
+/**
+ * Marks `start` and everything after it in document order: its following
+ * siblings, then each ancestor's following siblings. The ancestors themselves
+ * stay visible, since they also hold the reply above the history. Loose text
+ * after the start is wrapped so it folds too.
+ */
+function markFrom(start: Element, root: Element): void {
+  const doc = root.ownerDocument
+  let first = true
+  for (let n: Element | null = start; n && n !== root; n = n.parentElement) {
+    for (let s: ChildNode | null = first ? n : n.nextSibling; s; s = s.nextSibling) {
+      if (s.nodeType === 1) (s as Element).setAttribute(QUOTE_ATTR, '')
+      else if (s.nodeType === 3 && s.textContent?.trim()) {
+        const wrap = doc.createElement('span')
+        wrap.setAttribute(QUOTE_ATTR, '')
+        s.replaceWith(wrap)
+        wrap.appendChild(s)
+        s = wrap
+      }
+    }
+    first = false
   }
 }
 

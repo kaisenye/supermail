@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Ellipsis } from 'lucide-react'
 import type { Attachment, BodyResult } from '../../../electron/preload'
 import { AttachmentList } from './AttachmentList'
 
@@ -35,6 +36,19 @@ export function MessageBody({ messageId, onLoaded, activeLink }: Props) {
     }
   }, [messageId, showImages])
 
+  /**
+   * Quoted history (marked in main) folds behind "•••". A message that is
+   * nothing but history (a forward with no note) opens unfolded instead of
+   * showing an empty card.
+   */
+  const { hasQuotes, onlyQuoted } = useMemo(() => {
+    if (!body?.ok || !/\sdata-quoted\b/.test(body.html)) return { hasQuotes: false, onlyQuoted: false }
+    const d = new DOMParser().parseFromString(`<body>${body.html}</body>`, 'text/html')
+    d.querySelectorAll('[data-quoted]').forEach((n) => n.remove())
+    const visible = (d.body.textContent ?? '').replace(/\u00a0/g, ' ').trim() !== '' || !!d.body.querySelector('img')
+    return { hasQuotes: true, onlyQuoted: !visible }
+  }, [body])
+
   useEffect(() => {
     if (body?.ok) onLoaded?.({ links: extractLinks(body.html), attachments: body.attachments })
     // onLoaded is a fresh closure each render; only a new body should report.
@@ -69,7 +83,7 @@ export function MessageBody({ messageId, onLoaded, activeLink }: Props) {
       observer.disconnect()
       cancelAnimationFrame(raf)
     }
-  }, [body, showQuotes])
+  }, [body, showQuotes, onlyQuoted])
 
   if (!body) {
     // Skeleton rather than a word: the body arrives in well under a second on
@@ -98,9 +112,8 @@ export function MessageBody({ messageId, onLoaded, activeLink }: Props) {
   }
   if (!body.ok) return <div className="body-error">{body.error}</div>
 
-  const doc = buildDoc(body.html, showQuotes)
+  const doc = buildDoc(body.html, showQuotes || onlyQuoted)
   const links = extractLinks(body.html)
-  const hasQuotes = /\sdata-quoted\b/.test(body.html)
 
   return (
     <div className="message-body">
@@ -110,13 +123,6 @@ export function MessageBody({ messageId, onLoaded, activeLink }: Props) {
             {body.blockedImages} remote image{body.blockedImages === 1 ? '' : 's'} blocked
           </span>
           <button onClick={() => setShowImages(true)}>Load images</button>
-        </div>
-      )}
-      {hasQuotes && (
-        <div className="quotes-toggle">
-          <button onClick={() => setShowQuotes((v) => !v)}>
-            {showQuotes ? 'Hide trimmed content' : 'Show trimmed content'}
-          </button>
         </div>
       )}
       {/*
@@ -147,6 +153,18 @@ export function MessageBody({ messageId, onLoaded, activeLink }: Props) {
         srcDoc={doc.srcDoc}
         title="Message body"
       />
+      {hasQuotes && !onlyQuoted && (
+        <button
+          type="button"
+          className="quotes-toggle"
+          aria-expanded={showQuotes}
+          title={showQuotes ? 'Hide quoted history' : 'Show quoted history'}
+          aria-label={showQuotes ? 'Hide quoted history' : 'Show quoted history'}
+          onClick={() => setShowQuotes((v) => !v)}
+        >
+          <Ellipsis size={14} strokeWidth={2} />
+        </button>
+      )}
       {/* Links open on click via the host. This list stays as the way to see
           every destination at once before following any of them. */}
       {links.length > 0 && (
