@@ -1017,7 +1017,7 @@ button > svg {
   /* Lines the label up with the sender column (row padding + lead + gap). */
   margin: 0 var(--space-4);
   padding: 0 0 6px calc(18px + var(--space-3));
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-faint);
   font-size: var(--text-sm);
   color: var(--text-tertiary);
 }

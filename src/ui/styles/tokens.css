@@ -66,6 +66,7 @@
   --unread: #2244cc;
   --flag: #d97706;
   --row-current: rgba(17, 17, 16, 0.045);
+  --border-faint: rgba(17, 17, 16, 0.045);
   --compose-bg: rgba(17, 17, 16, 0.045);
   --compose-bg-hover: rgba(17, 17, 16, 0.08);
   --compose-fg: var(--text-primary);
@@ -99,6 +100,7 @@
   --unread: #8aa4ff;
   --flag: #f0a844;
   --row-current: rgba(255, 255, 255, 0.05);
+  --border-faint: rgba(255, 255, 255, 0.04);
   --compose-bg: rgba(255, 255, 255, 0.06);
   --compose-bg-hover: rgba(255, 255, 255, 0.1);
   --compose-fg: var(--text-primary);
@@ -132,6 +134,7 @@
     --unread: #8aa4ff;
     --flag: #f0a844;
     --row-current: rgba(255, 255, 255, 0.05);
+    --border-faint: rgba(255, 255, 255, 0.04);
     --compose-bg: rgba(255, 255, 255, 0.06);
     --compose-bg-hover: rgba(255, 255, 255, 0.1);
     --compose-fg: var(--text-primary);
