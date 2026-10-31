@@ -117,12 +117,12 @@ function startAi(): void {
 }
 
 function createWindow(): void {
-  // Half the screen's width and 60% of its height, centred; never below the
+  // Half the screen's width and 70% of its height, centred; never below the
   // minimum size or past the screen.
   const area = screen.getPrimaryDisplay().workAreaSize
   const win = new BrowserWindow({
     width: Math.min(area.width, Math.max(720, Math.round(area.width * 0.5))),
-    height: Math.min(area.height, Math.max(480, Math.round(area.height * 0.6))),
+    height: Math.min(area.height, Math.max(480, Math.round(area.height * 0.7))),
     center: true,
     minWidth: 720,
     minHeight: 480,
