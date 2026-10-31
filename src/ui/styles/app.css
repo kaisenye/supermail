@@ -709,7 +709,7 @@ button > svg {
   transition:
     background var(--duration-fast) var(--ease-out),
     color var(--duration-fast) var(--ease-out),
-    padding 280ms var(--ease-out);
+    padding 420ms var(--ease-out);
 }
 
 .thread-reply-label {
@@ -721,9 +721,9 @@ button > svg {
   white-space: nowrap;
   opacity: 0;
   transition:
-    max-width 280ms var(--ease-out),
-    opacity 280ms var(--ease-out),
-    margin-left 280ms var(--ease-out);
+    max-width 420ms var(--ease-out),
+    opacity 420ms var(--ease-out),
+    margin-left 420ms var(--ease-out);
 }
 
 .thread-reply-more:hover,
