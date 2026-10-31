@@ -410,7 +410,8 @@ button > svg {
 }
 
 .row[data-selected='true'] {
-  background: var(--surface-active);
+  /* Neutral grey: hover moves the cursor, so this is also the hover colour. */
+  background: var(--row-current);
 }
 
 .row[data-checked='true'] {
@@ -418,7 +419,7 @@ button > svg {
 }
 
 .row[data-checked='true'][data-selected='true'] {
-  background: var(--surface-active);
+  background: var(--surface-selected);
 }
 
 /* Selection bar: transform-only so scrolling stays on the compositor. */
