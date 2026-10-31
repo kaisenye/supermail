@@ -4720,3 +4720,19 @@ button.sidebar-account svg {
   min-height: 240px;
   cursor: text;
 }
+
+/* The views + search row keeps the full width; the task card starts below it,
+   level with "Add a task", instead of from the top edge. */
+.task-toolbar {
+  min-height: 30px;
+  transition: margin-right var(--duration-base) var(--ease-out);
+}
+
+.task-list[data-card='true'] .task-toolbar {
+  margin-right: calc(-1 * (440px + var(--space-5)));
+}
+
+.task-card {
+  top: calc(var(--space-4) + 30px + var(--space-3));
+  max-height: calc(100% - (var(--space-4) + 30px + var(--space-3)) - var(--space-4));
+}
