@@ -4,9 +4,10 @@ import type { Priority, Task, TaskQuery } from '../../../electron/preload'
 import { PriorityIcon, PriorityPicker } from './Priority'
 import { RichEditor, type RichEditorHandle } from './RichEditor'
 import { dueLabel, middayIn, parseQuickTask, taskSections } from '../tasksView'
+import { formatFullDate } from '../format'
 
-const MIN_PANE = 300
-const MAX_PANE = 720
+/** How long the card takes to slide out; matches .task-card[data-closing]. */
+const CARD_OUT_MS = 160
 
 type View = 'all' | 'today' | 'upcoming'
 const VIEWS: { id: View; label: string }[] = [
@@ -95,18 +96,27 @@ export function Tasks({ onChange, onClose }: { onChange?: () => void; onClose?: 
   const addRef = useRef<HTMLInputElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const descRef = useRef<RichEditorHandle>(null)
-  // Persisted so the pane keeps its size across restarts.
-  const [paneWidth, setPaneWidth] = useState(() => {
-    try {
-      const saved = Number(localStorage.getItem('tasks.paneWidth'))
-      return Number.isFinite(saved) && saved >= MIN_PANE ? saved : 380
-    } catch {
-      return 380
-    }
-  })
-  const dragging = useRef(false)
-  // The mouseup listener is registered once, so it needs the live width.
-  const paneWidthRef = useRef(paneWidth)
+  /** The card plays its slide-out before it unmounts. */
+  const [closing, setClosing] = useState(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const closeCard = useCallback(() => {
+    if (closeTimer.current) return
+    setClosing(true)
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = null
+      setClosing(false)
+      setSelected(null)
+    }, CARD_OUT_MS)
+  }, [])
+  const openCard = useCallback((t: Task) => {
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+    closeTimer.current = null
+    setClosing(false)
+    setSelected(t)
+  }, [])
+  useEffect(() => () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+  }, [])
 
   /** Recomputed per render so "today" stays correct across midnight. */
   const query = useMemo<TaskQuery>(() => {
@@ -128,34 +138,6 @@ export function Tasks({ onChange, onClose }: { onChange?: () => void; onClose?: 
   useEffect(() => {
     void reload()
   }, [reload])
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent): void => {
-      if (!dragging.current) return
-      // Measured from the right edge: the pane is anchored there, so this
-      // stays correct when the window resizes mid-drag.
-      const next = Math.min(MAX_PANE, Math.max(MIN_PANE, window.innerWidth - e.clientX))
-      paneWidthRef.current = next
-      setPaneWidth(next)
-    }
-    const onUp = (): void => {
-      if (!dragging.current) return
-      dragging.current = false
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      try {
-        localStorage.setItem('tasks.paneWidth', String(paneWidthRef.current))
-      } catch {
-        /* the width is a convenience */
-      }
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-    return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-  }, [])
 
   // The editor is uncontrolled, so only push HTML in when the task changes —
   // rewriting it on every keystroke would fight the caret.
@@ -207,7 +189,7 @@ export function Tasks({ onChange, onClose }: { onChange?: () => void; onClose?: 
         // Out of a field first, then the detail, then Tasks itself.
         if (isTyping(e.target)) return void (e.target as HTMLElement).blur()
         e.preventDefault()
-        if (selected) setSelected(null)
+        if (selected) closeCard()
         else onClose?.()
         return
       }
@@ -216,11 +198,11 @@ export function Tasks({ onChange, onClose }: { onChange?: () => void; onClose?: 
       if (e.key === 'j' || e.key === 'ArrowDown') {
         e.preventDefault()
         const next = visible[Math.min(visible.length - 1, at + 1)]
-        if (next) setSelected(next)
+        if (next) openCard(next)
       } else if (e.key === 'k' || e.key === 'ArrowUp') {
         e.preventDefault()
         const next = visible[Math.max(0, at - 1)]
-        if (next) setSelected(next)
+        if (next) openCard(next)
       } else if (e.key === 'x' && selected) {
         e.preventDefault()
         void toggleDone(selected)
@@ -234,7 +216,7 @@ export function Tasks({ onChange, onClose }: { onChange?: () => void; onClose?: 
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selected, visible, toggleDone, onClose])
+  }, [selected, visible, toggleDone, onClose, closeCard, openCard])
 
   const row = (t: Task) => {
     const due = t.due_at && !t.done_at ? dueLabel(t.due_at) : null
@@ -246,7 +228,7 @@ export function Tasks({ onChange, onClose }: { onChange?: () => void; onClose?: 
         tabIndex={-1}
         data-done={!!t.done_at}
         data-selected={selected?.id === t.id}
-        onClick={() => setSelected(t)}
+        onClick={() => openCard(t)}
       >
         <button
           type="button"
@@ -281,7 +263,7 @@ export function Tasks({ onChange, onClose }: { onChange?: () => void; onClose?: 
 
   return (
     <div className="tasks">
-      <div className="task-list">
+      <div className="task-list" data-card={!!selected && !closing}>
         <div className="task-column">
           <div className="task-toolbar">
             <div className="task-views" role="tablist" aria-label="Task views">
@@ -368,41 +350,20 @@ export function Tasks({ onChange, onClose }: { onChange?: () => void; onClose?: 
       </div>
 
       {selected && (
-        <aside className="task-detail" style={{ width: paneWidth }} key={selected.id}>
-          <div
-            className="task-resize"
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize panel"
-            onMouseDown={(e) => {
-              e.preventDefault()
-              dragging.current = true
-              // Hold the cursor through the drag even over other elements.
-              document.body.style.cursor = 'col-resize'
-              document.body.style.userSelect = 'none'
-            }}
-            onDoubleClick={() => {
-              setPaneWidth(380)
-              try {
-                localStorage.setItem('tasks.paneWidth', '380')
-              } catch {
-                /* the width is a convenience */
-              }
-            }}
-          />
-          <div className="task-detail-head">
+        <aside className="task-card" data-closing={closing} aria-label="Task">
+          <header className="task-card-head">
             <button
               type="button"
               className="task-check"
               role="checkbox"
               aria-checked={!!selected.done_at}
               aria-label={selected.done_at ? 'Mark not done' : 'Mark done (x)'}
-              data-done={!!selected.done_at}
               onClick={() => void toggleDone(selected)}
             >
               <Check size={11} strokeWidth={3} />
             </button>
             <textarea
+              key={selected.id}
               className="task-detail-title"
               rows={1}
               value={selected.title}
@@ -418,38 +379,59 @@ export function Tasks({ onChange, onClose }: { onChange?: () => void; onClose?: 
                 if (title) void update({ title })
               }}
             />
-            <button type="button" className="task-icon-btn" title="Close (Esc)" aria-label="Close" onClick={() => setSelected(null)}>
+            <button type="button" className="task-icon-btn" title="Close (Esc)" aria-label="Close" onClick={closeCard}>
               <X size={15} strokeWidth={1.75} />
             </button>
+          </header>
+
+          <dl className="task-props">
+            <div>
+              <dt>Priority</dt>
+              <dd>
+                <PriorityPicker value={selected.priority} onChange={(p) => void update({ priority: p })} />
+              </dd>
+            </div>
+            <div>
+              <dt>Due date</dt>
+              <dd>
+                <DueMenu value={selected.due_at} onChange={(due_at) => void update({ due_at })} />
+              </dd>
+            </div>
+            {selected.done_at && (
+              <div>
+                <dt>Completed</dt>
+                <dd className="task-prop-text">{formatFullDate(selected.done_at)}</dd>
+              </div>
+            )}
+          </dl>
+
+          <div className="task-notes">
+            <span className="task-notes-label">Notes</span>
+            <RichEditor
+              ref={descRef}
+              className="task-desc"
+              placeholder="Add notes, links, anything…"
+              onSave={(html) => {
+                if (html !== (selected.description ?? '')) void update({ description: html })
+              }}
+            />
           </div>
 
-          <div className="task-meta">
-            <PriorityPicker value={selected.priority} onChange={(p) => void update({ priority: p })} />
-            <DueMenu value={selected.due_at} onChange={(due_at) => void update({ due_at })} />
-            <span className="task-meta-spacer" />
+          <footer className="task-card-foot">
+            <span>Created {formatFullDate(selected.created_at)}</span>
             <button
               type="button"
-              className="task-icon-btn task-delete"
-              title="Delete task"
-              aria-label="Delete task"
+              className="task-card-delete"
               onClick={async () => {
                 await window.api.deleteTask(selected.id)
-                setSelected(null)
+                closeCard()
                 await reload()
               }}
             >
-              <Trash2 size={15} strokeWidth={1.75} />
+              <Trash2 size={13} strokeWidth={1.75} />
+              Delete
             </button>
-          </div>
-
-          <RichEditor
-            ref={descRef}
-            className="task-desc"
-            placeholder="Notes, links, anything…"
-            onSave={(html) => {
-              if (html !== (selected.description ?? '')) void update({ description: html })
-            }}
-          />
+          </footer>
         </aside>
       )}
     </div>

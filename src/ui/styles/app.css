@@ -4035,8 +4035,20 @@ button.sidebar-account svg {
 }
 
 .task-column {
-  max-width: 720px;
-  margin: 0 auto;
+  /* Full width (Scape); the list makes room while a task card is open. */
+  max-width: none;
+}
+
+.tasks {
+  position: relative;
+}
+
+.task-list {
+  transition: padding-right var(--duration-base) var(--ease-out);
+}
+
+.task-list[data-card='true'] {
+  padding-right: calc(440px + var(--space-5) * 2);
 }
 
 .task-toolbar {
@@ -4300,36 +4312,9 @@ button.sidebar-account svg {
   color: var(--accent);
 }
 
-.task-detail {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  border-left: 1px solid var(--border);
-  background: var(--bg-raised);
-  padding: var(--space-5) var(--space-5) var(--space-4);
-  overflow-y: auto;
-  animation: pane-in var(--duration-base) var(--ease-out);
-}
 
-.task-resize {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -3px;
-  width: 6px;
-  cursor: col-resize;
-}
 
-.task-detail-head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-}
 
-.task-detail-head .task-check {
-  margin-top: 5px;
-}
 
 .task-detail-title {
   flex: 1;
@@ -4361,22 +4346,8 @@ button.sidebar-account svg {
   color: var(--text-primary);
 }
 
-.task-delete:hover {
-  color: var(--flag);
-}
 
-.task-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: var(--space-3) 0 var(--space-4) 30px;
-  padding-bottom: var(--space-4);
-  border-bottom: 1px solid var(--border-faint);
-}
 
-.task-meta-spacer {
-  flex: 1;
-}
 
 .task-due-menu {
   position: relative;
@@ -4471,4 +4442,143 @@ button.sidebar-account svg {
   max-height: 32px;
   padding-bottom: var(--space-2);
   opacity: 1;
+}
+
+/* ---- task card: floats over the list, slides in from the right ---- */
+
+@keyframes task-card-in {
+  from { opacity: 0; transform: translateX(28px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes task-card-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateX(28px) scale(0.98); }
+}
+
+.task-card {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-5);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  width: 440px;
+  max-height: calc(100% - var(--space-4) * 2);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-raised);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 12px 32px -8px rgba(0, 0, 0, 0.14);
+  animation: task-card-in 220ms var(--ease-out);
+}
+
+.task-card[data-closing='true'] {
+  animation: task-card-out 160ms var(--ease-out) forwards;
+}
+
+.task-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-4) var(--space-3) var(--space-5);
+}
+
+.task-card-head .task-check {
+  margin-top: 5px;
+}
+
+.task-props {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0 var(--space-5) var(--space-4);
+}
+
+.task-props > div {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: center;
+  min-height: 34px;
+}
+
+.task-props dt {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+.task-props dd {
+  margin: 0;
+  justify-self: start;
+}
+
+.task-prop-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.task-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 160px;
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border-faint);
+}
+
+.task-notes-label {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+.task-card .task-desc {
+  flex: 1;
+  margin-left: 0;
+}
+
+.task-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border-faint);
+  font-size: var(--text-xs);
+  color: var(--text-quaternary);
+}
+
+.task-card-delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+.task-card-delete:hover {
+  background: color-mix(in srgb, var(--flag) 10%, transparent);
+  color: var(--flag);
+}
+
+/* In the task card, priority reads as the same chip as the due date. */
+.task-props .pri-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.task-props .pri-trigger:hover {
+  background: var(--surface-hover);
 }
