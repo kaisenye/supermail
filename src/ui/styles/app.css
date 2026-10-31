@@ -4369,9 +4369,13 @@ button.sidebar-account svg {
   animation: view-in var(--duration-base) var(--ease-out);
 }
 
-/* At the end of a thread it sits where the next message would be. */
+/* At the end of a thread it sits where the next message would be, with
+   room under it so it never hugs the bottom edge; scrolling it into view
+   keeps that room too. */
 .compose-card[data-inline='true'] {
   margin-top: var(--space-5);
+  margin-bottom: 28vh;
+  scroll-margin-bottom: 28vh;
   box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.04));
 }
 
