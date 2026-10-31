@@ -117,11 +117,12 @@ function startAi(): void {
 }
 
 function createWindow(): void {
-  // Most of the screen on first open, like other mail apps; never past it.
+  // Half the screen's width and 60% of its height, centred; never below the
+  // minimum size or past the screen.
   const area = screen.getPrimaryDisplay().workAreaSize
   const win = new BrowserWindow({
-    width: Math.min(area.width, Math.max(1280, Math.round(area.width * 0.88))),
-    height: Math.min(area.height, Math.max(820, Math.round(area.height * 0.9))),
+    width: Math.min(area.width, Math.max(720, Math.round(area.width * 0.5))),
+    height: Math.min(area.height, Math.max(480, Math.round(area.height * 0.6))),
     center: true,
     minWidth: 720,
     minHeight: 480,
