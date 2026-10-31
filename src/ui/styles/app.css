@@ -351,7 +351,8 @@ button > svg {
   gap: var(--space-3);
   height: var(--row-height);
   padding: 0 var(--space-4);
-  cursor: default;
+  /* One click opens the conversation. */
+  cursor: pointer;
   position: relative;
   contain: layout style;
   /* Background only: the list is virtualised, so anything that triggers
@@ -359,13 +360,36 @@ button > svg {
   transition: background var(--duration-fast) var(--ease-out);
 }
 
+.row-lead {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+/* Over the unread dot, hidden until the row is hovered or a selection exists. */
 .row-check {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  flex-shrink: 0;
+  opacity: 0;
   -webkit-app-region: no-drag;
+}
+
+.row:hover .row-check,
+.row[data-checked='true'] .row-check,
+.list-scroll[data-selecting='true'] .row-check {
+  opacity: 1;
+}
+
+.row:hover .row-unread-dot,
+.row[data-checked='true'] .row-unread-dot,
+.list-scroll[data-selecting='true'] .row-unread-dot {
+  visibility: hidden;
 }
 
 .row:hover {
@@ -508,8 +532,7 @@ button > svg {
 
 .row-flag {
   color: var(--flag);
-  font-size: 9px;
-  line-height: 1;
+  flex-shrink: 0;
 }
 
 .row-reminder {
@@ -1713,22 +1736,94 @@ div.compose-body[data-empty='true']::before {
 
 /* ---- settings ---- */
 
-.settings {
+/* A page in the main area (Scape): section list on the left, one section at a time. */
+.settings-page {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-nav {
   display: flex;
   flex-direction: column;
-  width: min(560px, 100%);
-  max-height: min(680px, 100%);
-  background: var(--bg-raised);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  overflow: hidden;
-  animation: palette-rise var(--duration-base) var(--ease-out);
+  gap: 2px;
+  width: 220px;
+  flex-shrink: 0;
+  padding: var(--space-5) var(--space-3);
+  border-right: 1px solid var(--border);
+}
+
+.settings-nav-title {
+  margin: 0 0 var(--space-3);
+  padding: 0 var(--space-2);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 30px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  text-align: left;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.settings-nav-item:hover {
+  background: var(--surface-hover);
+}
+
+.settings-nav-item[aria-current='true'] {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+
+.settings-content {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.settings-close {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+}
+
+.settings-close:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
 }
 
 .settings-body {
-  overflow: auto;
-  padding: var(--space-4) var(--space-5) var(--space-5);
+  max-width: 680px;
+  padding: var(--space-6, 32px) var(--space-6, 32px) var(--space-6, 48px);
+}
+
+.settings-title {
+  margin: 0 0 var(--space-5);
+  font-size: var(--text-xl, 20px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* Each block is a quiet card, so long sections read as separate settings. */
+.settings-body .settings-section {
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
 }
 
 .settings-section {
@@ -2652,7 +2747,27 @@ button.sidebar-account svg {
 .sidebar-tasks {
   flex-shrink: 0;
   padding: var(--space-2);
-  border-top: 1px solid var(--border);
+}
+
+/* Compose and Search above the mailbox; no rule between them and it. */
+.sidebar-actions {
+  flex-shrink: 0;
+  padding: 0 var(--space-2) var(--space-3);
+}
+
+.folder-key {
+  margin-left: auto;
+  font-family: inherit;
+  font-size: var(--text-xs);
+  color: var(--text-quaternary);
+}
+
+/* The page title is the tab; a page keeps only its actions, right-aligned. */
+.page-tools {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-3) var(--space-5) 0;
+  flex-shrink: 0;
 }
 
 .tasks {
@@ -3622,16 +3737,16 @@ button.sidebar-account svg {
 .shortcut-remap li { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: center; font-size: 12.5px; }
 .shortcut-remap-keys kbd { font-family: inherit; padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; margin-left: 2px; }
 
-.tab-bar { display: flex; flex-shrink: 0; align-items: center; gap: 2px; height: 30px; padding: 0 8px; border-bottom: 1px solid var(--border); -webkit-app-region: drag; }
+.tab-bar { display: flex; flex-shrink: 0; align-items: center; gap: 4px; height: 40px; padding: 0 10px; border-bottom: 1px solid var(--border); -webkit-app-region: drag; }
 .tab-bar button, .tab-bar .tab { -webkit-app-region: no-drag; }
-.tab-nav { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 5px; background: none; color: var(--text-tertiary); cursor: pointer; }
+.tab-nav { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: var(--text-tertiary); cursor: pointer; }
 .tab-nav:disabled { opacity: 0.35; cursor: default; }
 .tab-nav:not(:disabled):hover { background: var(--surface-hover); }
-.tab-list { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1; overflow: hidden; }
-.tab { display: flex; align-items: center; gap: 4px; max-width: 180px; height: 22px; padding: 0 6px 0 10px; border-radius: 5px; font-size: 12px; color: var(--text-tertiary); cursor: default; }
+.tab-list { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; overflow: hidden; }
+.tab { display: flex; align-items: center; gap: 6px; min-width: 120px; max-width: 220px; height: 30px; padding: 0 8px 0 12px; border-radius: 7px; font-size: 13.5px; color: var(--text-tertiary); cursor: default; }
 .tab[aria-selected='true'] { background: var(--surface-hover); color: var(--text-primary); }
-.tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab-close { display: grid; place-items: center; width: 16px; height: 16px; border: 0; border-radius: 4px; background: none; color: inherit; opacity: 0.6; }
+.tab-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-close { display: grid; place-items: center; width: 18px; height: 18px; border: 0; border-radius: 4px; background: none; color: inherit; opacity: 0.6; }
 .tab-close:hover { opacity: 1; background: var(--border); }
 .sync-progress { display: flex; flex-direction: column; justify-content: center; gap: 3px; flex-shrink: 0; width: 170px; padding-left: 8px; }
 .sync-progress-label { font-size: 11px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; white-space: nowrap; }

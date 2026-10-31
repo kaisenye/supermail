@@ -51,7 +51,6 @@ export function AiSettings() {
 
   return (
     <section className="settings-section ai-settings">
-      <h3>AI</h3>
       <p className="settings-note">
         Bring your own key. Every feature is off until you switch it on, and nothing is sent anywhere until then.
       </p>

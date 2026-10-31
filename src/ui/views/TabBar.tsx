@@ -13,19 +13,22 @@ interface Props {
   onForward: () => void
   /** A first sync or a large catch-up; null hides it. */
   progress?: { done: number; expected: number; pct: number } | null
+  /** An ordinary sync: a quiet spinner, detail on hover. */
+  syncing?: boolean
+  syncLabel?: string | null
 }
 
 /** Workspace tabs (Scape): ⌘T, ⌘W, ⌘1–9, ⌃Tab; back / forward per tab with ⌘[ / ⌘]. */
-export function TabBar({ tabs, active, canBack, canForward, onSelect, onClose, onNew, onBack, onForward, progress }: Props) {
+export function TabBar({ tabs, active, canBack, canForward, onSelect, onClose, onNew, onBack, onForward, progress, syncing, syncLabel }: Props) {
   // Mouse use must not keep focus on a button, or j/k stop working.
   const blur = (e: MouseEvent<HTMLElement>): void => e.currentTarget.blur()
   return (
     <div className="tab-bar">
       <button className="tab-nav" title="Back (⌘[)" aria-label="Back" disabled={!canBack} onClick={(e) => (blur(e), onBack())}>
-        <ArrowLeft size={13} strokeWidth={2} />
+        <ArrowLeft size={16} strokeWidth={2} />
       </button>
       <button className="tab-nav" title="Forward (⌘])" aria-label="Forward" disabled={!canForward} onClick={(e) => (blur(e), onForward())}>
-        <ArrowRight size={13} strokeWidth={2} />
+        <ArrowRight size={16} strokeWidth={2} />
       </button>
       <div className="tab-list" role="tablist">
         {tabs.map((t, i) => (
@@ -41,16 +44,20 @@ export function TabBar({ tabs, active, canBack, canForward, onSelect, onClose, o
                   onClose(i)
                 }}
               >
-                <X size={11} strokeWidth={2.5} />
+                <X size={12} strokeWidth={2.5} />
               </button>
             )}
           </div>
         ))}
         <button className="tab-nav" title="New tab (⌘T)" aria-label="New tab" onClick={(e) => (blur(e), onNew())}>
-          <Plus size={13} strokeWidth={2} />
+          <Plus size={16} strokeWidth={2} />
         </button>
       </div>
-      {progress && <SyncProgress {...progress} />}
+      {progress ? (
+        <SyncProgress {...progress} />
+      ) : (
+        syncing && <span className="sync-dot" role="status" aria-label="Syncing" title={syncLabel ?? 'Syncing…'} />
+      )}
     </div>
   )
 }

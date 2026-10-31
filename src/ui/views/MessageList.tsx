@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ChevronLeft, ChevronRight, Clock } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Clock, Star } from 'lucide-react'
 import type { MessageListRow } from '../../core/store/types'
 import { formatDate, isFlagged, isUnread, recipientLabel, senderLabel } from '../format'
 import { withDateGroups, type ListItem } from '../listGroups'
@@ -54,6 +54,12 @@ export function MessageList({
   const scrollRef = useRef<HTMLDivElement>(null)
   /** Set by a shift-click so the change that follows it is ignored. */
   const shiftHandled = useRef(false)
+  /**
+   * Where the pointer last really moved. j/k scrolls rows under a still
+   * pointer, and Chromium then fires mousemove at the same spot; following
+   * that would drag the cursor back under the mouse.
+   */
+  const lastPointer = useRef({ x: -1, y: -1 })
   const checked = new Set(checkedIds)
 
   const items = useMemo<ListItem[]>(
@@ -149,7 +155,7 @@ export function MessageList({
 
   return (
     <>
-    <div className="list-scroll" ref={scrollRef}>
+    <div className="list-scroll" ref={scrollRef} data-selecting={checkedIds.length > 0}>
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
         <div
           style={{
@@ -183,22 +189,33 @@ export function MessageList({
                 data-selected={index === selectedIndex}
                 data-checked={isChecked}
                 data-unread={unread}
+                // Hover is the cursor (Scape): shortcuts act on the row under
+                // the mouse, and one click opens it.
+                onMouseMove={(e) => {
+                  const p = lastPointer.current
+                  if (p.x === e.clientX && p.y === e.clientY) return
+                  lastPointer.current = { x: e.clientX, y: e.clientY }
+                  if (index !== selectedIndex) onSelect(index)
+                }}
                 onClick={(e) => {
                   // Shift anywhere on the row extends the range, not just on
-                  // the checkbox — clicking the row is the usual way to do it.
+                  // the checkbox.
                   if (e.shiftKey) {
                     e.preventDefault()
                     onToggleCheck(r.id, index, true)
                     return
                   }
                   onSelect(index)
+                  if (onOpen) onOpen(index)
                 }}
-                onDoubleClick={() => onOpen?.(index)}
               >
+                {/* The checkbox sits on the unread dot and shows on hover, or
+                    on every row once anything is checked. */}
+                <span className="row-lead">
+                <span className="row-unread-dot" data-read={!unread} />
                 <label
                   className="row-check"
                   onClick={(e) => e.stopPropagation()}
-                  onDoubleClick={(e) => e.stopPropagation()}
                 >
                   <input
                     type="checkbox"
@@ -224,7 +241,7 @@ export function MessageList({
                     aria-label="Select message"
                   />
                 </label>
-                <span className="row-unread-dot" data-read={!unread} />
+                </span>
                 <span className="row-sender">
                   {showRecipient
                     ? recipientLabel(r.to_addrs, senderLabel(r.from_name, r.from_addr))
@@ -243,9 +260,7 @@ export function MessageList({
                     <Clock className="row-reminder" size={12} strokeWidth={2} aria-label="Reminder" />
                   ) : null}
                   {isFlagged(r.flags) && (
-                    <span className="row-flag" aria-label="Flagged">
-                      ●
-                    </span>
+                    <Star className="row-flag" size={13} strokeWidth={2} fill="currentColor" aria-label="Starred" />
                   )}
                   <span className="row-date">{formatDate(r.remind_at ?? r.date)}</span>
                 </span>

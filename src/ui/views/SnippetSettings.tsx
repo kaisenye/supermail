@@ -27,7 +27,6 @@ export function SnippetSettings() {
 
   return (
     <section className="settings-section">
-      <h3>Snippets</h3>
       <p className="settings-note">
         Type <code>;shortcut</code> then ⇥ in a message, or press ⌘; to pick one. Variables: {'{first_name}'},{' '}
         {'{last_name}'}, {'{name}'}, {'{email}'}, {'{my_name}'}, {'{my_first_name}'}, {'{my_email}'}, {'{date}'},{' '}

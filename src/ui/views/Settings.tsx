@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'react'
-import { Image as ImageIcon, Link2, Unlink } from 'lucide-react'
+import { Bot, Image as ImageIcon, Inbox, Keyboard, Link2, PenLine, Settings as SettingsIcon, TextQuote, Unlink, X } from 'lucide-react'
 import { applyLink, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
 import { onDialogEscape } from '../keyLayers'
 import { LinkPrompt } from './LinkPrompt'
@@ -18,6 +18,17 @@ interface Props {
   onClose: () => void
 }
 
+type Section = 'general' | 'triage' | 'shortcuts' | 'snippets' | 'ai' | 'signature'
+
+const SECTIONS: { id: Section; label: string; icon: typeof Inbox }[] = [
+  { id: 'general', label: 'General', icon: SettingsIcon },
+  { id: 'triage', label: 'Inbox and triage', icon: Inbox },
+  { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
+  { id: 'snippets', label: 'Snippets', icon: TextQuote },
+  { id: 'signature', label: 'Signature', icon: PenLine },
+  { id: 'ai', label: 'AI', icon: Bot }
+]
+
 const THEMES: { id: Theme; label: string }[] = [
   { id: 'system', label: 'System' },
   { id: 'light', label: 'Light' },
@@ -33,6 +44,7 @@ export function Settings({
   onClose
 }: Props) {
   const editorRef = useRef<HTMLDivElement>(null)
+  const [section, setSection] = useState<Section>('general')
   const [saved, setSaved] = useState(false)
   const [linkError, setLinkError] = useState<string | null>(null)
   const [linking, setLinking] = useState(false)
@@ -121,8 +133,15 @@ export function Settings({
   useEffect(() => {
     const el = editorRef.current
     if (el && el.innerHTML !== signature) el.innerHTML = signature
-    // Only on open: writing innerHTML on every keystroke would fight the caret.
-  }, [signature])
+    // On open and when the Signature section mounts the editor; writing
+    // innerHTML on every keystroke would fight the caret.
+  }, [signature, section])
+
+  /** A pending signature save lands before its editor unmounts. */
+  const show = (next: Section): void => {
+    flushRef.current()
+    setSection(next)
+  }
 
   // Document capture, so the shortcut recorder (window capture) gets Esc first.
   useEffect(() => onDialogEscape(onClose), [onClose])
@@ -141,55 +160,88 @@ export function Settings({
   }
 
   return (
-    <div
-      className="preview-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Settings"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div className="settings">
-        <header className="preview-head">
-          <span className="preview-title">Settings</span>
-          <button type="button" onClick={onClose} aria-label="Close settings">
-            Esc
+    <div className="settings-page" role="region" aria-label="Settings">
+      <nav className="settings-nav" aria-label="Settings sections">
+        <h1 className="settings-nav-title">Settings</h1>
+        {SECTIONS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            className="settings-nav-item"
+            aria-current={section === id}
+            onClick={(e) => {
+              e.currentTarget.blur()
+              show(id)
+            }}
+          >
+            <Icon size={15} strokeWidth={1.75} />
+            {label}
           </button>
-        </header>
+        ))}
+      </nav>
 
+      <div className="settings-content">
+        <button type="button" className="settings-close" onClick={onClose} aria-label="Close settings" title="Close (Esc)">
+          <X size={16} strokeWidth={2} />
+        </button>
         <div className="settings-body">
+          {section === 'general' && (
+            <>
+              <h2 className="settings-title">General</h2>
+              <section className="settings-section">
+                <h3>Account</h3>
+                <p className="settings-note">{email ?? 'Not configured'}</p>
+              </section>
+              <section className="settings-section">
+                <h3>Theme</h3>
+                <div className="settings-themes">
+                  {THEMES.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      data-on={theme === t.id}
+                      onClick={() => onTheme(t.id)}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </>
+          )}
+
+          {section === 'triage' && (
+            <>
+              <h2 className="settings-title">Inbox and triage</h2>
+              <TriageSettings />
+            </>
+          )}
+
+          {section === 'shortcuts' && (
+            <>
+              <h2 className="settings-title">Shortcuts</h2>
+              <ShortcutSettings />
+            </>
+          )}
+
+          {section === 'snippets' && (
+            <>
+              <h2 className="settings-title">Snippets</h2>
+              <SnippetSettings />
+            </>
+          )}
+
+          {section === 'ai' && (
+            <>
+              <h2 className="settings-title">AI</h2>
+              <AiSettings />
+            </>
+          )}
+
+          {section === 'signature' && (
+          <>
+          <h2 className="settings-title">Signature</h2>
           <section className="settings-section">
-            <h3>Account</h3>
-            <p className="settings-note">{email ?? 'Not configured'}</p>
-          </section>
-
-          <section className="settings-section">
-            <h3>Theme</h3>
-            <div className="settings-themes">
-              {THEMES.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  data-on={theme === t.id}
-                  onClick={() => onTheme(t.id)}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <TriageSettings />
-
-          <ShortcutSettings />
-
-          <SnippetSettings />
-
-          <AiSettings />
-
-          <section className="settings-section">
-            <h3>Signature</h3>
             <p className="settings-note">
               Appended to new messages and replies. Select text to add a link, or
               insert a logo (PNG/JPG/GIF/WebP, under 512 KB).
@@ -273,6 +325,8 @@ export function Settings({
               </span>
             </div>
           </section>
+          </>
+          )}
         </div>
       </div>
     </div>

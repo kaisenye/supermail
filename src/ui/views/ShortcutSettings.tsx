@@ -39,7 +39,6 @@ export function ShortcutSettings() {
 
   return (
     <section className="settings-section">
-      <h3>Shortcuts</h3>
       {error && <p className="settings-error">{error}</p>}
       <ul className="shortcut-remap">
         {commands.map((c) => (

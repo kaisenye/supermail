@@ -1,4 +1,4 @@
-import { CheckSquare, Clock, Inbox, Keyboard, Search, Settings as SettingsIcon } from 'lucide-react'
+import { CheckSquare, Clock, Inbox, Keyboard, PenSquare, Search, Settings as SettingsIcon } from 'lucide-react'
 import type { AccountSummary } from '../../../electron/preload'
 import { AccountSwitcher } from './AccountSwitcher'
 import type { Folder } from '../../core/store/types'
@@ -20,6 +20,9 @@ interface Props {
   onShortcuts: () => void
   onTasks: () => void
   onSearch: () => void
+  onCompose: () => void
+  /** Settings is a page in the main area; its row shows as current. */
+  settingsActive?: boolean
   tasksActive: boolean
   openTasks: number
   unread?: Record<number, number>
@@ -48,6 +51,8 @@ export function Sidebar({
   onShortcuts,
   onTasks,
   onSearch,
+  onCompose,
+  settingsActive,
   tasksActive,
   openTasks,
   unread,
@@ -59,6 +64,34 @@ export function Sidebar({
 
   return (
     <nav className="sidebar">
+      {/* Compose and Search first, above the mailbox (Scape). */}
+      <div className="sidebar-actions">
+        <button
+          className="folder-item"
+          title="Compose (c)"
+          onClick={(e) => {
+            e.currentTarget.blur()
+            onCompose()
+          }}
+        >
+          <PenSquare className="folder-icon" size={15} strokeWidth={1.75} />
+          <span className="folder-name">Compose</span>
+          <kbd className="folder-key">c</kbd>
+        </button>
+        <button
+          className="folder-item"
+          title="Search (/)"
+          aria-current={activeFolderId === SEARCH_VIEW_ID}
+          onClick={(e) => {
+            e.currentTarget.blur()
+            onSearch()
+          }}
+        >
+          <Search className="folder-icon" size={15} strokeWidth={1.75} />
+          <span className="folder-name">Search</span>
+          <kbd className="folder-key">/</kbd>
+        </button>
+      </div>
       {/* Renders at any account count: "Add account" lives in this menu, so
           gating it on a second account made the first one impossible to add. */}
       {accounts.length > 0 ? (
@@ -118,18 +151,6 @@ export function Sidebar({
       <div className="sidebar-tasks">
         <button
           className="folder-item"
-          title="Search (/)"
-          aria-current={activeFolderId === SEARCH_VIEW_ID}
-          onClick={(e) => {
-            e.currentTarget.blur()
-            onSearch()
-          }}
-        >
-          <Search className="folder-icon" size={15} strokeWidth={1.75} />
-          <span className="folder-name">Search</span>
-        </button>
-        <button
-          className="folder-item"
           aria-current={activeFolderId === REMINDERS_VIEW_ID}
           onClick={(e) => {
             e.currentTarget.blur()
@@ -157,6 +178,7 @@ export function Sidebar({
         <button
           className="folder-item"
           title="Settings (⌘,)"
+          aria-current={!!settingsActive}
           onClick={(e) => {
             e.currentTarget.blur()
             onSettings()

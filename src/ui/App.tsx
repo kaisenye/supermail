@@ -45,7 +45,7 @@ import { Onboarding } from './views/Onboarding'
 import { SyncProgress, TabBar } from './views/TabBar'
 import { SearchPage } from './views/SearchPage'
 import { ContactPane } from './views/ContactPane'
-import { PenSquare, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { folderLabel, isFlagged, isUnread } from './format'
 import { goDoneTarget, reloadFolders } from './folders'
 import { doneAction, pushSyncTarget, undoRepaint, viewKey, type ViewKey } from './viewScope'
@@ -1740,15 +1740,22 @@ export default function App() {
         activeFolderId={activeFolderId}
         onSelect={(id) => {
           setTasksOpen(false)
+          setSettingsOpen(false)
           onFolder(id)
         }}
         onSettings={() => setSettingsOpen(true)}
         onShortcuts={() => setShortcutsOpen(true)}
         onTasks={() => setTasksOpen((v) => !v)}
         onSearch={() => {
+          setSettingsOpen(false)
           setSearchQuery('')
           void onFolder(SEARCH_VIEW_ID)
         }}
+        onCompose={() => {
+          setSettingsOpen(false)
+          startCompose()
+        }}
+        settingsActive={settingsOpen}
         tasksActive={tasksOpen}
         openTasks={openTasks}
         unread={unread}
@@ -1757,7 +1764,11 @@ export default function App() {
       <main className="main">
         {workspace && (
           <TabBar
-            tabs={workspace.tabs.map((t) => ({ id: t.id, label: viewLabel(t.history[t.index]) }))}
+            tabs={workspace.tabs.map((t, i) => ({
+              id: t.id,
+              // Settings is a page over the active tab, so that tab names it.
+              label: settingsOpen && i === workspace.active ? 'Settings' : viewLabel(t.history[t.index])
+            }))}
             active={workspace.active}
             canBack={canGoBack(workspace)}
             canForward={canGoForward(workspace)}
@@ -1770,6 +1781,8 @@ export default function App() {
             onBack={() => showWorkspace(back(workspace))}
             onForward={() => showWorkspace(forward(workspace))}
             progress={bar}
+            syncing={syncing}
+            syncLabel={syncLabel}
           />
         )}
         {/* A first sync has no workspace (and no tabs) until it finishes. */}
@@ -1794,7 +1807,16 @@ export default function App() {
             </button>
           </div>
         )}
-        {compose ? (
+        {settingsOpen ? (
+          <Settings
+            email={email}
+            signature={signature}
+            theme={theme}
+            onSignature={onSignature}
+            onTheme={onTheme}
+            onClose={() => setSettingsOpen(false)}
+          />
+        ) : compose ? (
           <Compose
             compose={compose}
             me={(() => {
@@ -1807,9 +1829,8 @@ export default function App() {
           />
         ) : tasksOpen ? (
           <>
-            <header className="list-header">
-              <h1 className="list-title">Tasks</h1>
-              <span className="list-meta">{openTasks}</span>
+            {/* The title lives in the tab bar now; only the action stays. */}
+            <div className="page-tools">
               <button
                 className="header-compose"
                 title="New task"
@@ -1821,7 +1842,7 @@ export default function App() {
                 <Plus size={12} strokeWidth={2.5} />
                 Add task
               </button>
-            </header>
+            </div>
             <Tasks
               onChange={refreshTaskCount}
               creating={creatingTask}
@@ -1877,41 +1898,6 @@ export default function App() {
           />
         ) : (
           <>
-            <header className="list-header">
-              <h1 className="list-title">
-                {activeFolderId === UNIFIED_VIEW_ID
-                  ? 'All inboxes'
-                  : activeFolderId === REMINDERS_VIEW_ID
-                    ? 'Reminders'
-                    : active
-                      ? folderLabel(active)
-                      : 'Supermail'}
-              </h1>
-              <span className="list-meta">
-                {rows.length}
-                {/* Quiet by design: a spinner, not a moving line. Detail on hover. */}
-                {syncing && (
-                  <span
-                    className="sync-dot"
-                    role="status"
-                    aria-label="Syncing"
-                    title={syncLabel ?? 'Syncing…'}
-                  />
-                )}
-              </span>
-              <button
-                className="header-compose"
-                title="Compose (c)"
-                onClick={(e) => {
-                  // Keep focus on the document so j/k still work after clicking.
-                  e.currentTarget.blur()
-                  startCompose()
-                }}
-              >
-                <PenSquare size={12} strokeWidth={2} />
-                Compose
-              </button>
-            </header>
             {syncError && (
               <div className="sync-error-banner" role="alert">
                 <span>Sync failed: {syncError}</span>
@@ -1941,7 +1927,8 @@ export default function App() {
                 onChip={toggleChip}
               />
             )}
-            {rows.length > 0 && (
+            {/* Only while something is checked: the row checkboxes show on hover. */}
+            {checkedIds.length > 0 && (
               <ActionBar
                 count={checkedIds.length}
                 allSelected={checkedIds.length > 0 && checkedIds.length === rows.length}
@@ -2023,16 +2010,6 @@ export default function App() {
         onClose={closePalette}
         onOpenMessage={openThreadAndRead}
       />
-      {settingsOpen && (
-        <Settings
-          email={email}
-          signature={signature}
-          theme={theme}
-          onSignature={onSignature}
-          onTheme={onTheme}
-          onClose={() => setSettingsOpen(false)}
-        />
-      )}
       {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} commands={commands} />}
       {overlay?.kind === 'remind' && (
         <RemindPicker

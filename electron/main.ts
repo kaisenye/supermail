@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, powerMonitor, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, powerMonitor, screen, shell } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
@@ -104,9 +104,12 @@ function startAi(): void {
 }
 
 function createWindow(): void {
+  // Most of the screen on first open, like other mail apps; never past it.
+  const area = screen.getPrimaryDisplay().workAreaSize
   const win = new BrowserWindow({
-    width: 1280,
-    height: 820,
+    width: Math.min(area.width, Math.max(1280, Math.round(area.width * 0.88))),
+    height: Math.min(area.height, Math.max(820, Math.round(area.height * 0.9))),
+    center: true,
     minWidth: 720,
     minHeight: 480,
     show: false,
