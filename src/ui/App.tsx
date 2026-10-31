@@ -302,7 +302,7 @@ export default function App() {
       const t = isTheme(s.theme) ? s.theme : 'system'
       setTheme(t)
       applyTheme(t)
-      setGroupByDate(s.list_group_by_date === '1')
+      setGroupByDate(s.list_group_by_date !== '0')
       setKeymap(parseKeymap(s.keymap))
       setCancelOnReplyDefault(s.cancel_on_reply_default === '1')
       setContactPane(s.contact_pane !== '0')
@@ -1730,6 +1730,23 @@ export default function App() {
   return (
     <div className="app">
       <div className="titlebar-drag" />
+      {settingsOpen ? (
+        <Settings
+          email={email}
+          accounts={accounts}
+          onAddAccount={() => {
+            setSettingsOpen(false)
+            setAddingAccount(true)
+          }}
+          onShortcuts={() => setShortcutsOpen(true)}
+          signature={signature}
+          theme={theme}
+          onSignature={onSignature}
+          onTheme={onTheme}
+          onClose={() => setSettingsOpen(false)}
+        />
+      ) : (
+      <>
       <Sidebar
         email={email}
         accounts={accounts}
@@ -1755,7 +1772,6 @@ export default function App() {
           setSettingsOpen(false)
           startCompose()
         }}
-        settingsActive={settingsOpen}
         tasksActive={tasksOpen}
         openTasks={openTasks}
         unread={unread}
@@ -1764,11 +1780,7 @@ export default function App() {
       <main className="main">
         {workspace && (
           <TabBar
-            tabs={workspace.tabs.map((t, i) => ({
-              id: t.id,
-              // Settings is a page over the active tab, so that tab names it.
-              label: settingsOpen && i === workspace.active ? 'Settings' : viewLabel(t.history[t.index])
-            }))}
+            tabs={workspace.tabs.map((t) => ({ id: t.id, label: viewLabel(t.history[t.index]) }))}
             active={workspace.active}
             canBack={canGoBack(workspace)}
             canForward={canGoForward(workspace)}
@@ -1807,16 +1819,7 @@ export default function App() {
             </button>
           </div>
         )}
-        {settingsOpen ? (
-          <Settings
-            email={email}
-            signature={signature}
-            theme={theme}
-            onSignature={onSignature}
-            onTheme={onTheme}
-            onClose={() => setSettingsOpen(false)}
-          />
-        ) : compose ? (
+        {compose ? (
           <Compose
             compose={compose}
             me={(() => {
@@ -2006,6 +2009,8 @@ export default function App() {
           </>
         )}
       </main>
+      </>
+      )}
       <CommandPalette
         open={paletteOpen}
         startInAsk={paletteAsk}

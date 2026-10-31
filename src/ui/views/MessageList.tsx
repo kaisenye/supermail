@@ -6,7 +6,9 @@ import { formatDate, isFlagged, isUnread, recipientLabel, senderLabel } from '..
 import { withDateGroups, type ListItem } from '../listGroups'
 
 const ROW_HEIGHT = 32
-const GROUP_HEIGHT = 24
+/** A bucket header: a small gap above the label, then a hairline. The first one has no gap. */
+const GROUP_HEIGHT = 44
+const FIRST_GROUP_HEIGHT = 32
 
 interface Props {
   rows: MessageListRow[]
@@ -91,7 +93,8 @@ export function MessageList({
     count: items.length,
     getItemKey,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => (items[i]?.kind === 'header' ? GROUP_HEIGHT : ROW_HEIGHT),
+    estimateSize: (i) =>
+      items[i]?.kind === 'header' ? (i === 0 ? FIRST_GROUP_HEIGHT : GROUP_HEIGHT) : ROW_HEIGHT,
     overscan: 12
   })
 
@@ -170,7 +173,11 @@ export function MessageList({
             const it = items[item.index]
             if (it.kind === 'header')
               return (
-                <div key={item.key} className="row-group" style={{ height: GROUP_HEIGHT }}>
+                <div
+                  key={item.key}
+                  className="row-group"
+                  style={{ height: item.index === 0 ? FIRST_GROUP_HEIGHT : GROUP_HEIGHT }}
+                >
                   {it.label}
                 </div>
               )

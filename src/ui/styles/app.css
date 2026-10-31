@@ -1013,11 +1013,12 @@ button > svg {
 .row-group {
   display: flex;
   align-items: flex-end;
-  padding: 0 var(--space-4) var(--space-1);
-  font-size: var(--text-xs);
+  /* Lines the label up with the sender column (row padding + lead + gap). */
+  margin: 0 var(--space-4);
+  padding: 0 0 6px calc(18px + var(--space-3));
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
   color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .sync-error-banner {
@@ -1748,46 +1749,92 @@ div.compose-body[data-empty='true']::before {
 
 /* ---- settings ---- */
 
-/* A page in the main area (Scape): section list on the left, one section at a time. */
-.settings-page {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
+/* Settings (Scape): its own nav takes the sidebar's place, content centred in cards of rows. */
 .settings-nav {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  width: 220px;
-  flex-shrink: 0;
-  padding: var(--space-5) var(--space-3);
+  min-width: 0;
+  padding: 46px var(--space-2) var(--space-4);
+  background: var(--bg-sunken);
   border-right: 1px solid var(--border);
+  overflow-y: auto;
+  animation: view-in var(--duration-base) var(--ease-out);
 }
 
-.settings-nav-title {
-  margin: 0 0 var(--space-3);
+.settings-back {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 32px;
   padding: 0 var(--space-2);
-  font-size: var(--text-lg);
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.settings-back:hover {
+  background: var(--surface-hover);
+}
+
+.settings-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 34px;
+  margin: var(--space-2) 0 var(--space-3);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text-tertiary);
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.settings-search:focus-within {
+  border-color: var(--border-strong);
+}
+
+.settings-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.settings-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--space-4);
+}
+
+.settings-nav-heading {
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
 }
 
 .settings-nav-item {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: 30px;
+  height: 32px;
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
   font-size: var(--text-base);
   color: var(--text-secondary);
   text-align: left;
-  transition: background var(--duration-fast) var(--ease-out);
 }
 
 .settings-nav-item:hover {
   background: var(--surface-hover);
+  color: var(--text-primary);
 }
 
 .settings-nav-item[aria-current='true'] {
@@ -1795,23 +1842,25 @@ div.compose-body[data-empty='true']::before {
   color: var(--text-primary);
 }
 
-.settings-content {
+.settings-main {
   position: relative;
-  flex: 1;
   min-width: 0;
-  overflow: auto;
+  overflow-y: auto;
+  background: var(--bg);
 }
 
 .settings-close {
   position: absolute;
   top: var(--space-4);
-  right: var(--space-4);
+  left: var(--space-5);
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  color: var(--text-tertiary);
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-raised);
+  color: var(--text-secondary);
 }
 
 .settings-close:hover {
@@ -1820,22 +1869,199 @@ div.compose-body[data-empty='true']::before {
 }
 
 .settings-body {
-  max-width: 680px;
-  padding: var(--space-6, 32px) var(--space-6, 32px) var(--space-6, 48px);
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 72px var(--space-6) 64px;
 }
 
 .settings-title {
-  margin: 0 0 var(--space-5);
-  font-size: var(--text-xl, 20px);
+  margin: 0;
+  font-size: 26px;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
 
-/* Each block is a quiet card, so long sections read as separate settings. */
-.settings-body .settings-section {
-  padding: var(--space-4);
+.settings-blurb {
+  margin: var(--space-2) 0 var(--space-6);
+  font-size: 15px;
+  color: var(--text-tertiary);
+}
+
+.settings-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: var(--space-5) 0 var(--space-2);
+}
+
+.settings-group-head:first-of-type {
+  margin-top: 0;
+}
+
+.settings-group-head h2 {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.settings-card {
+  padding: 0 var(--space-5);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 12px;
+  background: var(--bg-raised);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 64px;
+  padding: var(--space-3) 0;
+}
+
+.setting-row + .setting-row {
+  border-top: 1px solid var(--border);
+}
+
+.setting-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-label {
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.setting-desc {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-avatar {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--surface-active);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.settings-primary {
+  height: 30px;
+  padding: 0 var(--space-3);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.settings-primary:hover {
+  filter: brightness(1.08);
+}
+
+.settings-select {
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.settings-link {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.settings-link:hover {
+  background: var(--surface-hover);
+}
+
+/* Sections from the sub-panels (triage, shortcuts, snippets, AI, signature)
+   become cards with the same row type. */
+.settings-body .settings-section {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+}
+
+.settings-body .settings-section h3 {
+  margin: 0 0 2px;
+  font-size: var(--text-base);
+  font-weight: 500;
+}
+
+.settings-body .settings-note {
+  margin: 0 0 var(--space-3);
+}
+
+/* Checkboxes in settings read as switches, label left, switch right. */
+.settings-main .picker-check {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  cursor: pointer;
+}
+
+.settings-main .picker-check input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: background-color var(--duration-base) var(--ease-out);
+}
+
+.settings-main .picker-check input[type='checkbox']::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform var(--duration-base) var(--ease-out);
+}
+
+.settings-main .picker-check input[type='checkbox']:checked {
+  background: var(--accent);
+}
+
+.settings-main .picker-check input[type='checkbox']:checked::after {
+  transform: translateX(16px);
+}
+
+.settings-main .picker-check input[type='checkbox']:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .settings-section {
@@ -4030,7 +4256,6 @@ button.sidebar-account svg {
 /* A new folder, split, thread, page or settings section: each remounts, so each fades up. */
 .list-scroll,
 .thread-layout,
-.settings-page,
 .settings-body,
 .tasks,
 .page-tools,

@@ -21,8 +21,6 @@ interface Props {
   onTasks: () => void
   onSearch: () => void
   onCompose: () => void
-  /** Settings is a page in the main area; its row shows as current. */
-  settingsActive?: boolean
   tasksActive: boolean
   openTasks: number
   unread?: Record<number, number>
@@ -52,7 +50,6 @@ export function Sidebar({
   onTasks,
   onSearch,
   onCompose,
-  settingsActive,
   tasksActive,
   openTasks,
   unread,
@@ -178,7 +175,6 @@ export function Sidebar({
         <button
           className="folder-item"
           title="Settings (⌘,)"
-          aria-current={!!settingsActive}
           onClick={(e) => {
             e.currentTarget.blur()
             onSettings()

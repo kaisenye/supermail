@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'react'
-import { Bot, Image as ImageIcon, Inbox, Keyboard, Link2, PenLine, Settings as SettingsIcon, TextQuote, Unlink, X } from 'lucide-react'
+import { ArrowLeft, Bot, Image as ImageIcon, Inbox, Keyboard, Link2, PenLine, Search, Settings as SettingsIcon, TextQuote, Unlink } from 'lucide-react'
 import { applyLink, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
 import { onDialogEscape } from '../keyLayers'
 import { LinkPrompt } from './LinkPrompt'
@@ -8,9 +8,13 @@ import { ShortcutSettings } from './ShortcutSettings'
 import { SnippetSettings } from './SnippetSettings'
 import { AiSettings } from './AiSettings'
 import type { Theme } from '../theme'
+import type { AccountSummary } from '../../../electron/preload'
 
 interface Props {
   email: string | null
+  accounts: AccountSummary[]
+  onAddAccount: () => void
+  onShortcuts: () => void
   signature: string
   theme: Theme
   onSignature: (html: string) => void
@@ -20,14 +24,37 @@ interface Props {
 
 type Section = 'general' | 'triage' | 'shortcuts' | 'snippets' | 'ai' | 'signature'
 
-const SECTIONS: { id: Section; label: string; icon: typeof Inbox }[] = [
-  { id: 'general', label: 'General', icon: SettingsIcon },
-  { id: 'triage', label: 'Inbox and triage', icon: Inbox },
-  { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
-  { id: 'snippets', label: 'Snippets', icon: TextQuote },
-  { id: 'signature', label: 'Signature', icon: PenLine },
-  { id: 'ai', label: 'AI', icon: Bot }
+interface SectionInfo {
+  id: Section
+  label: string
+  /** The line under the page title; also searched. */
+  blurb: string
+  /** Extra words the settings search matches. */
+  keywords: string
+  icon: typeof Inbox
+}
+
+/** Grouped like Scape's settings sidebar. */
+const GROUPS: { title: string; sections: SectionInfo[] }[] = [
+  {
+    title: 'Preferences',
+    sections: [
+      { id: 'general', label: 'General', blurb: 'Inboxes, appearance and shortcuts.', keywords: 'account inbox theme dark light appearance', icon: SettingsIcon },
+      { id: 'shortcuts', label: 'Shortcuts', blurb: 'Change the key for any command.', keywords: 'keys keyboard remap hotkeys', icon: Keyboard },
+      { id: 'snippets', label: 'Snippets', blurb: 'Reusable text you insert with ; in compose.', keywords: 'templates text', icon: TextQuote },
+      { id: 'ai', label: 'AI', blurb: 'Your own Anthropic or OpenAI key, budget and features.', keywords: 'anthropic openai claude key budget summary reply classify ask', icon: Bot }
+    ]
+  },
+  {
+    title: 'Email',
+    sections: [
+      { id: 'triage', label: 'Inbox and triage', blurb: 'Undo, Done folder, splits, scheduled sends and history.', keywords: 'undo archive done splits scheduled history offline', icon: Inbox },
+      { id: 'signature', label: 'Signature', blurb: 'Added to new messages and replies.', keywords: 'logo link', icon: PenLine }
+    ]
+  }
 ]
+
+const SECTIONS = GROUPS.flatMap((g) => g.sections)
 
 const THEMES: { id: Theme; label: string }[] = [
   { id: 'system', label: 'System' },
@@ -37,6 +64,9 @@ const THEMES: { id: Theme; label: string }[] = [
 
 export function Settings({
   email,
+  accounts,
+  onAddAccount,
+  onShortcuts,
   signature,
   theme,
   onSignature,
@@ -45,6 +75,7 @@ export function Settings({
 }: Props) {
   const editorRef = useRef<HTMLDivElement>(null)
   const [section, setSection] = useState<Section>('general')
+  const [query, setQuery] = useState('')
   const [saved, setSaved] = useState(false)
   const [linkError, setLinkError] = useState<string | null>(null)
   const [linking, setLinking] = useState(false)
@@ -159,88 +190,135 @@ export function Settings({
     setTimeout(() => setSaved(false), 1200)
   }
 
+  const current = SECTIONS.find((x) => x.id === section) ?? SECTIONS[0]
+  const q = query.trim().toLowerCase()
+  const matches = (x: SectionInfo): boolean =>
+    !q || `${x.label} ${x.blurb} ${x.keywords}`.toLowerCase().includes(q)
+
   return (
-    <div className="settings-page" role="region" aria-label="Settings">
+    <>
+      {/* Takes the app sidebar's place while settings is open (Scape). */}
       <nav className="settings-nav" aria-label="Settings sections">
-        <h1 className="settings-nav-title">Settings</h1>
-        {SECTIONS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            className="settings-nav-item"
-            aria-current={section === id}
-            onClick={(e) => {
-              e.currentTarget.blur()
-              show(id)
+        <button
+          type="button"
+          className="settings-back"
+          onClick={(e) => {
+            e.currentTarget.blur()
+            onClose()
+          }}
+        >
+          <ArrowLeft size={16} strokeWidth={1.75} />
+          Back to app
+        </button>
+        <label className="settings-search">
+          <Search size={14} strokeWidth={1.75} />
+          <input
+            placeholder="Search settings"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return
+              const first = SECTIONS.find(matches)
+              if (first) show(first.id)
             }}
-          >
-            <Icon size={15} strokeWidth={1.75} />
-            {label}
-          </button>
-        ))}
+          />
+        </label>
+        {GROUPS.map((g) => {
+          const items = g.sections.filter(matches)
+          if (!items.length) return null
+          return (
+            <div key={g.title} className="settings-nav-group">
+              <div className="settings-nav-heading">{g.title}</div>
+              {items.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className="settings-nav-item"
+                  aria-current={section === id}
+                  onClick={(e) => {
+                    e.currentTarget.blur()
+                    show(id)
+                  }}
+                >
+                  <Icon size={16} strokeWidth={1.75} />
+                  {label}
+                </button>
+              ))}
+            </div>
+          )
+        })}
       </nav>
 
-      <div className="settings-content">
-        <button type="button" className="settings-close" onClick={onClose} aria-label="Close settings" title="Close (Esc)">
-          <X size={16} strokeWidth={2} />
+      <main className="settings-main">
+        <button type="button" className="settings-close" onClick={onClose} aria-label="Back to app" title="Back to app (Esc)">
+          <ArrowLeft size={16} strokeWidth={1.75} />
         </button>
         <div className="settings-body" key={section}>
+          <h1 className="settings-title">{current.label}</h1>
+          <p className="settings-blurb">{current.blurb}</p>
+
           {section === 'general' && (
             <>
-              <h2 className="settings-title">General</h2>
-              <section className="settings-section">
-                <h3>Account</h3>
-                <p className="settings-note">{email ?? 'Not configured'}</p>
-              </section>
-              <section className="settings-section">
-                <h3>Theme</h3>
-                <div className="settings-themes">
-                  {THEMES.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      data-on={theme === t.id}
-                      onClick={() => onTheme(t.id)}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
+              <div className="settings-group-head">
+                <h2>Inboxes</h2>
+                <button type="button" className="settings-primary" onClick={onAddAccount}>
+                  Add inbox
+                </button>
+              </div>
+              <div className="settings-card">
+                {(accounts.length ? accounts : email ? [{ accountId: 0, email, name: null }] : []).map((a) => (
+                  <div key={a.accountId} className="setting-row">
+                    <span className="settings-avatar" aria-hidden="true">
+                      {(a.name ?? a.email).slice(0, 1).toUpperCase()}
+                    </span>
+                    <div className="setting-text">
+                      <div className="setting-label">{a.name ?? a.email}</div>
+                      {a.name && <div className="setting-desc">{a.email}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="settings-group-head">
+                <h2>Appearance and shortcuts</h2>
+              </div>
+              <div className="settings-card">
+                <div className="setting-row">
+                  <div className="setting-text">
+                    <div className="setting-label">Appearance</div>
+                    <div className="setting-desc">Match your system theme or choose a fixed one.</div>
+                  </div>
+                  <select className="settings-select" value={theme} onChange={(e) => onTheme(e.target.value as Theme)}>
+                    {THEMES.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              </section>
+                <div className="setting-row">
+                  <div className="setting-text">
+                    <div className="setting-label">Common shortcuts</div>
+                    <div className="setting-desc">Press ⌘. anytime.</div>
+                  </div>
+                  <button type="button" className="settings-link" onClick={onShortcuts}>
+                    Show shortcuts
+                  </button>
+                </div>
+              </div>
             </>
           )}
 
-          {section === 'triage' && (
-            <>
-              <h2 className="settings-title">Inbox and triage</h2>
-              <TriageSettings />
-            </>
-          )}
+          {section === 'triage' && <TriageSettings />}
 
-          {section === 'shortcuts' && (
-            <>
-              <h2 className="settings-title">Shortcuts</h2>
-              <ShortcutSettings />
-            </>
-          )}
+          {section === 'shortcuts' && <ShortcutSettings />}
 
-          {section === 'snippets' && (
-            <>
-              <h2 className="settings-title">Snippets</h2>
-              <SnippetSettings />
-            </>
-          )}
+          {section === 'snippets' && <SnippetSettings />}
 
-          {section === 'ai' && (
-            <>
-              <h2 className="settings-title">AI</h2>
-              <AiSettings />
-            </>
-          )}
+          {section === 'ai' && <AiSettings />}
 
           {section === 'signature' && (
           <>
-          <h2 className="settings-title">Signature</h2>
           <section className="settings-section">
             <p className="settings-note">
               Appended to new messages and replies. Select text to add a link, or
@@ -328,7 +406,7 @@ export function Settings({
           </>
           )}
         </div>
-      </div>
-    </div>
+      </main>
+    </>
   )
 }

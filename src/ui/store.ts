@@ -176,7 +176,8 @@ export const useStore = create<AppState>((set, get) => ({
   totalRows: 0,
   splitId: 'all',
   chip: null,
-  groupByDate: false,
+  // Smart time buckets (Today, Yesterday, This week…) are the default; D turns them off.
+  groupByDate: true,
   searchQuery: '',
   searchCache: null,
 
