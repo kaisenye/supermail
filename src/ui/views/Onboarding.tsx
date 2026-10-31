@@ -81,7 +81,7 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
       smtpSavesSent: preset?.smtpSavesSent
     })
     if (!res.ok) {
-      setError(res.error ?? 'Could not connect.')
+      setError(res.error ?? "Couldn't connect. Check the address and password.")
       // Point the user at the leg that actually failed.
       setStageField(/port|server|host|timed out|refused/i.test(res.error ?? '') ? 'imap' : null)
       setBusy(false)
@@ -118,10 +118,10 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
           <BrandMark className="onboard-mark" />
           <h1>Sovo</h1>
           <p className="onboard-lede">
-            Your mail, stored locally and searchable instantly. Connect an IMAP account to begin.
+            Your inbox, kept on your machine. Opens instantly, finds anything, works offline.
           </p>
           <button className="onboard-primary" onClick={() => setStage('connect')} autoFocus>
-            Connect an account
+            Bring your inbox
             <ArrowRight size={14} strokeWidth={2} />
           </button>
         </div>
@@ -133,7 +133,7 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
     <div className="onboard">
       <div className="onboard-panel">
         <header className="onboard-head">
-          <h2>{mode === 'add' ? 'Add an account' : 'Connect your account'}</h2>
+          <h2>{mode === 'add' ? 'Add another inbox' : 'Where does your mail live?'}</h2>
           {preset && preset.id !== 'generic' && (
             <span className="onboard-provider">{preset.label}</span>
           )}
@@ -162,14 +162,14 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
             ) : null}
             Continue with Microsoft
           </button>
-          {oauthBusy && <p className="onboard-note">Finish signing in in your browser…</p>}
+          {oauthBusy && <p className="onboard-note">Over to your browser. Come back once you're signed in.</p>}
           {error && !email && (
             <p className="onboard-error" role="alert">
               {error}
             </p>
           )}
           <div className="onboard-divider">
-            <span>or any IMAP mailbox</span>
+            <span>or any other mailbox</span>
           </div>
         </div>
 
@@ -214,7 +214,7 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
               type="text"
               value={name}
               spellCheck={false}
-              placeholder="Shown as the sender on mail you send"
+              placeholder="How you show up in their inbox"
               onChange={(e) => setName(e.target.value)}
             />
           </label>
@@ -300,12 +300,12 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
               {busy ? (
                 <>
                   <Loader2 size={14} strokeWidth={2} className="onboard-spin" />
-                  Verifying…
+                  Knocking on the server…
                 </>
               ) : stage === 'syncing' ? (
                 <>
                   <Check size={14} strokeWidth={2} />
-                  Connected
+                  You're in
                 </>
               ) : (
                 <>
@@ -318,10 +318,10 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
 
           <p className="onboard-privacy">
             <LockKeyhole size={11} strokeWidth={2} />
-            Your password is stored in the macOS Keychain and never leaves this machine.
+            Password stays in your Keychain. Only your mail server sees it.
           </p>
           {stageField === 'imap' && !advanced && (
-            <p className="onboard-hint">Check the server settings above.</p>
+            <p className="onboard-hint">The server didn't answer. Double-check the settings above.</p>
           )}
         </form>
       </div>

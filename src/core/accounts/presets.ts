@@ -30,7 +30,7 @@ const PRESETS: Array<{ match: RegExp; preset: ProviderPreset }> = [
       smtpPort: 465,
       smtpSavesSent: true,
       passwordHint:
-        'Exmail rejects your normal login password. Generate an app-specific password in the admin console.'
+        'Exmail wants an app password, not your login one. Make one in the admin console.'
     }
   },
   {
@@ -45,7 +45,7 @@ const PRESETS: Array<{ match: RegExp; preset: ProviderPreset }> = [
       // Gmail files SMTP sends into Sent automatically.
       smtpSavesSent: true,
       passwordHint:
-        'Gmail requires an App Password with 2-Step Verification enabled — your account password will be rejected.'
+        'Gmail wants an App Password (turn on 2-Step Verification first), or just use Continue with Google.'
     }
   },
   {
@@ -58,7 +58,7 @@ const PRESETS: Array<{ match: RegExp; preset: ProviderPreset }> = [
       smtpHost: 'smtp.office365.com',
       smtpPort: 587,
       smtpSavesSent: true,
-      passwordHint: 'Microsoft no longer accepts passwords for IMAP. Use "Continue with Microsoft".'
+      passwordHint: 'Microsoft stopped taking passwords here. Use Continue with Microsoft.'
     }
   },
   {
@@ -71,7 +71,7 @@ const PRESETS: Array<{ match: RegExp; preset: ProviderPreset }> = [
       smtpHost: 'smtp.fastmail.com',
       smtpPort: 465,
       smtpSavesSent: false,
-      passwordHint: 'Fastmail requires an app password created under Settings → Privacy & Security.'
+      passwordHint: 'Fastmail wants an app password: Settings → Privacy & Security.'
     }
   },
   {
@@ -84,7 +84,7 @@ const PRESETS: Array<{ match: RegExp; preset: ProviderPreset }> = [
       smtpHost: 'smtp.mail.me.com',
       smtpPort: 587,
       smtpSavesSent: false,
-      passwordHint: 'iCloud requires an app-specific password from appleid.apple.com.'
+      passwordHint: 'iCloud wants an app-specific password from appleid.apple.com.'
     }
   },
   {
@@ -97,7 +97,7 @@ const PRESETS: Array<{ match: RegExp; preset: ProviderPreset }> = [
       smtpHost: 'smtp.mail.yahoo.com',
       smtpPort: 465,
       smtpSavesSent: true,
-      passwordHint: 'Yahoo requires an app password generated in Account Security.'
+      passwordHint: 'Yahoo wants an app password from Account Security.'
     }
   },
   {

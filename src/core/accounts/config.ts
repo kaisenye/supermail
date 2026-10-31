@@ -73,7 +73,7 @@ export function loadAccountConfig(envPath: string): AccountConfig {
         `  SOVO_EMAIL=you@yourdomain.com\n` +
         `  SOVO_PASS=<app-specific password from the Exmail admin console>\n` +
         `  SOVO_NAME=Your Full Name\n` +
-        `Note: Exmail rejects your normal login password here.`
+        `Note: Exmail wants an app password here, not your login one.`
     )
   }
 
