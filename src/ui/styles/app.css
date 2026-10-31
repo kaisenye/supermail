@@ -4709,3 +4709,14 @@ button.sidebar-account svg {
   color: var(--text-quaternary);
   cursor: default;
 }
+
+/* In the task card the notes area starts tall, so there is room to click
+   and write even before any note exists. */
+.task-card .task-notes {
+  min-height: 300px;
+}
+
+.task-card .rte-body {
+  min-height: 240px;
+  cursor: text;
+}
