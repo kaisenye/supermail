@@ -2559,6 +2559,7 @@ div.compose-body[data-empty='true']::before {
 
 .onboard-mark {
   display: block;
+  color: var(--text-primary);
   margin: 0 auto var(--space-5);
   animation: onboard-mark-in var(--duration-base) var(--ease-out) both;
 }

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/brand/mark.png" width="56" height="56" alt="Sovo" />
+  <img src="docs/brand/sovo-tile.svg" width="64" height="64" alt="Sovo" />
 </p>
 
 <h1 align="center">Sovo</h1>
