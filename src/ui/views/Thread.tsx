@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import type { Attachment } from '../../../electron/preload'
 import type { Message } from '../../core/store/types'
-import { decodeEntities, formatDate, senderLabel } from '../format'
+import { decodeEntities, formatDate, formatFullDate, recipientNames, senderLabel } from '../format'
 import { replyPick, type ReplyPick } from '../aiInsights'
 import { useAiInsights } from '../hooks/useAiInsights'
 import { cycleIndex, openActiveTarget, stepIndex, toggleAllExpanded } from '../threadNav'
@@ -87,19 +87,35 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   /** Links and attachments of each body that has loaded, by message id. */
   const loaded = useRef(new Map<number, { links: string[]; attachments: Attachment[] }>())
   const scrollRef = useRef<HTMLDivElement>(null)
+  const titleRef = useRef<HTMLHeadingElement>(null)
+  /** The big title has scrolled away, so the bar shows the subject instead. */
+  const [compact, setCompact] = useState(false)
   const onLoadedRef = useRef(onLoaded)
   onLoadedRef.current = onLoaded
   const ai = useAiInsights(threadId, accountId)
 
   useEffect(() => {
+    const title = titleRef.current
+    const root = scrollRef.current
+    if (!title || !root || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(([e]) => setCompact(!e.isIntersecting), { root, threshold: 0 })
+    io.observe(title)
+    return () => io.disconnect()
+  }, [messages])
+
+  useEffect(() => {
     let cancelled = false
-    window.api.getThread(threadId, accountId).then((m) => {
+    window.api.getThread(threadId, accountId).then((desc) => {
       if (cancelled) return
+      // Read top to bottom like a conversation (Scape): oldest first. Main
+      // returns date DESC, so flip it here; every index below is in this order.
+      const m = [...desc].reverse()
       setMessages(m)
       loaded.current.clear()
-      // Open the message that was selected, or the newest if it's not here.
-      // Newest is first: the thread is ordered date DESC.
-      const i = Math.max(0, m.findIndex((x) => x.id === focusMessageId))
+      // Open the message that was selected, or the newest (last) if it's not
+      // here; the focus effect then scrolls it into view.
+      const at = m.findIndex((x) => x.id === focusMessageId)
+      const i = at === -1 ? m.length - 1 : at
       setFocused(i)
       setActiveLink(null)
       if (m[i]) setExpanded(new Set([m[i].id]))
@@ -166,69 +182,62 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     )
 
   const subject = messages.find((m) => m.subject)?.subject ?? '(no subject)'
+  const [current, total] = position ? position.split(' / ') : [null, null]
 
   return (
     <div className="thread">
-      <header className="thread-header">
-        <button className="back-button" onClick={onBack} aria-label="Back to list">
-          <ArrowLeft size={16} strokeWidth={2} />
+      {/* No rule under the bar (Scape): the subject moves up into it once the
+          big title has scrolled away. */}
+      <header className="thread-toolbar" data-compact={compact}>
+        <button className="thread-circle" onClick={onBack} aria-label="Back to list" title="Back (Esc)">
+          <ArrowLeft size={16} strokeWidth={1.75} />
         </button>
-        <h2 className="thread-subject">{subject}</h2>
-        <span className="thread-count">
-          {messages.length} message{messages.length === 1 ? '' : 's'}
-        </span>
-        {position && (
-          <span className="thread-position">
-            <button
-              type="button"
-              title="Previous conversation (k)"
-              aria-label="Previous conversation"
-              onClick={onPrevConversation}
-            >
-              <ChevronUp size={14} strokeWidth={2} />
+        <h2 className="thread-toolbar-subject" aria-hidden={!compact}>
+          {subject}
+        </h2>
+        <div className="thread-toolbar-right">
+          {position && (
+            <>
+              <span className="thread-position">
+                <b>{current}</b> / {total}
+              </span>
+              <span className="thread-pill">
+                <button type="button" title="Previous conversation (k)" aria-label="Previous conversation" onClick={onPrevConversation}>
+                  <ChevronUp size={16} strokeWidth={1.75} />
+                </button>
+                <button type="button" title="Next conversation (j)" aria-label="Next conversation" onClick={onNextConversation}>
+                  <ChevronDown size={16} strokeWidth={1.75} />
+                </button>
+              </span>
+            </>
+          )}
+          <span className="thread-pill">
+            <button type="button" title="Star (s)" aria-label="Star" aria-pressed={starred} data-on={starred} onClick={onStar}>
+              <Star size={15} strokeWidth={1.75} fill={starred ? 'currentColor' : 'none'} />
             </button>
-            <span>{position}</span>
-            <button
-              type="button"
-              title="Next conversation (j)"
-              aria-label="Next conversation"
-              onClick={onNextConversation}
-            >
-              <ChevronDown size={14} strokeWidth={2} />
+            <button type="button" title="Mark unread (u)" aria-label="Mark unread" onClick={onToggleRead}>
+              <MailOpen size={15} strokeWidth={1.75} />
+            </button>
+            <button type="button" title="Trash (⌫)" aria-label="Trash" onClick={onTrash}>
+              <Trash2 size={15} strokeWidth={1.75} />
             </button>
           </span>
-        )}
-        <div className="thread-actions">
-          <button type="button" title="Done (e)" aria-label="Done" onClick={onDone}>
-            <Archive size={15} strokeWidth={2} />
-          </button>
-          <button type="button" title="Trash (⌫)" aria-label="Trash" onClick={onTrash}>
-            <Trash2 size={15} strokeWidth={2} />
-          </button>
-          <button
-            type="button"
-            title="Star (s)"
-            aria-label="Star"
-            aria-pressed={starred}
-            data-on={starred}
-            onClick={onStar}
-          >
-            <Star size={15} strokeWidth={2} fill={starred ? 'currentColor' : 'none'} />
-          </button>
-          <button
-            type="button"
-            title="Mark unread (u)"
-            aria-label="Mark unread"
-            onClick={onToggleRead}
-          >
-            <MailOpen size={15} strokeWidth={2} />
-          </button>
+          <span className="thread-pill">
+            <button type="button" title="Done (e)" aria-label="Done" onClick={onDone}>
+              <Archive size={15} strokeWidth={1.75} />
+            </button>
+          </span>
         </div>
       </header>
 
       <ThreadInsightsBar insights={ai.insights} busy={ai.busy} error={ai.error} note={ai.note} />
 
       <div className="thread-scroll" ref={scrollRef}>
+        <div className="thread-column">
+        <h1 className="thread-title" ref={titleRef}>
+          {subject}
+        </h1>
+        {messages.length > 1 && <div className="thread-meta">{messages.length} messages</div>}
         {messages.map((m, i) => {
           const open = expanded.has(m.id)
           return (
@@ -251,6 +260,9 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
                   })
                 }}
               >
+                <span className="message-avatar" aria-hidden="true">
+                  {senderLabel(m.from_name, m.from_addr).slice(0, 1).toUpperCase()}
+                </span>
                 <span className="message-sender">
                   {senderLabel(m.from_name, m.from_addr)}
                 </span>
@@ -261,17 +273,24 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
                 ) : (
                   <span className="message-preview">{decodeEntities(m.snippet)}</span>
                 )}
-                <span className="message-date">{formatDate(m.date)}</span>
+                <span className="message-date">{open ? formatFullDate(m.date) : formatDate(m.date)}</span>
               </button>
               {open && (
-                <MessageBody
-                  messageId={m.id}
-                  activeLink={i === focused ? activeLink : null}
-                  onLoaded={(info) => {
-                    loaded.current.set(m.id, info)
-                    ai.bodyLoaded()
-                  }}
-                />
+                <div className="message-card">
+                  {recipientNames(m.to_addrs, m.cc_addrs) && (
+                    <div className="message-to">
+                      <span>To:</span> {recipientNames(m.to_addrs, m.cc_addrs)}
+                    </div>
+                  )}
+                  <MessageBody
+                    messageId={m.id}
+                    activeLink={i === focused ? activeLink : null}
+                    onLoaded={(info) => {
+                      loaded.current.set(m.id, info)
+                      ai.bodyLoaded()
+                    }}
+                  />
+                </div>
               )}
             </article>
           )
@@ -293,6 +312,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
             <ArrowUpRight size={14} strokeWidth={2} /> Forward
             <span className="thread-reply-hint">f</span>
           </button>
+        </div>
         </div>
       </div>
     </div>

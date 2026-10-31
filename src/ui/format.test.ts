@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { recipientLabel, senderLabel } from './format.js'
+import { formatFullDate, recipientLabel, recipientNames, senderLabel } from './format.js'
 
 describe('recipientLabel', () => {
   it('falls back to the sender when the column was never selected', () => {
@@ -39,5 +39,23 @@ describe('senderLabel', () => {
   })
   it('handles a missing address', () => {
     expect(senderLabel(null, null)).toBe('(unknown)')
+  })
+})
+
+describe('thread header text', () => {
+  it('writes the full date the way Scape does: month, ordinal day, time', () => {
+    const at = (y: number, mo: number, d: number, h: number, mi: number) => new Date(y, mo, d, h, mi).getTime()
+    expect(formatFullDate(at(2026, 9, 13, 11, 54))).toMatch(/^Oct 13th, 11:54\sAM$/)
+    expect(formatFullDate(at(2026, 9, 1, 15, 5))).toMatch(/^Oct 1st, 3:05\sPM$/)
+    expect(formatFullDate(at(2026, 9, 22, 9, 0))).toMatch(/^Oct 22nd, 9:00\sAM$/)
+    expect(formatFullDate(at(2026, 9, 11, 9, 0))).toMatch(/^Oct 11th/)
+    expect(formatFullDate(null)).toBe('')
+  })
+
+  it('lists every recipient by name, falling back to the address', () => {
+    const to = JSON.stringify([{ name: 'Kaisen Ye', address: 'k@x.com' }, { name: null, address: 'bob@y.com' }])
+    expect(recipientNames(to, JSON.stringify([{ name: 'Ann', address: 'a@z.com' }]))).toBe('Kaisen Ye, bob@y.com, Ann')
+    expect(recipientNames(null, null)).toBe('')
+    expect(recipientNames('not json', null)).toBe('')
   })
 })

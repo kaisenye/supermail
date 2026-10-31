@@ -563,84 +563,106 @@ button > svg {
   min-width: 0;
 }
 
-.thread-header {
+/* Scape-style bar: no rule under it, a round back button, grouped pill actions. */
+.thread-toolbar {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  /* The tab bar above already clears the traffic lights. */
-  padding: var(--space-3) var(--space-5);
+  height: 56px;
+  padding: 0 var(--space-5);
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--duration-base) var(--ease-out);
 }
 
-.back-button {
-  -webkit-app-region: no-drag;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-sm);
-  color: var(--text-tertiary);
-  font-size: var(--text-md);
-  line-height: 1;
-  flex-shrink: 0;
-  transition: background var(--duration-fast) var(--ease-out);
+.thread-toolbar[data-compact='true'] {
+  border-bottom-color: var(--border-faint);
 }
 
-.back-button:hover {
+.thread-circle {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+}
+
+.thread-circle:hover {
   background: var(--surface-hover);
   color: var(--text-primary);
 }
 
-.thread-subject {
+.thread-toolbar-subject {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   font-size: var(--text-base);
   font-weight: 600;
   letter-spacing: -0.01em;
-  margin: 0;
-  flex: 1;
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity var(--duration-base) var(--ease-out),
+    transform var(--duration-base) var(--ease-out);
 }
 
-.thread-count {
-  font-family: var(--font-ui);
-  font-size: var(--text-xs);
-  color: var(--text-quaternary);
-  flex-shrink: 0;
+.thread-toolbar[data-compact='true'] .thread-toolbar-subject {
+  opacity: 1;
+  transform: none;
 }
 
-.thread-actions {
+.thread-toolbar-right {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
   flex-shrink: 0;
-  /* Sits inside the draggable header, so the buttons must opt back out. */
-  -webkit-app-region: no-drag;
 }
 
-.thread-actions button {
+.thread-pill {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-sm);
-  color: var(--text-tertiary);
-  transition:
-    background var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
+  height: 32px;
+  padding: 0 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
 }
 
-.thread-actions button:hover {
+.thread-pill button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+}
+
+.thread-pill button:hover {
   background: var(--surface-hover);
   color: var(--text-primary);
 }
 
-.thread-actions button[data-on='true'] {
-  color: var(--accent);
+.thread-pill button[data-on='true'] {
+  color: var(--flag);
+}
+
+.thread-toolbar .thread-position {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  padding-right: var(--space-1);
+}
+
+.thread-toolbar .thread-position b {
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .thread-reply-bar {
@@ -678,29 +700,62 @@ button > svg {
 .thread-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-4) var(--space-5) var(--space-6);
+  padding: var(--space-3) var(--space-5) var(--space-6);
+}
+
+/* One centred reading column, like Scape. */
+.thread-column {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.thread-title {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.thread-meta {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
 }
 
 .thread-message {
-  border-bottom: 1px solid var(--border);
-  padding: var(--space-2) 0;
-}
-
-.thread-message:last-child {
-  border-bottom: none;
+  margin-top: var(--space-5);
 }
 
 .message-head {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
+  align-items: center;
+  gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) 0;
+  padding: var(--space-2) var(--space-1);
+  border-radius: var(--radius-sm);
   text-align: left;
 }
 
+.thread-message[data-open='false'] .message-head:hover {
+  background: var(--surface-hover);
+}
+
+.message-avatar {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--surface-active);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
 .message-sender {
-  font-weight: 500;
+  font-weight: 600;
   font-size: var(--text-base);
   color: var(--text-primary);
   flex-shrink: 0;
@@ -708,9 +763,8 @@ button > svg {
 
 .message-addr,
 .message-preview {
-  font-family: var(--font-ui);
-  font-size: var(--text-xs);
-  color: var(--text-quaternary);
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -718,15 +772,40 @@ button > svg {
   white-space: nowrap;
 }
 
-.message-preview {
+.message-date {
+  font-size: var(--text-sm);
   color: var(--text-tertiary);
+  flex-shrink: 0;
 }
 
-.message-date {
-  font-family: var(--font-ui);
-  font-size: var(--text-xs);
-  color: var(--text-quaternary);
-  flex-shrink: 0;
+/* The open message: a rounded card with its recipients on top. */
+.message-card {
+  margin-top: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  overflow: hidden;
+  animation: view-in var(--duration-base) var(--ease-out);
+}
+
+.message-to {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-faint);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-to span {
+  font-weight: 600;
+  color: var(--text-tertiary);
+  margin-right: var(--space-1);
+}
+
+.message-card .message-body {
+  padding: var(--space-4);
 }
 
 .message-body {
@@ -4012,9 +4091,6 @@ button.sidebar-account svg {
 .sync-progress-fill { display: block; height: 100%; background: var(--accent); transition: width var(--duration-fast) var(--ease-out); }
 
 /* Thread reading keys: position counter, focused message, Tab-selected link */
-.thread-position { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
-.thread-position button { display: grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 4px; background: none; color: inherit; cursor: pointer; }
-.thread-position button:hover { background: var(--surface-hover); }
 .body-links li[data-active='true'] button { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
 
 /* Settings → Snippets */

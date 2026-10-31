@@ -24,6 +24,22 @@ export function formatDate(epoch: number | null): string {
   return d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
 }
 
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function ordinal(n: number): string {
+  const tens = n % 100
+  if (tens >= 11 && tens <= 13) return `${n}th`
+  return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`
+}
+
+/** A message's own date in a thread: "Oct 13th, 11:54 AM". */
+export function formatFullDate(epoch: number | null): string {
+  if (!epoch) return ''
+  const d = new Date(epoch)
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  return `${MONTHS_SHORT[d.getMonth()]} ${ordinal(d.getDate())}, ${time}`
+}
+
 /** Prefer a display name; fall back to the local part of the address. */
 export function senderLabel(name: string | null, addr: string | null): string {
   if (name?.trim()) return name.trim()
@@ -53,6 +69,25 @@ export function recipientLabel(
   if (!Array.isArray(list) || !list.length) return '(no recipient)'
   const first = senderLabel(list[0]?.name ?? null, list[0]?.address ?? null)
   return list.length > 1 ? `${first} +${list.length - 1}` : first
+}
+
+/** Everyone a message went to (To, then Cc), by name where there is one. */
+export function recipientNames(toAddrs: string | null, ccAddrs: string | null): string {
+  const names: string[] = []
+  for (const raw of [toAddrs, ccAddrs]) {
+    if (!raw) continue
+    try {
+      const list = JSON.parse(raw) as { name?: string | null; address?: string | null }[]
+      if (!Array.isArray(list)) continue
+      for (const a of list) {
+        const n = a?.name?.trim() || a?.address
+        if (n) names.push(n)
+      }
+    } catch {
+      /* a malformed column shows no recipients rather than raw JSON */
+    }
+  }
+  return names.join(', ')
 }
 
 /**
