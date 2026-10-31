@@ -294,7 +294,24 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
         </div>
       )}
 
-      <div className="thread-scroll" ref={scrollRef}>
+      {!composer && (
+        <div className="thread-reply-bar" role="group" aria-label="Respond">
+          <button type="button" onClick={() => onReply(false)}>
+            <ArrowUpLeft size={14} strokeWidth={2} /> Reply
+            <span className="thread-reply-hint">r</span>
+          </button>
+          <button type="button" onClick={() => onReply(true)}>
+            <ArrowUpLeft size={14} strokeWidth={2} /> Reply all
+            <span className="thread-reply-hint">↵</span>
+          </button>
+          <button type="button" onClick={onForward}>
+            <ArrowUpRight size={14} strokeWidth={2} /> Forward
+            <span className="thread-reply-hint">f</span>
+          </button>
+        </div>
+      )}
+
+      <div className="thread-scroll" ref={scrollRef} data-reply-bar={!composer}>
         <div className="thread-column">
         <h1 className="thread-title" ref={titleRef}>
           {subject}
@@ -360,24 +377,9 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
 
         <ReplySuggestions insights={ai.insights} busy={ai.busy} onUse={onReplyWith} />
 
-        {/* Reply lives at the end of the conversation, where you finish reading;
-            once started it is written right there (Scape). */}
-        {composer ?? (
-        <div className="thread-reply-bar">
-          <button type="button" onClick={() => onReply(false)}>
-            <ArrowUpLeft size={14} strokeWidth={2} /> Reply
-            <span className="thread-reply-hint">r</span>
-          </button>
-          <button type="button" onClick={() => onReply(true)}>
-            <ArrowUpLeft size={14} strokeWidth={2} /> Reply all
-            <span className="thread-reply-hint">↵</span>
-          </button>
-          <button type="button" onClick={onForward}>
-            <ArrowUpRight size={14} strokeWidth={2} /> Forward
-            <span className="thread-reply-hint">f</span>
-          </button>
-        </div>
-        )}
+        {/* Once started, a reply is written right at the end of the
+            conversation, where you finish reading (Scape). */}
+        {composer}
         </div>
       </div>
     </div>

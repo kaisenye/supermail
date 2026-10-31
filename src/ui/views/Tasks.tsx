@@ -263,7 +263,6 @@ export function Tasks({ onChange, onClose }: { onChange?: () => void; onClose?: 
           <Check size={11} strokeWidth={3} />
         </button>
         <span className="task-title">{t.title}</span>
-        {t.description && <span className="task-has-notes" aria-label="Has notes" />}
         {t.priority > 0 && !t.done_at && (
           <span className="task-pri" aria-label={`Priority ${t.priority}`}>
             <PriorityIcon value={t.priority as Priority} />

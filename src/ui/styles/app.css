@@ -662,19 +662,28 @@ button > svg {
   color: var(--text-primary);
 }
 
+/* Reply / Reply all / Forward float at the bottom left of the thread, so they
+   are in reach however long it is; the jump pill mirrors them on the right. */
 .thread-reply-bar {
+  position: absolute;
+  left: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 4;
   display: flex;
   gap: var(--space-2);
-  padding: var(--space-4) 0 var(--space-5);
+  animation: view-in var(--duration-base) var(--ease-out);
 }
 
 .thread-reply-bar button {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  height: 36px;
+  padding: 0 var(--space-4);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.18);
   font-size: var(--text-sm);
   color: var(--text-secondary);
   transition:
@@ -683,8 +692,13 @@ button > svg {
 }
 
 .thread-reply-bar button:hover {
-  background: var(--surface-hover);
+  background: var(--bg-sunken);
   color: var(--text-primary);
+}
+
+/* Room under the last message so the floating buttons never cover it. */
+.thread-scroll[data-reply-bar='true'] {
+  padding-bottom: 88px;
 }
 
 .thread-reply-hint {
@@ -3189,25 +3203,80 @@ button.sidebar-account svg {
 /* ---- rich text editor ---------------------------------------------------- */
 
 .rte {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
+/* Floats over the selected text, like Linear; only exists while text is selected. */
 .rte-toolbar {
+  position: absolute;
+  z-index: 20;
   display: flex;
   align-items: center;
   gap: 1px;
-  flex-wrap: wrap;
-  padding-bottom: var(--space-2);
-  opacity: 0.55;
-  transition: opacity var(--duration-fast) var(--ease-out);
+  padding: 3px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  transform: translate(-50%, -100%);
+  animation: rte-pop var(--duration-fast) var(--ease-out);
 }
 
-/* Recedes until the editor is in use, so it never competes with the text. */
-.rte:focus-within .rte-toolbar,
-.rte-toolbar:hover {
-  opacity: 1;
+@keyframes rte-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-100% + 4px));
+  }
+}
+
+/* The "/" menu: every block type, filtered by what follows the slash. */
+.rte-slash {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  animation: rte-drop var(--duration-fast) var(--ease-out);
+}
+
+@keyframes rte-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.rte-slash button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  text-align: left;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.rte-slash button[aria-selected='true'] {
+  background: var(--surface-selected);
+}
+
+.rte-slash kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
 }
 
 .rte-toolbar button {
@@ -4282,14 +4351,6 @@ button.sidebar-account svg {
   text-decoration: line-through;
 }
 
-.task-has-notes {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--text-quaternary);
-  flex-shrink: 0;
-}
-
 .task-pri {
   display: inline-flex;
   flex-shrink: 0;
@@ -4425,25 +4486,6 @@ button.sidebar-account svg {
 .task-desc {
   flex: 1;
   margin-left: 30px;
-}
-
-/* In a task, the notes toolbar stays out of sight until you are writing. */
-.task-desc .rte-toolbar {
-  flex-wrap: nowrap;
-  overflow: hidden;
-  max-height: 0;
-  padding-bottom: 0;
-  opacity: 0;
-  transition:
-    opacity var(--duration-base) var(--ease-out),
-    max-height var(--duration-base) var(--ease-out),
-    padding-bottom var(--duration-base) var(--ease-out);
-}
-
-.task-desc:focus-within .rte-toolbar {
-  max-height: 32px;
-  padding-bottom: var(--space-2);
-  opacity: 1;
 }
 
 /* ---- task card: floats over the list, slides in from the right ---- */

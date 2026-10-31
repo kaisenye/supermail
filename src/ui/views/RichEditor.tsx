@@ -1,21 +1,10 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import type { RefObject } from 'react'
-import {
-  Bold,
-  Code,
-  Heading1,
-  Heading2,
-  Italic,
-  Link2,
-  List,
-  ListOrdered,
-  Quote,
-  Strikethrough,
-  Underline
-} from 'lucide-react'
+import { Bold, Italic, Link2, Strikethrough, Underline } from 'lucide-react'
 import { applyLink, captureSelection, handlePaste, SAFE_HREF } from '../richText'
 import { LinkPrompt } from './LinkPrompt'
 import { useActiveFormats } from '../hooks/useActiveFormats'
+import { filterSlashItems, slashQuery, type SlashItem } from '../slashMenu'
 
 /**
  * Markdown shorthands applied on space. Each maps a line prefix to the block
@@ -41,6 +30,9 @@ const INLINE_RULES: { pattern: RegExp; cmd?: string; tag?: string }[] = [
   { pattern: /~~([^~]+)~~$/, tag: 's' }
 ]
 
+/** Inline elements a line's text can sit inside. */
+const INLINE = /^(B|STRONG|I|EM|U|S|STRIKE|CODE|SPAN|A|FONT)$/
+
 export interface RichEditorHandle {
   /** Replaces the content; used when switching to a different task. */
   setHtml: (html: string) => void
@@ -63,6 +55,32 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
   const [linkRange, setLinkRange] = useState<Range | null>(null)
   const [linkOpen, setLinkOpen] = useState(false)
   const [active, refreshFormats] = useActiveFormats(elRef)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  /** Where the format bar floats: over a selection, like Linear. Null hides it. */
+  const [bubble, setBubble] = useState<{ top: number; left: number } | null>(null)
+  /** The "/" menu: what was typed after the slash, where, and the highlighted row. */
+  const [slash, setSlash] = useState<{ query: string; top: number; left: number; index: number } | null>(null)
+  const slashItems = slash ? filterSlashItems(slash.query) : []
+
+  // The format bar follows the selection: shown only while text is selected.
+  useEffect(() => {
+    const onSel = (): void => {
+      const el = elRef.current
+      const wrap = wrapRef.current
+      const sel = window.getSelection()
+      if (!el || !wrap || !sel || sel.rangeCount === 0 || sel.isCollapsed || !el.contains(sel.anchorNode)) {
+        setBubble(null)
+        return
+      }
+      const r = sel.getRangeAt(0).getBoundingClientRect()
+      const w = wrap.getBoundingClientRect()
+      // The bar is centred on `left`; keep all of it inside the editor.
+      const half = 84
+      setBubble({ top: r.top - w.top - 8, left: Math.max(half, Math.min(w.width - half, r.left - w.left + r.width / 2)) })
+    }
+    document.addEventListener('selectionchange', onSel)
+    return () => document.removeEventListener('selectionchange', onSel)
+  }, [])
 
   useImperativeHandle(ref, () => ({
     setHtml: (html: string) => {
@@ -138,6 +156,84 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
     setLinkOpen(true)
   }, [])
 
+  /**
+   * Turns the caret's line into a block (h1, quote, …), keeping the text from
+   * `from` on. formatBlock leaves a bare text node behind and creates an empty
+   * sibling, so the block is built directly and the line moved into it.
+   */
+  const wrapLine = useCallback((tag: string, node: Node, from: number) => {
+    const sel = window.getSelection()
+    const block = document.createElement(tag)
+    const rest = (node.textContent ?? '').slice(from)
+    // An empty block needs a <br>: Chrome will not keep the caret in an empty
+    // text node, so typing would land outside the block.
+    const inner = rest ? document.createTextNode(rest) : document.createElement('br')
+    block.appendChild(inner)
+    // Climb out of inline wrappers (a line that starts bold, say) so the
+    // block never ends up inside a <b>; then replace the whole line when it
+    // is already a plain block.
+    let target: Node = node
+    while (target.parentNode && target.parentNode !== elRef.current && INLINE.test((target.parentNode as Element).tagName))
+      target = target.parentNode
+    const host = target.parentNode
+    if (host && host !== elRef.current && /^(DIV|P|H[1-6]|BLOCKQUOTE|PRE)$/.test((host as Element).tagName))
+      target = host
+    target.parentNode?.replaceChild(block, target)
+    const at = document.createRange()
+    if (rest) at.setStart(inner, rest.length)
+    else at.setStart(block, 0)
+    at.collapse(true)
+    sel?.removeAllRanges()
+    sel?.addRange(at)
+  }, [])
+
+  /** Runs a "/" menu choice on the caret's line, after removing the "/query" typed. */
+  const applySlash = useCallback(
+    (item: SlashItem) => {
+      const typed = slash?.query ?? ''
+      setSlash(null)
+      const sel = window.getSelection()
+      if (!sel || sel.rangeCount === 0) return
+      const range = sel.getRangeAt(0)
+      let node: Node = range.startContainer
+      if (node.nodeType !== Node.TEXT_NODE) return
+      const end = range.startOffset
+      const start = Math.max(0, end - typed.length - 1)
+      node.textContent = (node.textContent ?? '').slice(0, start) + (node.textContent ?? '').slice(end)
+      const at = document.createRange()
+      at.setStart(node, start)
+      at.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(at)
+      if (item.id === 'ul') document.execCommand('insertUnorderedList')
+      else if (item.id === 'ol') document.execCommand('insertOrderedList')
+      else if (item.id === 'hr') document.execCommand('insertHorizontalRule')
+      else {
+        const tag = { p: 'p', h1: 'h1', h2: 'h2', h3: 'h3', quote: 'blockquote', code: 'pre' }[item.id] ?? 'p'
+        // Text before the slash stays on its line; the block takes the rest.
+        if (start > 0) {
+          node = (node as Text).splitText(start)
+          ;(node.previousSibling as Text | null)?.after(document.createElement('br'))
+        }
+        wrapLine(tag, node, 0)
+      }
+      save()
+      refreshFormats()
+    },
+    [slash, wrapLine, save, refreshFormats]
+  )
+
+  /** After each keystroke: open, narrow or close the "/" menu. */
+  const onInput = useCallback(() => {
+    const line = lineBeforeCaret()
+    const q = line ? slashQuery(line.text) : null
+    if (q === null || !wrapRef.current) return setSlash(null)
+    const r = line!.range.getBoundingClientRect()
+    const w = wrapRef.current.getBoundingClientRect()
+    setSlash((cur) => ({ query: q, top: r.bottom - w.top + 6, left: r.left - w.left, index: cur && cur.query === q ? cur.index : 0 }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   /** Text of the current line up to the caret, for markdown rules. */
   const lineBeforeCaret = (): { text: string; range: Range } | null => {
     const sel = window.getSelection()
@@ -150,6 +246,27 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
+      // The "/" menu owns arrows, Enter, Tab and Esc while it is open.
+      if (slash && slashItems.length) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault()
+          const d = e.key === 'ArrowDown' ? 1 : -1
+          setSlash({ ...slash, index: (slash.index + d + slashItems.length) % slashItems.length })
+          return
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault()
+          applySlash(slashItems[slash.index] ?? slashItems[0])
+          return
+        }
+      }
+      if (slash && e.key === 'Escape') {
+        // This Esc is the menu's, not the task card's.
+        e.preventDefault()
+        e.stopPropagation()
+        setSlash(null)
+        return
+      }
       const meta = e.metaKey || e.ctrlKey
 
       if (meta && !e.altKey) {
@@ -178,29 +295,7 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
           const sel = window.getSelection()
 
           if (rule.tag) {
-            // formatBlock leaves a bare text node behind and creates an empty
-            // sibling, so build the block directly and move the line into it.
-            const block = document.createElement(rule.tag)
-            // Always give the block a text node: the caret cannot sit inside an
-            // element with no children, so typing would land outside it.
-            const rest = (node.textContent ?? '').slice(line.range.startOffset)
-            const inner = document.createTextNode(rest)
-            block.appendChild(inner)
-
-            const host = node.parentNode
-            // Replace the whole line, not just the text node, when the line is
-            // already wrapped in a plain div.
-            const target =
-              host && host !== elRef.current && (host as Element).tagName === 'DIV'
-                ? (host as Element)
-                : node
-            target.parentNode?.replaceChild(block, target)
-
-            const at = document.createRange()
-            at.setStart(inner, 0)
-            at.collapse(true)
-            sel?.removeAllRanges()
-            sel?.addRange(at)
+            wrapLine(rule.tag, node, line.range.startOffset)
           } else {
             // List commands wrap the current line correctly on their own; the
             // marker just has to go first.
@@ -251,13 +346,15 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
           sel?.addRange(after)
         } else if (rule.cmd) {
           document.execCommand(rule.cmd)
-          // Collapse to the end so typing continues unformatted.
           sel?.collapseToEnd()
+          // The caret now sits at the end of the <b>, where Chrome keeps
+          // typing bold; toggling once more turns it off for what comes next.
+          if (document.queryCommandState(rule.cmd)) document.execCommand(rule.cmd)
         }
         save()
       }
     },
-    [exec, openLink, save]
+    [exec, openLink, save, slash, slashItems, applySlash, wrapLine]
   )
 
   const btn = (
@@ -283,8 +380,9 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
   )
 
   return (
-    <div className={`rte ${className ?? ''}`}>
-      <div className="rte-toolbar">
+    <div className={`rte ${className ?? ''}`} ref={wrapRef}>
+      {bubble && (
+      <div className="rte-toolbar rte-bubble" style={{ top: bubble.top, left: bubble.left }} role="toolbar" aria-label="Format">
         {btn('Bold  ⌘B', <Bold size={13} strokeWidth={2.25} />, () => exec('bold'), 'bold')}
         {btn('Italic  ⌘I', <Italic size={13} strokeWidth={2.25} />, () => exec('italic'), 'italic')}
         {btn('Underline  ⌘U', <Underline size={13} strokeWidth={2.25} />, () =>
@@ -292,26 +390,31 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
         )}
         {btn('Strikethrough  ⌘⇧X', <Strikethrough size={13} strokeWidth={2.25} />, strike, 'strike')}
         <span className="rte-sep" />
-        {btn('Heading 1', <Heading1 size={13} strokeWidth={2.25} />, () =>
-          exec('formatBlock', 'h1'), 'h1'
-        )}
-        {btn('Heading 2', <Heading2 size={13} strokeWidth={2.25} />, () =>
-          exec('formatBlock', 'h2'), 'h2'
-        )}
-        <span className="rte-sep" />
-        {btn('Bulleted list  ⌘⇧8', <List size={13} strokeWidth={2.25} />, () =>
-          exec('insertUnorderedList'), 'insertUnorderedList'
-        )}
-        {btn('Numbered list  ⌘⇧7', <ListOrdered size={13} strokeWidth={2.25} />, () =>
-          exec('insertOrderedList'), 'insertOrderedList'
-        )}
-        {btn('Quote', <Quote size={13} strokeWidth={2.25} />, () =>
-          exec('formatBlock', 'blockquote'), 'blockquote'
-        )}
-        {btn('Code', <Code size={13} strokeWidth={2.25} />, () => exec('formatBlock', 'pre'), 'pre')}
-        <span className="rte-sep" />
         {btn('Link  ⌘K', <Link2 size={13} strokeWidth={2.25} />, openLink)}
       </div>
+      )}
+
+      {slash && slashItems.length > 0 && (
+        <div className="rte-slash" style={{ top: slash.top, left: slash.left }} role="listbox" aria-label="Turn into">
+          {slashItems.map((item, i) => (
+            <button
+              key={item.id}
+              type="button"
+              role="option"
+              aria-selected={i === slash.index}
+              onMouseDown={(e) => {
+                // Keep the caret in the editor while choosing.
+                e.preventDefault()
+                applySlash(item)
+              }}
+              onMouseEnter={() => setSlash({ ...slash, index: i })}
+            >
+              <span>{item.label}</span>
+              {item.hint && <kbd>{item.hint}</kbd>}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div
         ref={elRef}
@@ -321,9 +424,13 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
         data-placeholder={placeholder}
         onKeyDown={onKeyDown}
         onKeyUp={refreshFormats}
+        onInput={onInput}
         onClick={onClickBody}
         onPaste={(e) => handlePaste(e, elRef.current, save)}
-        onBlur={save}
+        onBlur={() => {
+          setSlash(null)
+          save()
+        }}
       />
 
       {linkOpen && (
