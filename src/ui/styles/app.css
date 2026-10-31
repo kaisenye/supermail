@@ -1019,69 +1019,102 @@ button > svg {
 .split-bar {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--border);
-  overflow-x: auto;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-2);
 }
 
-.split-tabs {
-  display: flex;
-  gap: var(--space-1);
+.split-switch {
+  position: relative;
 }
 
-.split-tabs button {
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
+/* Round inbox button (Scape); widens to name the split when one is on. */
+.split-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
   font-size: var(--text-sm);
   color: var(--text-secondary);
-  white-space: nowrap;
-  transition:
-    background var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
 }
 
-.split-tabs button:hover {
+.split-switch-btn:hover,
+.split-switch-btn[aria-expanded='true'] {
   background: var(--surface-hover);
   color: var(--text-primary);
 }
 
-.split-tabs button[aria-selected='true'] {
-  background: var(--surface-selected);
+.split-switch-btn[data-filtered='true'] {
+  padding: 0 var(--space-3);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.split-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-md);
+  animation: palette-rise var(--duration-fast) var(--ease-out);
+}
+
+.split-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 7px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  text-align: left;
   color: var(--text-primary);
 }
 
-.split-count {
-  margin-left: var(--space-1);
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
+.split-menu button:hover {
+  background: var(--surface-hover);
+}
+
+.split-menu button svg {
+  color: var(--accent);
 }
 
 .split-chips {
   display: flex;
-  gap: var(--space-1);
-  margin-left: auto;
+  gap: var(--space-2);
 }
 
+/* Pills like Scape's: rounded, bordered, calm until on. */
 .split-chips button {
-  padding: 2px var(--space-2);
+  height: 34px;
+  padding: 0 var(--space-3);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
   white-space: nowrap;
-  transition:
-    background var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
 }
 
 .split-chips button:hover {
   background: var(--surface-hover);
-  color: var(--text-primary);
 }
 
 .split-chips button[data-on='true'] {
   border-color: var(--accent);
+  background: var(--surface-active);
   color: var(--accent);
 }
 
@@ -3532,12 +3565,12 @@ button.sidebar-account svg {
 .shortcut-remap li { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: center; font-size: 12.5px; }
 .shortcut-remap-keys kbd { font-family: inherit; padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; margin-left: 2px; }
 
-.tab-bar { display: flex; flex-shrink: 0; align-items: center; gap: 4px; height: 40px; padding: 0 10px; border-bottom: 1px solid var(--border); -webkit-app-region: drag; }
+.tab-bar { display: flex; flex-shrink: 0; align-items: center; gap: 6px; height: 40px; padding: 0 10px; border-bottom: 1px solid var(--border); -webkit-app-region: drag; }
 .tab-bar button, .tab-bar .tab { -webkit-app-region: no-drag; }
 .tab-nav { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: var(--text-tertiary); cursor: pointer; }
 .tab-nav:disabled { opacity: 0.35; cursor: default; }
 .tab-nav:not(:disabled):hover { background: var(--surface-hover); }
-.tab-list { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; overflow: hidden; }
+.tab-list { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; overflow: hidden; }
 .tab { display: flex; align-items: center; gap: 6px; min-width: 120px; max-width: 220px; height: 30px; padding: 0 8px 0 12px; border-radius: 7px; font-size: 13.5px; color: var(--text-tertiary); cursor: pointer; transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out); animation: tab-in var(--duration-base) var(--ease-out); }
 .tab:not([aria-selected='true']):hover { background: var(--surface-hover); color: var(--text-secondary); }
 .tab[aria-selected='true'] { background: var(--surface-hover); color: var(--text-primary); }

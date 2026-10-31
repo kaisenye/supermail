@@ -60,7 +60,6 @@ import { buildForwardBody, buildReplyBody, signatureBlock } from './quote'
 import { textToHtml } from './aiText'
 import { namedAddress, replyAllCc } from './intro'
 import { applyTheme, isTheme, type Theme } from './theme'
-import { latestOnly } from './latest'
 import { syncBar, trackSync, type SyncCounts } from './syncBar'
 import {
   back,
@@ -329,30 +328,11 @@ export default function App() {
 
   const [splits, setSplits] = useState<Split[]>([])
   const splitsRef = useRef<Split[]>([])
-  const [splitCounts, setSplitCounts] = useState<Record<string, number>>({})
   const isInbox = useCallback(
     (fid: number | null) =>
       fid === UNIFIED_VIEW_ID || useStore.getState().folders.find((f) => f.id === fid)?.role === 'inbox',
     []
   )
-  const splitCountsRead = useRef(latestOnly(setSplitCounts))
-  /**
-   * Re-read the split tab counts. Every Inbox change goes through here, not
-   * only a full list load: an optimistic remove or restore (Done, trash,
-   * Remind me, undo) already keeps the pager total right, and the tabs must
-   * agree with it. SQLite has the change by then, so the read is accurate.
-   */
-  const refreshSplitCounts = useCallback(
-    async (folderId: number | null) => {
-      if (folderId === null || !isInbox(folderId)) return
-      const extra = viewQuery('', useStore.getState().chip)
-      await splitCountsRead.current(() =>
-        folderId === UNIFIED_VIEW_ID ? window.api.unifiedSplitCounts(extra) : window.api.splitCounts(folderId, extra)
-      )
-    },
-    [isInbox]
-  )
-
   /** What the list on screen shows: the split (Inbox only) ANDed with the chip. */
   const currentQuery = useCallback(
     (folderId: number): string => {
@@ -414,14 +394,13 @@ export default function App() {
       else setPageRows(rows)
       setPage(page)
       setTotalRows(total)
-      await refreshSplitCounts(folderId)
       void refreshUnread()
       const st = useStore.getState()
       const plainInbox = isInbox(folderId) && st.splitId === 'all' && !st.chip
       if (isInboxZero({ plainInbox, total, hasSyncedOnce: st.hasSyncedOnce, syncError: st.syncError }))
         void recordZero()
     },
-    [fetchPage, setRows, setPageRows, setPage, setTotalRows, refreshUnread, currentQuery, isInbox, recordZero, refreshSplitCounts]
+    [fetchPage, setRows, setPageRows, setPage, setTotalRows, refreshUnread, currentQuery, isInbox, recordZero]
   )
 
   const loadRowsRef = useRef(loadRows)
@@ -437,10 +416,9 @@ export default function App() {
       const st = useStore.getState()
       if (removed.length && undoRepaint(origin, viewKey(st)) === 'restore') {
         restoreRows(removed)
-        void refreshSplitCounts(st.activeFolderId)
       } else if (st.activeFolderId) void loadRows(st.activeFolderId, true)
     },
-    [restoreRows, loadRows, refreshSplitCounts]
+    [restoreRows, loadRows]
   )
 
   /**
@@ -453,10 +431,9 @@ export default function App() {
       const removed = removeRows(ids)
       const st = useStore.getState()
       if (removed.length && !st.rows.length && st.activeFolderId) void loadRows(st.activeFolderId, true)
-      else if (removed.length) void refreshSplitCounts(st.activeFolderId)
       return removed
     },
-    [removeRows, loadRows, refreshSplitCounts]
+    [removeRows, loadRows]
   )
 
   // Reloaded when Settings closes, since custom splits are edited there. A
@@ -1911,7 +1888,6 @@ export default function App() {
             {((active && active.role !== 'drafts') || activeFolderId === UNIFIED_VIEW_ID) && (
               <SplitBar
                 splits={active?.role === 'inbox' || activeFolderId === UNIFIED_VIEW_ID ? splits : null}
-                counts={splitCounts}
                 activeSplit={splitId}
                 chip={chip}
                 onSplit={(id) => {

@@ -9,6 +9,6 @@ describe('viewQuery', () => {
     expect(viewQuery('', null)).toBe('')
   })
   it('offers Unread, Needs reply, Waiting and Starred', () => {
-    expect(CHIPS.map((c) => c.label)).toEqual(['Unread', 'Needs reply', 'Waiting', 'Starred'])
+    expect(CHIPS.map((c) => c.label)).toEqual(['Needs reply', 'Waiting', 'Unread', 'Starred'])
   })
 })
