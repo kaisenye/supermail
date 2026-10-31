@@ -4822,11 +4822,20 @@ button.sidebar-account svg {
   transition: margin-right var(--duration-base) var(--ease-out);
 }
 
-.task-list[data-card='true'] .task-toolbar {
+.task-list[data-card='true'] .task-toolbar,
+.task-list[data-card='true'] .task-add {
   margin-right: calc(-1 * (440px + var(--space-5)));
 }
 
+.task-add {
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    margin-right var(--duration-base) var(--ease-out);
+}
+
+/* The card starts below the views row and the add bar, level with the list. */
 .task-card {
-  top: calc(var(--space-4) + 30px + var(--space-3));
-  max-height: calc(100% - (var(--space-4) + 30px + var(--space-3)) - var(--space-4));
+  top: calc(var(--space-4) + 30px + var(--space-3) + 44px + var(--space-4));
+  max-height: calc(100% - (var(--space-4) + 30px + var(--space-3) + 44px + var(--space-4)) - var(--space-4));
 }
