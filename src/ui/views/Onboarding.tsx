@@ -137,7 +137,7 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
             Sovo
           </h1>
           <p className="onboard-lede onboard-in" style={step(5)}>
-            Your inbox, kept on your machine. Opens instantly, finds anything, works offline.
+            Opens instantly, finds anything, works offline.
           </p>
           <button
             className="onboard-primary onboard-in"
