@@ -2,11 +2,12 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type Reac
 import {
   Archive,
   ArrowLeft,
-  ArrowUpLeft,
-  ArrowUpRight,
   ChevronDown,
   ChevronUp,
+  Forward,
   MailOpen,
+  Reply,
+  ReplyAll,
   Star,
   Trash2
 } from 'lucide-react'
@@ -297,16 +298,21 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
       {!composer && (
         <div className="thread-reply-bar" role="group" aria-label="Respond">
           <button type="button" onClick={() => onReply(false)}>
-            <ArrowUpLeft size={14} strokeWidth={2} /> Reply
+            <Reply size={15} strokeWidth={2} /> Reply
             <span className="thread-reply-hint">r</span>
           </button>
-          <button type="button" onClick={() => onReply(true)}>
-            <ArrowUpLeft size={14} strokeWidth={2} /> Reply all
-            <span className="thread-reply-hint">↵</span>
+          {/* The less common two show only their icon until hovered. */}
+          <button type="button" className="thread-reply-more" aria-label="Reply all" title="Reply all (↵)" onClick={() => onReply(true)}>
+            <ReplyAll size={15} strokeWidth={2} />
+            <span className="thread-reply-label">
+              Reply all <span className="thread-reply-hint">↵</span>
+            </span>
           </button>
-          <button type="button" onClick={onForward}>
-            <ArrowUpRight size={14} strokeWidth={2} /> Forward
-            <span className="thread-reply-hint">f</span>
+          <button type="button" className="thread-reply-more" aria-label="Forward" title="Forward (f)" onClick={onForward}>
+            <Forward size={15} strokeWidth={2} />
+            <span className="thread-reply-label">
+              Forward <span className="thread-reply-hint">f</span>
+            </span>
           </button>
         </div>
       )}

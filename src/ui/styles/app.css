@@ -701,6 +701,43 @@ button > svg {
   padding-bottom: 88px;
 }
 
+/* Reply all / Forward: a round icon button that widens to show its label on
+   hover or keyboard focus. */
+.thread-reply-bar .thread-reply-more {
+  gap: 0;
+  padding: 0 10px;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    padding var(--duration-base) var(--ease-out);
+}
+
+.thread-reply-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  transition:
+    max-width var(--duration-base) var(--ease-out),
+    opacity var(--duration-base) var(--ease-out),
+    margin-left var(--duration-base) var(--ease-out);
+}
+
+.thread-reply-more:hover,
+.thread-reply-more:focus-visible {
+  padding: 0 var(--space-4);
+}
+
+.thread-reply-more:hover .thread-reply-label,
+.thread-reply-more:focus-visible .thread-reply-label {
+  max-width: 120px;
+  margin-left: var(--space-2);
+  opacity: 1;
+}
+
 .thread-reply-hint {
   /* UI font, not mono: JetBrains Mono has no glyph for ⇧ and renders tofu. */
   font-family: var(--font-ui);
