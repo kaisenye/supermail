@@ -150,7 +150,12 @@ export async function syncAccount(
     )
 
     const counter = new SyncCounter(
-      folders.map((f) => ({ id: f.id, exists: statuses.get(f.id)?.exists ?? 0, local: countLocal(f.id) })),
+      folders.map((f) => ({
+        id: f.id,
+        exists: statuses.get(f.id)?.exists ?? 0,
+        uidNext: statuses.get(f.id)?.uidNext ?? 0,
+        lastUid: f.last_uid
+      })),
       maxPerFolder
     )
     const counted = (folder: string): SyncProgress => ({

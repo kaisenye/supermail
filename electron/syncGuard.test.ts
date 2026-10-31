@@ -15,16 +15,20 @@ describe('sync guard', () => {
     expect(g.end(1)).toBe(false)
     expect(g.end(2)).toBe(false)
   })
-  it('tells background work when no pass is running', async () => {
+  it("tells an account's background work when that account has no pass running", async () => {
     const g = createSyncGuard()
-    await g.whenIdle()
+    await g.whenIdle(1)
     g.begin(1)
+    g.begin(2)
     let resumed = false
-    const wait = g.whenIdle().then(() => (resumed = true))
+    const wait = g.whenIdle(1).then(() => (resumed = true))
+    // Another account's long first sync must not hold this one's bodies back.
+    await g.whenIdle(2 + 1)
     await Promise.resolve()
     expect(resumed).toBe(false)
     g.end(1)
     await wait
     expect(resumed).toBe(true)
+    g.end(2)
   })
 })

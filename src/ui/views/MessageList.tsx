@@ -15,6 +15,8 @@ interface Props {
   selectedIndex: number
   checkedIds: number[]
   onSelect: (i: number) => void
+  /** The mouse moved onto a row: cursor only, no scroll, no range anchor. */
+  onHover?: (i: number) => void
   onToggleCheck: (id: number, index: number, shiftKey: boolean) => void
   onOpen?: (i: number) => void
   page?: number
@@ -39,6 +41,7 @@ export function MessageList({
   selectedIndex,
   checkedIds,
   onSelect,
+  onHover,
   onToggleCheck,
   onOpen,
   page = 0,
@@ -62,6 +65,8 @@ export function MessageList({
    * that would drag the cursor back under the mouse.
    */
   const lastPointer = useRef({ x: -1, y: -1 })
+  /** Set when the cursor moved under the mouse: keyboard moves scroll, hover never does. */
+  const hovered = useRef(false)
   const checked = new Set(checkedIds)
 
   const items = useMemo<ListItem[]>(
@@ -95,10 +100,18 @@ export function MessageList({
     getScrollElement: () => scrollRef.current,
     estimateSize: (i) =>
       items[i]?.kind === 'header' ? (i === 0 ? FIRST_GROUP_HEIGHT : GROUP_HEIGHT) : ROW_HEIGHT,
+    // Room after the last row: the pager pill floats over the bottom edge and
+    // would otherwise sit on top of it.
+    paddingEnd: 88,
     overscan: 12
   })
 
   useEffect(() => {
+    // A row at the edge must not creep into view as the mouse passes over it.
+    if (hovered.current) {
+      hovered.current = false
+      return
+    }
     if (rows.length) virtualizer.scrollToIndex(itemOfRow[selectedIndex] ?? 0, { align: 'auto' })
   }, [selectedIndex, rows.length, itemOfRow, virtualizer])
 
@@ -202,7 +215,9 @@ export function MessageList({
                   const p = lastPointer.current
                   if (p.x === e.clientX && p.y === e.clientY) return
                   lastPointer.current = { x: e.clientX, y: e.clientY }
-                  if (index !== selectedIndex) onSelect(index)
+                  if (index === selectedIndex) return
+                  hovered.current = true
+                  ;(onHover ?? onSelect)(index)
                 }}
                 onClick={(e) => {
                   // Shift anywhere on the row extends the range, not just on

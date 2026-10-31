@@ -1,8 +1,9 @@
 /**
  * The "synced N of M" count for one sync pass. M comes from STATUS before any
- * folder is fetched: what each folder holds beyond what is stored, capped like
- * the fetch. N moves as envelopes stream in, so a 20 000-message first sync
- * shows movement long before the first folder finishes.
+ * folder is fetched: the uids that arrived since the last pass (all of them on
+ * a first sync), capped like the fetch. Old mail that is never stored (history
+ * off, or past the first-sync cap) is not counted, so a routine poll expects
+ * nothing and the bar stays away. N moves as envelopes stream in.
  */
 export class SyncCounter {
   private readonly perFolder = new Map<number, number>()
@@ -10,10 +11,11 @@ export class SyncCounter {
   private readonly current = new Map<number, number>()
   readonly expected: number
 
-  constructor(folders: { id: number; exists: number; local: number }[], cap: number) {
+  constructor(folders: { id: number; exists: number; uidNext: number; lastUid: number }[], cap: number) {
     let sum = 0
     for (const f of folders) {
-      const n = Math.min(cap, Math.max(0, f.exists - f.local))
+      const fresh = f.lastUid === 0 ? f.exists : f.uidNext > 0 ? f.uidNext - 1 - f.lastUid : 0
+      const n = Math.min(cap, Math.max(0, fresh))
       this.perFolder.set(f.id, n)
       sum += n
     }

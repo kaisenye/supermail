@@ -18,6 +18,12 @@ export class IdleWatcher {
   private attempt = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
+  /**
+   * Bumped by restart and stop. A connect that started under an older value
+   * has been overtaken (wake fires both 'resume' and 'online', often while a
+   * token refresh is still pending) and must log its client out, not keep it.
+   */
+  private generation = 0
 
   constructor(
     private config: AccountConfig,
@@ -33,15 +39,20 @@ export class IdleWatcher {
 
   private async connect(): Promise<void> {
     if (this.stopped) return
+    const gen = this.generation
+    const stale = (): boolean => this.stopped || gen !== this.generation
     let client: ImapFlow
     try {
       client = await createClient(this.config)
     } catch {
       // No token (offline, or re-auth needed) — same backoff as a failed connect.
-      this.scheduleReconnect()
+      if (!stale()) this.scheduleReconnect()
       return
     }
-    if (this.stopped) return
+    if (stale()) {
+      void client.logout().catch(() => {})
+      return
+    }
     this.client = client
 
     // Servers drop IDLE roughly every 29 min — a close is expected, not an error.
@@ -58,6 +69,11 @@ export class IdleWatcher {
     try {
       await client.connect()
       await client.mailboxOpen(this.path)
+      if (stale()) {
+        if (this.client === client) this.client = null
+        void client.logout().catch(() => {})
+        return
+      }
       this.attempt = 0
       // imapflow only starts IDLE after 15 s without a command; until then the
       // server holds back EXISTS, so mail arriving just after a (re)connect
@@ -103,6 +119,7 @@ export class IdleWatcher {
    */
   restart(): void {
     if (this.stopped) return
+    this.generation++
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
     this.attempt = 0
@@ -115,6 +132,7 @@ export class IdleWatcher {
 
   stop(): void {
     this.stopped = true
+    this.generation++
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     if (this.debounceTimer) clearTimeout(this.debounceTimer)
     this.reconnectTimer = null

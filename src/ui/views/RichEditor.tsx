@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { applyLink, captureSelection, handlePaste, SAFE_HREF } from '../richText'
 import { LinkPrompt } from './LinkPrompt'
+import { useActiveFormats } from '../hooks/useActiveFormats'
 
 /**
  * Markdown shorthands applied on space. Each maps a line prefix to the block
@@ -61,6 +62,7 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
   const elRef = useRef<HTMLDivElement>(null)
   const [linkRange, setLinkRange] = useState<Range | null>(null)
   const [linkOpen, setLinkOpen] = useState(false)
+  const [active, refreshFormats] = useActiveFormats(elRef)
 
   useImperativeHandle(ref, () => ({
     setHtml: (html: string) => {
@@ -84,8 +86,9 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
       elRef.current?.focus()
       document.execCommand(cmd, false, value)
       save()
+      refreshFormats()
     },
-    [save]
+    [save, refreshFormats]
   )
 
   /**
@@ -105,7 +108,8 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
       document.execCommand('strikeThrough')
     }
     save()
-  }, [save])
+    refreshFormats()
+  }, [save, refreshFormats])
 
   /**
    * Opens a link on a plain click, which is what people expect.
@@ -259,11 +263,15 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
   const btn = (
     title: string,
     icon: React.ReactNode,
-    action: () => void
+    action: () => void,
+    /** Key in the active-format map, so the button reads as pressed. */
+    format?: string
   ): React.ReactElement => (
     <button
       type="button"
       title={title}
+      aria-pressed={format ? !!active[format] : undefined}
+      data-on={format ? !!active[format] : undefined}
       // mousedown, not click: click fires after the editor loses its selection.
       onMouseDown={(e) => {
         e.preventDefault()
@@ -277,30 +285,30 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
   return (
     <div className={`rte ${className ?? ''}`}>
       <div className="rte-toolbar">
-        {btn('Bold  ⌘B', <Bold size={13} strokeWidth={2.25} />, () => exec('bold'))}
-        {btn('Italic  ⌘I', <Italic size={13} strokeWidth={2.25} />, () => exec('italic'))}
+        {btn('Bold  ⌘B', <Bold size={13} strokeWidth={2.25} />, () => exec('bold'), 'bold')}
+        {btn('Italic  ⌘I', <Italic size={13} strokeWidth={2.25} />, () => exec('italic'), 'italic')}
         {btn('Underline  ⌘U', <Underline size={13} strokeWidth={2.25} />, () =>
-          exec('underline')
+          exec('underline'), 'underline'
         )}
-        {btn('Strikethrough  ⌘⇧X', <Strikethrough size={13} strokeWidth={2.25} />, strike)}
+        {btn('Strikethrough  ⌘⇧X', <Strikethrough size={13} strokeWidth={2.25} />, strike, 'strike')}
         <span className="rte-sep" />
         {btn('Heading 1', <Heading1 size={13} strokeWidth={2.25} />, () =>
-          exec('formatBlock', 'h1')
+          exec('formatBlock', 'h1'), 'h1'
         )}
         {btn('Heading 2', <Heading2 size={13} strokeWidth={2.25} />, () =>
-          exec('formatBlock', 'h2')
+          exec('formatBlock', 'h2'), 'h2'
         )}
         <span className="rte-sep" />
         {btn('Bulleted list  ⌘⇧8', <List size={13} strokeWidth={2.25} />, () =>
-          exec('insertUnorderedList')
+          exec('insertUnorderedList'), 'insertUnorderedList'
         )}
         {btn('Numbered list  ⌘⇧7', <ListOrdered size={13} strokeWidth={2.25} />, () =>
-          exec('insertOrderedList')
+          exec('insertOrderedList'), 'insertOrderedList'
         )}
         {btn('Quote', <Quote size={13} strokeWidth={2.25} />, () =>
-          exec('formatBlock', 'blockquote')
+          exec('formatBlock', 'blockquote'), 'blockquote'
         )}
-        {btn('Code', <Code size={13} strokeWidth={2.25} />, () => exec('formatBlock', 'pre'))}
+        {btn('Code', <Code size={13} strokeWidth={2.25} />, () => exec('formatBlock', 'pre'), 'pre')}
         <span className="rte-sep" />
         {btn('Link  ⌘K', <Link2 size={13} strokeWidth={2.25} />, openLink)}
       </div>
@@ -312,6 +320,7 @@ export function RichEditor({ ref, className, placeholder, onSave, autoFocus }: P
         suppressContentEditableWarning
         data-placeholder={placeholder}
         onKeyDown={onKeyDown}
+        onKeyUp={refreshFormats}
         onClick={onClickBody}
         onPaste={(e) => handlePaste(e, elRef.current, save)}
         onBlur={save}

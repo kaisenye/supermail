@@ -229,7 +229,10 @@ app.whenReady().then(() => {
     resumePendingMoves(a.accountId, a.config)
   }
   startBackgroundSync()
-  powerMonitor.on('resume', () => reconnectAndSync('wake'))
+  // The network is rarely back the instant the lid opens; a sync then would
+  // just fail and flash the error banner. The renderer's 'online' covers the
+  // case where it takes longer.
+  powerMonitor.on('resume', () => setTimeout(() => reconnectAndSync('wake'), 2_500))
   ipcMain.on('net:online', () => reconnectAndSync('network back'))
   createWindow()
 

@@ -61,6 +61,7 @@ import { textToHtml } from './aiText'
 import { namedAddress, replyAllCc } from './intro'
 import { applyTheme, isTheme, type Theme } from './theme'
 import { syncBar, trackSync, type SyncCounts } from './syncBar'
+import { composeInline as isInlineCompose } from './composePlace'
 import {
   back,
   backOutOf,
@@ -144,6 +145,7 @@ export default function App() {
     setPageRows,
     restoreRows,
     setSelectedIndex,
+    hoverCursor,
     moveSelection,
     toggleChecked,
     checkRange,
@@ -1280,7 +1282,8 @@ export default function App() {
           return prefill ? `${top}${buildReplyBody(msg)}` : buildReplyBody(msg)
         })(),
         accountId: msg.account_id,
-        sourceMessageId: sourceId
+        sourceMessageId: sourceId,
+        threadId: ot.threadId
       })
     },
     [openCompose, signature, accounts]
@@ -1301,7 +1304,8 @@ export default function App() {
         ? `<p><br></p>${signatureBlock(signature)}${buildForwardBody(msg)}`
         : buildForwardBody(msg),
       accountId: msg.account_id,
-      sourceMessageId: ot.messageId
+      sourceMessageId: ot.messageId,
+      threadId: ot.threadId
     })
   }, [openCompose, signature])
 
@@ -1711,7 +1715,7 @@ export default function App() {
 
   // A reply or forward to the open thread is written at its end (Scape); a new
   // message, or one whose thread is no longer open, gets the compose page.
-  const composeInline = !!(compose && openThread && compose.mode !== 'new' && !tasksOpen)
+  const composeInline = isInlineCompose(compose, openThread, tasksOpen)
   const composer = compose ? (
     <Compose
       compose={compose}
@@ -1738,6 +1742,7 @@ export default function App() {
             setAddingAccount(true)
           }}
           onShortcuts={() => setShortcutsOpen(true)}
+          shortcutsOpen={shortcutsOpen}
           signature={signature}
           theme={theme}
           onSignature={onSignature}
@@ -1769,6 +1774,11 @@ export default function App() {
         }}
         onCompose={() => {
           setSettingsOpen(false)
+          // A message already being written is never replaced; jump to it.
+          if (useStore.getState().compose) {
+            document.querySelector<HTMLElement>('.compose-body')?.focus()
+            return
+          }
           startCompose()
         }}
         tasksActive={tasksOpen}
@@ -1968,6 +1978,7 @@ export default function App() {
                 selectedIndex={selectedIndex}
                 checkedIds={checkedIds}
                 onSelect={setSelectedIndex}
+                onHover={hoverCursor}
                 onToggleCheck={onToggleCheck}
                 onOpen={openRow}
                 page={page}

@@ -74,8 +74,8 @@ export async function syncBodies(
     }
   } finally {
     await client.logout().catch(() => {})
+    // Even on failure: the window's "bodies x/y" label waits for done.
+    progress({ fetched, total, folder: '', done: true })
   }
-
-  progress({ fetched, total, folder: '', done: true })
   return { fetched }
 }

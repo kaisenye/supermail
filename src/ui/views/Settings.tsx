@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'react'
-import { ArrowLeft, Bot, Image as ImageIcon, Inbox, Keyboard, Link2, PenLine, Search, Settings as SettingsIcon, TextQuote, Unlink } from 'lucide-react'
+import { ArrowLeft, Bold, Bot, Image as ImageIcon, Italic, Inbox, Keyboard, Link2, PenLine, Search, Settings as SettingsIcon, TextQuote, Unlink } from 'lucide-react'
 import { applyLink, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
 import { onDialogEscape } from '../keyLayers'
+import { useActiveFormats } from '../hooks/useActiveFormats'
 import { LinkPrompt } from './LinkPrompt'
 import { TriageSettings } from './TriageSettings'
 import { ShortcutSettings } from './ShortcutSettings'
@@ -15,6 +16,8 @@ interface Props {
   accounts: AccountSummary[]
   onAddAccount: () => void
   onShortcuts: () => void
+  /** The shortcut sheet is open on top: its Esc comes first. */
+  shortcutsOpen?: boolean
   signature: string
   theme: Theme
   onSignature: (html: string) => void
@@ -67,6 +70,7 @@ export function Settings({
   accounts,
   onAddAccount,
   onShortcuts,
+  shortcutsOpen = false,
   signature,
   theme,
   onSignature,
@@ -80,13 +84,23 @@ export function Settings({
   const [linkError, setLinkError] = useState<string | null>(null)
   const [linking, setLinking] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Rich editing, or the raw HTML (for a signature pasted from elsewhere). */
+  const [sigMode, setSigMode] = useState<'rich' | 'html'>('rich')
+  const [htmlText, setHtmlText] = useState(signature)
+  /**
+   * The latest signature, whichever mode wrote it. Saves read this, never the
+   * editor: React clears the editor's ref before unmount cleanup runs, so a
+   * flush on close would otherwise save an empty signature.
+   */
+  const latest = useRef(signature)
+  const [activeFormats, refreshFormats] = useActiveFormats(editorRef)
 
   /** Debounced so a save isn't queued on every keystroke. */
   const autosave = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
       saveTimer.current = null
-      onSignature(cleanPastedHtml(editorRef.current?.innerHTML ?? ''))
+      onSignature(cleanPastedHtml(latest.current))
       setSaved(true)
       setTimeout(() => setSaved(false), 1200)
     }, 600)
@@ -100,14 +114,35 @@ export function Settings({
     if (!saveTimer.current) return
     clearTimeout(saveTimer.current)
     saveTimer.current = null
-    onSignature(cleanPastedHtml(editorRef.current?.innerHTML ?? ''))
+    onSignature(cleanPastedHtml(latest.current))
   }
   useEffect(() => () => flushRef.current(), [])
+
+  /** The rich editor changed: remember its HTML and queue a save. */
+  const onRichInput = useCallback(() => {
+    latest.current = editorRef.current?.innerHTML ?? latest.current
+    autosave()
+  }, [autosave])
 
   const exec = useCallback((cmd: string) => {
     editorRef.current?.focus()
     document.execCommand(cmd, false)
-  }, [])
+    onRichInput()
+    refreshFormats()
+  }, [onRichInput, refreshFormats])
+
+  const switchMode = (next: 'rich' | 'html'): void => {
+    if (next === sigMode) return
+    if (next === 'html') {
+      setHtmlText(latest.current)
+    } else {
+      // Back to rich: what was typed as HTML is cleaned the same way a paste is.
+      const clean = cleanPastedHtml(htmlText)
+      latest.current = clean
+      onSignature(clean)
+    }
+    setSigMode(next)
+  }
 
   // Held while the inline prompt is open: focusing the input destroys the
   // editor's selection, so the range has to be captured up front.
@@ -127,9 +162,10 @@ export function Settings({
   const submitLink = useCallback(
     (url: string) => {
       setLinking(false)
-      const res = applyLink(editorRef.current, pendingRange.current, url, (html) =>
+      const res = applyLink(editorRef.current, pendingRange.current, url, (html) => {
+        latest.current = html
         onSignature(cleanPastedHtml(html))
-      )
+      })
       pendingRange.current = null
       setLinkError(
         res === 'ok' ? null : 'Links must start with http://, https:// or mailto:'
@@ -158,15 +194,19 @@ export function Settings({
       false,
       `<img src="${r.dataUrl}" alt="logo" height="48">`
     )
-    if (el) onSignature(cleanPastedHtml(el.innerHTML))
+    if (el) {
+      latest.current = el.innerHTML
+      onSignature(cleanPastedHtml(el.innerHTML))
+    }
   }, [onSignature])
 
   useEffect(() => {
     const el = editorRef.current
     if (el && el.innerHTML !== signature) el.innerHTML = signature
-    // On open and when the Signature section mounts the editor; writing
-    // innerHTML on every keystroke would fight the caret.
-  }, [signature, section])
+    // On open, when the Signature section mounts the editor, and when HTML
+    // mode hands back to rich; writing innerHTML on every keystroke would
+    // fight the caret.
+  }, [signature, section, sigMode])
 
   /** A pending signature save lands before its editor unmounts. */
   const show = (next: Section): void => {
@@ -175,7 +215,7 @@ export function Settings({
   }
 
   // Document capture, so the shortcut recorder (window capture) gets Esc first.
-  useEffect(() => onDialogEscape(onClose), [onClose])
+  useEffect(() => (shortcutsOpen ? undefined : onDialogEscape(onClose)), [onClose, shortcutsOpen])
 
   /** Blur flushes immediately rather than waiting out the debounce. */
   const save = (): void => {
@@ -185,7 +225,7 @@ export function Settings({
     }
     // Sanitise on the way out too: this HTML is embedded in every message, and
     // the editor is not the only way content can reach it.
-    onSignature(cleanPastedHtml(editorRef.current?.innerHTML ?? ''))
+    onSignature(cleanPastedHtml(latest.current))
     setSaved(true)
     setTimeout(() => setSaved(false), 1200)
   }
@@ -324,79 +364,122 @@ export function Settings({
               Appended to new messages and replies. Select text to add a link, or
               insert a logo (PNG/JPG/GIF/WebP, under 512 KB).
             </p>
-            <div className="compose-toolbar">
-              <button
-                type="button"
-                className="compose-tool"
-                title="Bold"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => exec('bold')}
-              >
-                B
-              </button>
-              <button
-                type="button"
-                className="compose-tool"
-                title="Italic"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => exec('italic')}
-              >
-                I
-              </button>
-              <button
-                type="button"
-                className="compose-tool"
-                title="Insert link"
-                aria-label="Insert link"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={onLink}
-              >
-                <Link2 size={15} strokeWidth={2} />
-              </button>
-              <button
-                type="button"
-                className="compose-tool"
-                title="Remove link"
-                aria-label="Remove link"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => exec('unlink')}
-              >
-                <Unlink size={15} strokeWidth={2} />
-              </button>
-              <span className="compose-toolbar-sep" />
-              <button
-                type="button"
-                className="compose-tool"
-                title="Insert logo"
-                aria-label="Insert logo"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => void onLogo()}
-              >
-                <ImageIcon size={15} strokeWidth={2} />
-              </button>
+            {/* One box: toolbar, a faint divider, then the editor (no second border). */}
+            <div className="sig-box">
+              <div className="sig-toolbar">
+                {sigMode === 'rich' && (
+                  <>
+                    <button
+                      type="button"
+                      className="compose-tool"
+                      title="Bold ⌘B"
+                      aria-label="Bold"
+                      aria-pressed={!!activeFormats.bold}
+                      data-on={!!activeFormats.bold}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => exec('bold')}
+                    >
+                      <Bold size={15} strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      className="compose-tool"
+                      title="Italic ⌘I"
+                      aria-label="Italic"
+                      aria-pressed={!!activeFormats.italic}
+                      data-on={!!activeFormats.italic}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => exec('italic')}
+                    >
+                      <Italic size={15} strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      className="compose-tool"
+                      title="Insert link"
+                      aria-label="Insert link"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={onLink}
+                    >
+                      <Link2 size={15} strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      className="compose-tool"
+                      title="Remove link"
+                      aria-label="Remove link"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => exec('unlink')}
+                    >
+                      <Unlink size={15} strokeWidth={1.75} />
+                    </button>
+                    <span className="compose-toolbar-sep" />
+                    <button
+                      type="button"
+                      className="compose-tool"
+                      title="Insert logo"
+                      aria-label="Insert logo"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => void onLogo()}
+                    >
+                      <ImageIcon size={15} strokeWidth={1.75} />
+                    </button>
+                  </>
+                )}
+                <span className="sig-toolbar-spacer" />
+                <div className="sig-mode" role="tablist" aria-label="Signature editor">
+                  <button type="button" role="tab" aria-selected={sigMode === 'rich'} onClick={() => switchMode('rich')}>
+                    Rich text
+                  </button>
+                  <button type="button" role="tab" aria-selected={sigMode === 'html'} onClick={() => switchMode('html')}>
+                    HTML
+                  </button>
+                </div>
+              </div>
+              {linking && (
+                <LinkPrompt
+                  onSubmit={submitLink}
+                  onCancel={() => {
+                    setLinking(false)
+                    pendingRange.current = null
+                  }}
+                />
+              )}
+              {sigMode === 'rich' ? (
+                <div
+                  ref={editorRef}
+                  className="settings-signature"
+                  contentEditable
+                  suppressContentEditableWarning
+                  role="textbox"
+                  aria-multiline="true"
+                  aria-label="Signature"
+                  onInput={onRichInput}
+                  onKeyUp={refreshFormats}
+                  onPaste={onPaste}
+                  onBlur={save}
+                />
+              ) : (
+                <textarea
+                  className="settings-signature sig-html"
+                  aria-label="Signature HTML"
+                  spellCheck={false}
+                  value={htmlText}
+                  onChange={(e) => {
+                    setHtmlText(e.target.value)
+                    latest.current = e.target.value
+                    autosave()
+                  }}
+                  onBlur={save}
+                />
+              )}
             </div>
-            {linking && (
-              <LinkPrompt
-                onSubmit={submitLink}
-                onCancel={() => {
-                  setLinking(false)
-                  pendingRange.current = null
-                }}
-              />
-            )}
             {linkError && <p className="settings-error">{linkError}</p>}
-            <div
-              ref={editorRef}
-              className="settings-signature"
-              contentEditable
-              suppressContentEditableWarning
-              role="textbox"
-              aria-multiline="true"
-              aria-label="Signature"
-              onInput={autosave}
-              onPaste={onPaste}
-              onBlur={save}
-            />
+            {sigMode === 'html' && (
+              <p className="settings-note sig-note">
+                Saved through the same cleanup as a paste: scripts, styles and anything unsafe are removed.
+              </p>
+            )}
             <div className="settings-actions">
               <span className="settings-saved" data-on={saved}>
                 Saved

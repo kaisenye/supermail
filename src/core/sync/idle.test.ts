@@ -100,4 +100,26 @@ describe('IDLE watchers', () => {
     stopIdleWatcher('ME@example.com')
     expect(clients.every((c) => c.loggedOut)).toBe(true)
   })
+
+  it('a restart during a slow connect leaves one connection, not two', async () => {
+    // The first createClient waits (an OAuth refresh right after wake).
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    let calls = 0
+    mocked.mockImplementation(async () => {
+      const c = new FakeClient()
+      clients.push(c)
+      if (calls++ === 0) await gate
+      return c as never
+    })
+    watchMailbox(config, 'inbox', 'INBOX', vi.fn())
+    await vi.advanceTimersByTimeAsync(0)
+    restartIdleWatchers()
+    await vi.advanceTimersByTimeAsync(0)
+    release()
+    await vi.advanceTimersByTimeAsync(0)
+    const live = clients.filter((c) => c.opened.length && !c.loggedOut)
+    expect(live).toHaveLength(1)
+    expect(clients[0].loggedOut).toBe(true)
+  })
 })

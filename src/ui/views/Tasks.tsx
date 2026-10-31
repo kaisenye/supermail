@@ -41,13 +41,33 @@ function isTyping(t: EventTarget | null): boolean {
 function DueMenu({ value, onChange }: { value: number | null; onChange: (due: number | null) => void }) {
   const [open, setOpen] = useState(false)
   const dateRef = useRef<HTMLInputElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  // Closes on a click elsewhere or Esc, not only when the mouse leaves.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent): void => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      // This Esc is the menu's: the card (and Tasks) must not also close.
+      e.stopPropagation()
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [open])
   const label = value ? dueLabel(value) : null
   const pick = (due: number | null): void => {
     setOpen(false)
     onChange(due)
   }
   return (
-    <div className="task-due-menu">
+    <div className="task-due-menu" ref={wrapRef}>
       <button
         type="button"
         className="task-chip"
@@ -61,7 +81,7 @@ function DueMenu({ value, onChange }: { value: number | null; onChange: (due: nu
         {label ? label.text : 'Due date'}
       </button>
       {open && (
-        <div className="task-menu" role="menu" onMouseLeave={() => setOpen(false)}>
+        <div className="task-menu" role="menu">
           <button type="button" onClick={() => pick(middayIn(0))}>Today</button>
           <button type="button" onClick={() => pick(middayIn(1))}>Tomorrow</button>
           <button type="button" onClick={() => pick(middayIn(((8 - new Date().getDay()) % 7) || 7))}>Next week</button>
@@ -186,7 +206,8 @@ export function Tasks({ onChange, onClose }: { onChange?: () => void; onClose?: 
     const onKey = (e: KeyboardEvent): void => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
       if (e.key === 'Escape') {
-        // Out of a field first, then the detail, then Tasks itself.
+        // An open menu first, then out of a field, then the card, then Tasks.
+        if (document.querySelector('.task-menu, .pri-menu')) return
         if (isTyping(e.target)) return void (e.target as HTMLElement).blur()
         e.preventDefault()
         if (selected) closeCard()
@@ -224,8 +245,6 @@ export function Tasks({ onChange, onClose }: { onChange?: () => void; onClose?: 
       <div
         key={t.id}
         className="task-row"
-        role="button"
-        tabIndex={-1}
         data-done={!!t.done_at}
         data-selected={selected?.id === t.id}
         onClick={() => openCard(t)}

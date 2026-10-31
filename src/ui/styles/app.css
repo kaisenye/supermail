@@ -4582,3 +4582,128 @@ button.sidebar-account svg {
 .task-props .pri-trigger:hover {
   background: var(--surface-hover);
 }
+
+/* Notes and signature toolbars: a format on at the caret reads as pressed. */
+.rte-toolbar button[data-on='true'],
+.rte-toolbar button[data-on='true']:hover,
+.compose-toolbar .compose-tool[data-on='true'],
+.compose-toolbar .compose-tool[data-on='true']:hover {
+  background: var(--surface-active);
+  color: var(--accent);
+}
+
+/* ---- signature editor: one box, toolbar inside, taller ---- */
+
+.sig-box {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  overflow: hidden;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.sig-box:focus-within {
+  border-color: var(--border-strong);
+}
+
+.sig-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.sig-toolbar-spacer {
+  flex: 1;
+}
+
+.sig-mode {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--surface-hover);
+}
+
+.sig-mode button {
+  height: 24px;
+  padding: 0 var(--space-3);
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.sig-mode button[aria-selected='true'] {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+/* Inside the box the editor has no border of its own. */
+.sig-box .settings-signature {
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  padding: var(--space-4);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.sig-box .sig-html {
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.sig-note {
+  margin-top: var(--space-2);
+}
+
+.sig-toolbar .compose-tool[data-on='true'],
+.sig-toolbar .compose-tool[data-on='true']:hover {
+  background: var(--surface-active);
+  color: var(--accent);
+}
+
+/* Long threads: jump to top / bottom, floating at the bottom right (Scape). */
+.thread {
+  position: relative;
+}
+
+.thread-jump {
+  position: absolute;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.18);
+  animation: view-in var(--duration-base) var(--ease-out);
+}
+
+.thread-jump button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 30px;
+  border-radius: 999px;
+  color: var(--text-primary);
+}
+
+.thread-jump button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.thread-jump button:disabled {
+  color: var(--text-quaternary);
+  cursor: default;
+}

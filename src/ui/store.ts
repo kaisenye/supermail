@@ -28,6 +28,8 @@ export interface ComposeState {
   accountId: number | null
   /** The message replied to or forwarded; ⌘⇧↵ marks its thread Done. */
   sourceMessageId: number | null
+  /** The thread a reply or forward belongs to: it is written inline only there. */
+  threadId?: string | null
 }
 
 /** The single action `z` or the toast can still take back. Each new one replaces it. */
@@ -90,6 +92,8 @@ interface AppState {
   updateRowFlags: (id: number, flags: string) => void
   markRowSeen: (id: number) => void
   setSelectedIndex: (i: number) => void
+  /** Hover moves the cursor only; the shift-click anchor stays where you clicked. */
+  hoverCursor: (i: number) => void
   moveSelection: (delta: number) => void
   toggleChecked: (id: number, index: number) => void
   checkRange: (toIndex: number) => void
@@ -259,6 +263,7 @@ export const useStore = create<AppState>((set, get) => ({
   // A plain click re-anchors the range: shift extends from the last row the
   // user pointed at, not from a checkbox they may have since cleared.
   setSelectedIndex: (selectedIndex) => set({ selectedIndex, lastCheckedIndex: selectedIndex }),
+  hoverCursor: (selectedIndex) => set({ selectedIndex }),
   moveSelection: (delta) => {
     const { rows, selectedIndex } = get()
     if (!rows.length) return

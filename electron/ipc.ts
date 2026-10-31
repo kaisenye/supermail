@@ -831,7 +831,7 @@ export function registerIpc(): void {
     bodySyncing.add(s.accountId)
     try {
       const result = await syncBodies(s.accountId, s.config, {
-        waitTurn: () => syncing.whenIdle(),
+        waitTurn: () => syncing.whenIdle(s.accountId),
         onProgress: (p) => {
           for (const w of BrowserWindow.getAllWindows())
             w.webContents.send('bodySync:progress', p)
@@ -1046,11 +1046,17 @@ export async function runSyncFor(
     return { ok: false, error: (e as Error).message }
   } finally {
     if (syncing.end(s.accountId)) {
-      // Nobody awaits this pass, so tell the windows when it stored mail.
-      void runSyncFor(s).then((r) => {
-        if (!r.ok || r.skipped || r.messages === 0) return
-        for (const w of BrowserWindow.getAllWindows()) w.webContents.send('sync:stored', s.email)
-      })
+      // Read the account again: it may have been removed or signed in anew
+      // while this pass ran. Nobody awaits the follow-up, so it reports itself.
+      const live = listAccounts().find((a) => a.accountId === s.accountId)
+      if (live) {
+        void runSyncFor({ ok: true, accountId: live.accountId, email: live.email, config: live.config }).then((r) => {
+          if (!r.ok) return console.warn(`[sync] follow-up pass for ${live.email} failed: ${r.error}`)
+          // A pushed read or star changes flags only; that repaints too.
+          if (r.skipped || (r.messages === 0 && r.reconciled === 0)) return
+          for (const w of BrowserWindow.getAllWindows()) w.webContents.send('sync:stored', live.email)
+        })
+      }
     }
   }
 }

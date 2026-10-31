@@ -47,3 +47,17 @@ describe('action errors are not sync errors', () => {
     ).toBe(true)
   })
 })
+
+describe('hover moves the cursor without moving the range anchor', () => {
+  it('shift-click after hovering ranges from the row last clicked, not the hovered one', () => {
+    useStore.setState({ rows: rows([1, 2, 3, 4, 5, 6]), checkedIds: [], lastCheckedIndex: null, selectedIndex: 0 })
+    const st = useStore.getState()
+    st.toggleChecked(2, 1)
+    // The mouse travels down to the row it will shift-click, hovering on the way.
+    st.hoverCursor(3)
+    st.hoverCursor(4)
+    expect(useStore.getState().selectedIndex).toBe(4)
+    useStore.getState().checkRange(4)
+    expect(useStore.getState().checkedIds.sort()).toEqual([2, 3, 4, 5])
+  })
+})

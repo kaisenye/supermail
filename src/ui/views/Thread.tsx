@@ -90,12 +90,41 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   /** Links and attachments of each body that has loaded, by message id. */
   const loaded = useRef(new Map<number, { links: string[]; attachments: Attachment[] }>())
   const scrollRef = useRef<HTMLDivElement>(null)
+  /** The first focus after a load lands on the newest message's top. */
+  const landing = useRef(false)
   const titleRef = useRef<HTMLHeadingElement>(null)
   /** The big title has scrolled away, so the bar shows the subject instead. */
   const [compact, setCompact] = useState(false)
+  /** Where the long-thread jump buttons stand: hidden when nothing scrolls. */
+  const [edges, setEdges] = useState({ scrollable: false, top: true, bottom: true })
   const onLoadedRef = useRef(onLoaded)
   onLoadedRef.current = onLoaded
   const ai = useAiInsights(threadId, accountId)
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const measure = (): void => {
+      const next = {
+        scrollable: el.scrollHeight > el.clientHeight + 40,
+        top: el.scrollTop <= 4,
+        bottom: el.scrollTop + el.clientHeight >= el.scrollHeight - 4
+      }
+      setEdges((prev) =>
+        prev.scrollable === next.scrollable && prev.top === next.top && prev.bottom === next.bottom ? prev : next
+      )
+    }
+    measure()
+    el.addEventListener('scroll', measure, { passive: true })
+    // Bodies load after the thread paints and change its height.
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    if (el.firstElementChild) ro.observe(el.firstElementChild)
+    return () => {
+      el.removeEventListener('scroll', measure)
+      ro.disconnect()
+    }
+  }, [messages])
 
   useEffect(() => {
     const title = titleRef.current
@@ -115,10 +144,11 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
       const m = [...desc].reverse()
       setMessages(m)
       loaded.current.clear()
-      // Open the message that was selected, or the newest (last) if it's not
-      // here; the focus effect then scrolls it into view.
-      const at = m.findIndex((x) => x.id === focusMessageId)
-      const i = at === -1 ? m.length - 1 : at
+      // Open on the newest message, yours or theirs (the row is the newest
+      // in its folder, so in the Inbox it skips your own later reply). The
+      // focus effect then scrolls it into view.
+      const i = m.length - 1
+      landing.current = true
       setFocused(i)
       setActiveLink(null)
       if (m[i]) setExpanded(new Set([m[i].id]))
@@ -130,10 +160,13 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
   }, [threadId, focusMessageId, accountId])
 
   useEffect(() => {
-    scrollRef.current
-      ?.querySelector(`[data-index="${focused}"]`)
-      ?.scrollIntoView({ block: 'nearest' })
-  }, [focused])
+    const el = scrollRef.current?.querySelector(`[data-index="${focused}"]`)
+    if (!el) return
+    // Oldest-first puts the newest message last: 'nearest' would leave its
+    // header at the bottom edge and the body, still loading, below the fold.
+    el.scrollIntoView({ block: landing.current ? 'start' : 'nearest' })
+    landing.current = false
+  }, [focused, messages])
 
   useImperativeHandle(ref, (): ThreadHandle => {
     const ids = messages?.map((m) => m.id) ?? []
@@ -234,6 +267,32 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
       </header>
 
       <ThreadInsightsBar insights={ai.insights} busy={ai.busy} error={ai.error} note={ai.note} />
+
+      {edges.scrollable && (
+        <div className="thread-jump" role="group" aria-label="Jump">
+          <button
+            type="button"
+            aria-label="Jump to top"
+            title="Top"
+            disabled={edges.top}
+            onClick={() => scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+          >
+            <ChevronUp size={16} strokeWidth={1.75} />
+          </button>
+          <button
+            type="button"
+            aria-label="Jump to bottom"
+            title="Bottom"
+            disabled={edges.bottom}
+            onClick={() => {
+              const el = scrollRef.current
+              el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+            }}
+          >
+            <ChevronDown size={16} strokeWidth={1.75} />
+          </button>
+        </div>
+      )}
 
       <div className="thread-scroll" ref={scrollRef}>
         <div className="thread-column">

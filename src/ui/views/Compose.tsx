@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { ArrowLeft, ArrowUp, Bold, ChevronDown, Clock, Ellipsis, Italic, Link2, List, ListOrdered, Paperclip, SendHorizontal, Sparkles, Trash2, Underline, X } from 'lucide-react'
 import { useCommandChord } from '../hooks/useCommandChord'
+import { useActiveFormats } from '../hooks/useActiveFormats'
 import { aiTargetRange, aiWriteRange, applyLink, captureCaret, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
 import { latestOnly, rangeText, textToHtml } from '../aiText'
 import { expandSnippet, shortcutBeforeCaret, snippetHtml, snippetVars } from '../snippetVars'
@@ -19,6 +20,7 @@ import { RemindPicker } from './RemindPicker'
 import { RecipientField } from './RecipientField'
 import { instantIntro } from '../intro'
 import { useStore, type ComposeState } from '../store'
+import { composeDirty, type ComposeSnapshot } from '../composePlace'
 import type { Snippet, WriteAction } from '../../../electron/preload'
 
 interface Props {
@@ -76,28 +78,64 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
 
   // Seed once from store; after that the DOM owns the text, so re-syncing
   // innerHTML on every keystroke would fight the caret.
+  /** What the message looked like when it opened, so Esc knows whether there is a draft to keep. */
+  const opened = useRef<ComposeSnapshot | null>(null)
   useEffect(() => {
     const el = editorRef.current
     if (el && el.innerHTML !== compose.body) el.innerHTML = compose.body
+    // Read back from the editor: the browser normalises HTML it is given, so
+    // the store's string would never compare equal to it.
+    if (!opened.current) {
+      opened.current = {
+        to: compose.to,
+        cc: compose.cc,
+        bcc: compose.bcc,
+        subject: compose.subject,
+        body: el?.innerHTML ?? compose.body,
+        attachments: compose.attachments.length
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compose.draftId])
+
+  /**
+   * Esc and ← close but keep the message as a draft when it has changed;
+   * only the trash button discards. Nothing autosaves, so closing used to
+   * lose a half-written reply with no way back.
+   */
+  const closeKeepingDraft = useCallback(async () => {
+    const html = editorRef.current?.innerHTML ?? compose.body
+    const now: ComposeSnapshot = {
+      to: compose.to,
+      cc: compose.cc,
+      bcc: compose.bcc,
+      subject: compose.subject,
+      body: html,
+      attachments: compose.attachments.length
+    }
+    if (opened.current && composeDirty(opened.current, now)) {
+      const saved = await window.api.saveDraft({
+        draftId: compose.draftId,
+        to: compose.to,
+        cc: compose.cc,
+        bcc: compose.bcc,
+        subject: compose.subject,
+        body: cleanPastedHtml(html, { keepMarkers: true }),
+        inReplyTo: compose.inReplyTo,
+        references: compose.references,
+        attachments: compose.attachments,
+        accountId: compose.accountId
+      })
+      // Keep the window open rather than lose the text if the save failed.
+      if (!saved.ok) return setError(saved.error)
+    }
+    onClose()
+  }, [compose, onClose])
 
   // execCommand is deprecated with no shipped replacement; for a small
   // contenteditable toolbar it is still the pragmatic choice over a rich-text lib.
   /** Formats on at the caret, so the toolbar shows B / I / U / lists as pressed. */
-  const [activeFormats, setActiveFormats] = useState<Record<string, boolean>>({})
-  const refreshFormats = useCallback(() => {
-    const el = editorRef.current
-    const node = window.getSelection()?.anchorNode ?? null
-    if (!el || !node || !el.contains(node)) return setActiveFormats({})
-    const next: Record<string, boolean> = {}
-    for (const t of TOOLS) next[t.cmd] = document.queryCommandState(t.cmd)
-    setActiveFormats((prev) => (TOOLS.every((t) => prev[t.cmd] === next[t.cmd]) ? prev : next))
-  }, [])
-  useEffect(() => {
-    document.addEventListener('selectionchange', refreshFormats)
-    return () => document.removeEventListener('selectionchange', refreshFormats)
-  }, [refreshFormats])
+  const [activeFormats, refreshFormats] = useActiveFormats(editorRef)
 
   const exec = useCallback((cmd: string, value?: string) => {
     editorRef.current?.focus()
@@ -387,17 +425,18 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape' && !laterOpen && !reminding && !pickingSnippet && !aiOpen) {
         e.preventDefault()
-        onClose()
+        void closeKeepingDraft()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, laterOpen, reminding, pickingSnippet, aiOpen])
+  }, [closeKeepingDraft, laterOpen, reminding, pickingSnippet, aiOpen])
 
   // A reply already has its subject in the thread above; a forward and a new
   // message need the field.
   const showSubject = !inline || compose.mode === 'forward'
-  const canSend = !sending && !!compose.to.trim()
+  // Bcc-only (undisclosed recipients) mail is valid, so any recipient field counts.
+  const canSend = !sending && !!(compose.to.trim() || compose.cc.trim() || compose.bcc.trim())
   const isReply = compose.mode === 'reply' || compose.mode === 'replyAll'
   const quoteFolded = isReply && !showQuote && compose.body.includes('supermail-quote')
 
@@ -409,8 +448,9 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
       const el = editorRef.current
       el?.focus()
       if (el) {
+        // Inside the first line, so typing does not leave an empty line above.
         const r = document.createRange()
-        r.setStart(el, 0)
+        r.setStart(el.firstElementChild ?? el, 0)
         r.collapse(true)
         const sel = window.getSelection()
         sel?.removeAllRanges()
@@ -689,7 +729,7 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
     <div className="compose">
       {/* Same bar as a thread: round back on the left, discard on the right. */}
       <header className="thread-toolbar">
-        <button className="thread-circle" onClick={onClose} aria-label="Close" title="Close (Esc)">
+        <button className="thread-circle" onClick={() => void closeKeepingDraft()} aria-label="Close and keep draft" title="Close (Esc) — keeps a draft">
           <ArrowLeft size={16} strokeWidth={1.75} />
         </button>
         <span className="thread-toolbar-subject" />
