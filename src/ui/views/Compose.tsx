@@ -84,12 +84,30 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
 
   // execCommand is deprecated with no shipped replacement; for a small
   // contenteditable toolbar it is still the pragmatic choice over a rich-text lib.
+  /** Formats on at the caret, so the toolbar shows B / I / U / lists as pressed. */
+  const [activeFormats, setActiveFormats] = useState<Record<string, boolean>>({})
+  const refreshFormats = useCallback(() => {
+    const el = editorRef.current
+    const node = window.getSelection()?.anchorNode ?? null
+    if (!el || !node || !el.contains(node)) return setActiveFormats({})
+    const next: Record<string, boolean> = {}
+    for (const t of TOOLS) next[t.cmd] = document.queryCommandState(t.cmd)
+    setActiveFormats((prev) => (TOOLS.every((t) => prev[t.cmd] === next[t.cmd]) ? prev : next))
+  }, [])
+  useEffect(() => {
+    document.addEventListener('selectionchange', refreshFormats)
+    return () => document.removeEventListener('selectionchange', refreshFormats)
+  }, [refreshFormats])
+
   const exec = useCallback((cmd: string, value?: string) => {
     editorRef.current?.focus()
     document.execCommand(cmd, false, value)
     const el = editorRef.current
     if (el) updateCompose({ body: el.innerHTML })
-  }, [updateCompose])
+    // Toggling bold on a collapsed caret changes no selection, so no
+    // selectionchange fires: read the state now.
+    refreshFormats()
+  }, [updateCompose, refreshFormats])
 
   // Electron has no window.prompt(), and focusing the inline input clears the
   // selection — so capture the range before showing it.
@@ -507,6 +525,7 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
         onInput={(e) => updateCompose({ body: e.currentTarget.innerHTML })}
         onPaste={onPaste}
         onKeyDown={onEditorKeyDown}
+        onKeyUp={refreshFormats}
       />
       {quoteFolded && (
         <button type="button" className="compose-quote-toggle" title="Show quoted text" aria-label="Show quoted text" onClick={() => setShowQuote(true)}>
@@ -558,6 +577,8 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
                 type="button"
                 title={t.title}
                 aria-label={t.title}
+                aria-pressed={!!activeFormats[t.cmd]}
+                data-on={!!activeFormats[t.cmd]}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => exec(t.cmd)}
               >

@@ -340,7 +340,7 @@ function buildPreviewDoc(kind: PreviewKind, dataUrl: string, text: string): stri
   const css = `
     html,body { margin:0; padding:0; background:transparent; }
     body {
-      font-family: 'Inter Tight', -apple-system, sans-serif;
+      font-family: 'Inter', -apple-system, sans-serif;
       font-size: 13px; line-height: 1.55; color: ${fg};
       overflow-wrap: anywhere;
     }
