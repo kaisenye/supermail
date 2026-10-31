@@ -184,7 +184,7 @@ export function Settings({
         <button type="button" className="settings-close" onClick={onClose} aria-label="Close settings" title="Close (Esc)">
           <X size={16} strokeWidth={2} />
         </button>
-        <div className="settings-body">
+        <div className="settings-body" key={section}>
           {section === 'general' && (
             <>
               <h2 className="settings-title">General</h2>

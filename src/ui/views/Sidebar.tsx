@@ -67,7 +67,7 @@ export function Sidebar({
       {/* Compose and Search first, above the mailbox (Scape). */}
       <div className="sidebar-actions">
         <button
-          className="folder-item"
+          className="folder-item sidebar-compose"
           title="Compose (c)"
           onClick={(e) => {
             e.currentTarget.blur()

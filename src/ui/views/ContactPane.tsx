@@ -37,8 +37,10 @@ export function ContactPane({ threadId, accountId, ready, onOpen }: Props) {
   if (p === null) return null
   return (
     <aside className="contact-pane" aria-label="Contact">
-      <div className="contact-name">{p.name ?? p.address}</div>
-      {p.name && <div className="contact-addr">{p.address}</div>}
+      <div className="contact-head">
+        <div className="contact-name" title={p.name ?? p.address}>{p.name ?? p.address}</div>
+        {p.name && <div className="contact-addr" title={p.address}>{p.address}</div>}
+      </div>
       <dl className="contact-stats">
         <div>
           <dt>Emails</dt>
@@ -63,8 +65,12 @@ export function ContactPane({ threadId, accountId, ready, onOpen }: Props) {
       <ul className="contact-recent">
         {p.recent.map((r) => (
           <li key={r.id}>
-            <button type="button" onClick={() => r.thread_id && onOpen(r.thread_id, r.id, r.account_id)}>
-              <span>{r.subject || '(no subject)'}</span>
+            <button
+              type="button"
+              title={r.subject || '(no subject)'}
+              onClick={() => r.thread_id && onOpen(r.thread_id, r.id, r.account_id)}
+            >
+              <span className="contact-subject">{r.subject || '(no subject)'}</span>
               <span className="contact-date">{formatDate(r.date)}</span>
             </button>
           </li>

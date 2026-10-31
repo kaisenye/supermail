@@ -260,7 +260,7 @@ export function MessageList({
                     <Clock className="row-reminder" size={12} strokeWidth={2} aria-label="Reminder" />
                   ) : null}
                   {isFlagged(r.flags) && (
-                    <Star className="row-flag" size={13} strokeWidth={2} fill="currentColor" aria-label="Starred" />
+                    <Star className="row-flag" size={11} strokeWidth={2} fill="currentColor" aria-label="Starred" />
                   )}
                   <span className="row-date">{formatDate(r.remind_at ?? r.date)}</span>
                 </span>

@@ -37,6 +37,17 @@ button {
   border: none;
   padding: 0;
   cursor: pointer;
+  /* Every hover change eases in; class rules with their own transition win. */
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+button:disabled {
+  cursor: default;
 }
 
 /* The whole button is the target, glyph included — an icon that swallowed the
@@ -377,6 +388,7 @@ button > svg {
   align-items: center;
   justify-content: center;
   opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
   -webkit-app-region: no-drag;
 }
 
@@ -389,7 +401,8 @@ button > svg {
 .row:hover .row-unread-dot,
 .row[data-checked='true'] .row-unread-dot,
 .list-scroll[data-selecting='true'] .row-unread-dot {
-  visibility: hidden;
+  opacity: 0;
+  transform: scale(0.4);
 }
 
 .row:hover {
@@ -553,11 +566,10 @@ button > svg {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  /* Match the list header: clear the traffic lights, give the title room. */
-  padding: 44px var(--space-5) var(--space-3);
+  /* The tab bar above already clears the traffic lights. */
+  padding: var(--space-3) var(--space-5);
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
-  -webkit-app-region: drag;
 }
 
 .back-button {
@@ -2755,6 +2767,24 @@ button.sidebar-account svg {
   padding: 0 var(--space-2) var(--space-3);
 }
 
+/* The one filled button in the sidebar. */
+.folder-item.sidebar-compose {
+  margin-bottom: var(--space-1);
+  height: 32px;
+  background: var(--compose-bg);
+  color: var(--compose-fg);
+}
+
+.folder-item.sidebar-compose:hover {
+  background: var(--compose-bg-hover);
+}
+
+.sidebar-compose .folder-icon,
+.sidebar-compose .folder-key {
+  color: inherit;
+  opacity: 0.75;
+}
+
 .folder-key {
   margin-left: auto;
   font-family: inherit;
@@ -3743,7 +3773,8 @@ button.sidebar-account svg {
 .tab-nav:disabled { opacity: 0.35; cursor: default; }
 .tab-nav:not(:disabled):hover { background: var(--surface-hover); }
 .tab-list { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; overflow: hidden; }
-.tab { display: flex; align-items: center; gap: 6px; min-width: 120px; max-width: 220px; height: 30px; padding: 0 8px 0 12px; border-radius: 7px; font-size: 13.5px; color: var(--text-tertiary); cursor: default; }
+.tab { display: flex; align-items: center; gap: 6px; min-width: 120px; max-width: 220px; height: 30px; padding: 0 8px 0 12px; border-radius: 7px; font-size: 13.5px; color: var(--text-tertiary); cursor: pointer; transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out); animation: tab-in var(--duration-base) var(--ease-out); }
+.tab:not([aria-selected='true']):hover { background: var(--surface-hover); color: var(--text-secondary); }
 .tab[aria-selected='true'] { background: var(--surface-hover); color: var(--text-primary); }
 .tab-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-close { display: grid; place-items: center; width: 18px; height: 18px; border: 0; border-radius: 4px; background: none; color: inherit; opacity: 0.6; }
@@ -3757,7 +3788,6 @@ button.sidebar-account svg {
 .thread-position { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
 .thread-position button { display: grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 4px; background: none; color: inherit; cursor: pointer; }
 .thread-position button:hover { background: var(--surface-hover); }
-.thread-message[data-focused='true'] > .message-head { box-shadow: inset 2px 0 0 var(--accent); }
 .body-links li[data-active='true'] button { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
 
 /* Settings → Snippets */
@@ -3768,7 +3798,7 @@ button.sidebar-account svg {
 
 /* ---- search page and contact pane ---- */
 
-.search-page { display: flex; flex-direction: column; min-height: 0; flex: 1; padding: 46px var(--space-5) var(--space-4); gap: 8px; }
+.search-page { display: flex; flex-direction: column; min-height: 0; flex: 1; padding: var(--space-4) var(--space-5); gap: 8px; animation: view-in var(--duration-base) var(--ease-out); }
 .search-input { font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 6px; background: transparent; color: inherit; outline: none; }
 .search-input:focus { border-color: var(--accent); }
 .search-scopes { display: flex; gap: 4px; }
@@ -3776,7 +3806,7 @@ button.sidebar-account svg {
 .search-scopes button[aria-selected='true'] { background: var(--surface-selected); color: var(--text-primary); }
 .search-scope-count { margin-left: 6px; opacity: 0.6; }
 .search-results { list-style: none; margin: 0; padding: 0; overflow: auto; }
-.search-results li { display: grid; grid-template-columns: 180px 1fr auto; gap: 12px; padding: 6px 8px; border-radius: 5px; font-size: 13px; cursor: default; }
+.search-results li { display: grid; grid-template-columns: 180px 1fr auto; gap: 12px; padding: 6px 8px; border-radius: 5px; font-size: 13px; cursor: pointer; transition: background-color var(--duration-fast) var(--ease-out); }
 .search-results li:hover { background: var(--surface-hover); }
 .search-results li[data-active='true'] { background: var(--surface-selected); }
 .search-results li[data-done='true'] { opacity: 0.55; }
@@ -3786,16 +3816,22 @@ button.sidebar-account svg {
 .search-status { padding: 6px 8px; font-size: 13px; color: var(--text-tertiary); }
 .thread-layout { display: flex; flex: 1; min-height: 0; }
 .thread-layout > .thread { flex: 1; min-width: 0; }
-.contact-pane { width: 260px; flex: none; border-left: 1px solid var(--border); padding: 46px 16px 16px; overflow: auto; font-size: 12.5px; }
-.contact-name { font-weight: 600; font-size: 14px; }
+.contact-pane { width: 280px; flex: none; min-width: 0; border-left: 1px solid var(--border); padding: 20px 16px 24px; overflow-x: hidden; overflow-y: auto; font-size: 12.5px; animation: pane-in var(--duration-base) var(--ease-out); }
+.contact-head { padding: 0 4px; min-width: 0; }
+.contact-name { font-weight: 600; font-size: 15px; line-height: 1.3; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contact-addr { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .contact-addr, .contact-date, .contact-stats dt { color: var(--text-tertiary); }
-.contact-stats { display: grid; gap: 6px; margin: 12px 0; }
-.contact-stats div { display: flex; justify-content: space-between; gap: 8px; }
-.contact-stats dd { margin: 0; }
-.contact-pane h4 { margin: 16px 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-tertiary); }
+.contact-stats { display: grid; gap: 8px; margin: 16px 0 0; padding: 12px 4px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.contact-stats div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; min-width: 0; }
+.contact-stats dt { flex: none; }
+.contact-stats dd { margin: 0; min-width: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.contact-pane h4 { margin: 20px 4px 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-tertiary); }
 .contact-recent { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.contact-recent button { display: flex; justify-content: space-between; gap: 8px; width: 100%; border: 0; background: none; text-align: left; padding: 4px 0; color: inherit; font: inherit; }
-.contact-recent button span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Subject on one line, date under it: two short lines never push each other off the pane. */
+.contact-recent button { display: grid; gap: 2px; width: 100%; min-width: 0; border: 0; background: none; text-align: left; padding: 6px 4px; border-radius: var(--radius-sm); color: inherit; font: inherit; }
+.contact-recent button:hover { background: var(--surface-hover); }
+.contact-subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.contact-date { font-size: 11.5px; }
 @media (max-width: 1000px) { .contact-pane { display: none; } }
 
 .ai-settings .settings-split-form {
@@ -3972,4 +4008,43 @@ button.sidebar-account svg {
   border-top: 1px solid var(--border);
   font-size: var(--text-xs);
   color: var(--text-quaternary);
+}
+
+/* ---- motion: anything that appears eases in, briefly ---- */
+
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes pane-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes tab-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+
+/* A new folder, split, thread, page or settings section: each remounts, so each fades up. */
+.list-scroll,
+.thread-layout,
+.settings-page,
+.settings-body,
+.tasks,
+.page-tools,
+.action-bar,
+.sync-progress {
+  animation: view-in var(--duration-base) var(--ease-out);
+}
+
+.sidebar .folder-item,
+.settings-nav-item,
+.split-tabs button,
+.split-chips button {
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
 }

@@ -1955,6 +1955,9 @@ export default function App() {
               /* Rendered even when empty: swapping it out for an empty-state
                  div would unmount the pager and make it flash on every page. */
               <MessageList
+                // A new folder, split or chip remounts the list, so it fades in
+                // from the top instead of swapping rows under the cursor.
+                key={`${activeFolderId}:${splitId}:${chip ?? ''}`}
                 showRecipient={showRecipient}
                 emptyTitle={syncError ? 'Could not load mail' : 'No messages'}
                 emptySub={
