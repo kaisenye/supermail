@@ -1583,11 +1583,22 @@ export default function App() {
     ]
   )
 
-  const bindings = useMemo(() => buildBindings(mode, handlers, commands), [mode, handlers, commands])
+  // Onboarding owns the keyboard: its buttons and form take Enter natively.
+  const onboarding = bootError === NO_ACCOUNT || addingAccount
+  const bindings = useMemo(
+    () => (onboarding ? [] : buildBindings(mode, handlers, commands)),
+    [onboarding, mode, handlers, commands]
+  )
   useHotkeys(mode, bindings)
-  const chords = useMemo(() => buildChords(mode, handlers, commands), [mode, handlers, commands])
+  const chords = useMemo(
+    () => (onboarding ? [] : buildChords(mode, handlers, commands)),
+    [onboarding, mode, handlers, commands]
+  )
   useCommandChord(chords)
-  const sequences = useMemo(() => buildSequences(mode, handlers, commands), [mode, handlers, commands])
+  const sequences = useMemo(
+    () => (onboarding ? {} : buildSequences(mode, handlers, commands)),
+    [onboarding, mode, handlers, commands]
+  )
   useKeySequences(sequences)
 
   const paletteActions = useMemo<PaletteAction[]>(

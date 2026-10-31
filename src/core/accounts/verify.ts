@@ -59,11 +59,11 @@ export function explain(err: unknown, stage: 'imap' | 'smtp', config: AccountCon
     const host = stage === 'imap' ? config.imapHost : config.smtpHost
     // The guessed imap.<domain> misses hosted providers, which is exactly the
     // case a custom-domain user hits first.
-    return `Cannot find server "${host}". Check the hostname under Advanced — a hosted provider often uses its own (Exmail, for example, uses imap.exmail.qq.com).`
+    return `Cannot find server "${host}". Check the hostname under Server settings — a hosted provider often uses its own (Exmail, for example, uses imap.exmail.qq.com).`
   }
   if (/ECONNREFUSED/i.test(raw) || code === 'ECONNREFUSED') {
     const port = stage === 'imap' ? config.imapPort : config.smtpPort
-    return `Connection refused on port ${port}. Check the port under Advanced.`
+    return `Connection refused on port ${port}. Check the port under Server settings.`
   }
   if (/ETIMEDOUT|timed? ?out/i.test(raw) || code === 'ETIMEDOUT') {
     return 'Connection timed out. The server may be unreachable from this network, or the port may be wrong.'
@@ -73,10 +73,10 @@ export function explain(err: unknown, stage: 'imap' | 'smtp', config: AccountCon
   if (/does not support STARTTLS|upgrading connection with STARTTLS/i.test(raw)) {
     const port = stage === 'imap' ? config.imapPort : config.smtpPort
     const ssl = stage === 'imap' ? 993 : 465
-    return `The server offers no encrypted connection on port ${port}, so Sovo will not send your password over it. Use the SSL port instead (usually ${ssl}) under Advanced.`
+    return `The server offers no encrypted connection on port ${port}, so Sovo will not send your password over it. Use the SSL port instead (usually ${ssl}) under Server settings.`
   }
   if (/self.signed|certificate|SSL|TLS|wrong version number/i.test(raw)) {
-    return 'TLS handshake failed. The port may expect STARTTLS rather than implicit TLS — check the port under Advanced.'
+    return 'TLS handshake failed. The port may expect STARTTLS rather than implicit TLS — check the port under Server settings.'
   }
   if (/IMAP.*disabled|not enabled/i.test(raw)) {
     return 'IMAP is disabled for this account. Enable it in your mail provider settings.'

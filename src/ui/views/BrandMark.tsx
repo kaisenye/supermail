@@ -7,8 +7,22 @@
 const ON = new Set(['0,1', '0,2', '0,3', '1,0', '2,1', '2,2', '3,3', '4,0', '4,1', '4,2'])
 const ACCENT = '0,3'
 const CELLS = Array.from({ length: 20 }, (_, i) => [Math.floor(i / 4), i % 4] as const)
+/** The order a pen would draw the S, from the violet cell to the bottom left. */
+const STROKE = ['0,3', '0,2', '0,1', '1,0', '2,1', '2,2', '3,3', '4,2', '4,1', '4,0']
 
-export function BrandMark({ className, size = 44 }: { className?: string; size?: number }) {
+/**
+ * `animate` draws it in: the faint grid settles first, then the S lights cell
+ * by cell along its stroke (CSS `.bm-cell`, delays in `--d`).
+ */
+export function BrandMark({
+  className,
+  size = 44,
+  animate = false
+}: {
+  className?: string
+  size?: number
+  animate?: boolean
+}) {
   return (
     <svg
       className={className}
@@ -30,6 +44,12 @@ export function BrandMark({ className, size = 44 }: { className?: string; size?:
             rx={2.5}
             fill={key === ACCENT ? '#8B7CF6' : 'currentColor'}
             opacity={ON.has(key) ? 1 : 0.14}
+            className={animate ? (ON.has(key) ? 'bm-cell bm-on' : 'bm-cell') : undefined}
+            style={
+              animate
+                ? ({ '--d': `${ON.has(key) ? 260 + STROKE.indexOf(key) * 55 : (r + c) * 25}ms` } as React.CSSProperties)
+                : undefined
+            }
           />
         )
       })}

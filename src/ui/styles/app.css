@@ -2520,8 +2520,9 @@ div.compose-body[data-empty='true']::before {
 }
 
 /* ---- onboarding ---------------------------------------------------------
- * First-run and add-account. Deliberately the same restraint as the rest of
- * the app: one panel, one accent, no welcome-screen flourish.
+ * First-run and add-account. Same controls as the rest of the app: pill
+ * buttons, hairline fields that firm up on focus, 12px corners. The motion is
+ * the welcome: the mark draws itself, then everything settles in order.
  */
 
 .onboard {
@@ -2542,38 +2543,78 @@ div.compose-body[data-empty='true']::before {
 .onboard-panel {
   width: 100%;
   max-width: 380px;
-  animation: onboard-rise var(--duration-base) var(--ease-out) both;
+}
+
+/* Entrance: each block rises in turn; --i is its place in line. */
+.onboard-in {
+  animation: onboard-rise 520ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
 }
 
 @keyframes onboard-rise {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(8px);
   }
 }
 
 .onboard-welcome {
   text-align: center;
   padding-bottom: var(--space-6);
+  transition:
+    opacity 220ms var(--ease-out),
+    transform 220ms var(--ease-out),
+    filter 220ms var(--ease-out);
+}
+
+/* Steps aside before the form arrives, instead of a hard cut. */
+.onboard-welcome[data-leaving='true'] {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.98);
+  filter: blur(2px);
 }
 
 .onboard-mark {
   display: block;
   color: var(--text-primary);
   margin: 0 auto var(--space-5);
-  animation: onboard-mark-in var(--duration-base) var(--ease-out) both;
 }
 
-@keyframes onboard-mark-in {
+/* The mark draws itself: the faint grid settles, then the S lights up cell by
+   cell along its stroke (delays in --d, set per cell). */
+.bm-cell {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bm-grid 420ms var(--ease-out) both;
+  animation-delay: var(--d, 0ms);
+}
+
+.bm-cell.bm-on {
+  animation: bm-light 460ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+
+@keyframes bm-grid {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: scale(0.6);
+  }
+}
+
+@keyframes bm-light {
+  0% {
+    opacity: 0.14;
+    transform: scale(0.7);
+  }
+  60% {
+    opacity: 1;
   }
 }
 
 .onboard-welcome h1 {
-  font-size: var(--text-lg);
+  font-size: 22px;
   font-weight: 600;
+  letter-spacing: -0.02em;
   margin: 0 0 var(--space-2);
 }
 
@@ -2581,7 +2622,8 @@ div.compose-body[data-empty='true']::before {
   font-size: var(--text-base);
   line-height: var(--leading-normal);
   color: var(--text-secondary);
-  margin: 0 0 var(--space-5);
+  max-width: 300px;
+  margin: 0 auto var(--space-5);
 }
 
 .onboard-head {
@@ -2589,19 +2631,95 @@ div.compose-body[data-empty='true']::before {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-3);
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-4);
 }
 
 .onboard-head h2 {
-  font-size: var(--text-md);
+  font-size: 18px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
+/* The provider spotted from the address, as a small pill. */
 .onboard-provider {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
   font-size: var(--text-xs);
+  color: var(--text-secondary);
+  animation: onboard-pop 260ms var(--ease-out) both;
+}
+
+@keyframes onboard-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+.onboard-providers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.onboard-provider-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.onboard-provider-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.onboard-provider-btn:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.onboard-provider-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.onboard-note {
+  margin: 0;
   color: var(--text-tertiary);
-  animation: fade-in var(--duration-fast) var(--ease-out);
+  font-size: var(--text-sm);
+  text-align: center;
+  animation: fade-in var(--duration-base) var(--ease-out);
+}
+
+.onboard-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.onboard-divider::before,
+.onboard-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
 }
 
 .onboard-form {
@@ -2613,12 +2731,13 @@ div.compose-body[data-empty='true']::before {
 .onboard-field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 6px;
   min-width: 0;
   flex: 1;
 }
 
 .onboard-field > span {
+  padding-left: 2px;
   font-size: var(--text-xs);
   color: var(--text-secondary);
 }
@@ -2628,15 +2747,18 @@ div.compose-body[data-empty='true']::before {
   color: var(--text-quaternary);
 }
 
+/* Same field as the task add bar: hairline at rest, firmer and lifted on focus. */
 .onboard-field input {
+  height: 40px;
+  width: 100%;
+  padding: 0 14px;
   font-family: var(--font-ui);
   font-size: var(--text-base);
   color: var(--text-primary);
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px var(--space-2);
-  width: 100%;
+  border-radius: 12px;
+  outline: none;
   transition:
     border-color var(--duration-fast) var(--ease-out),
     box-shadow var(--duration-fast) var(--ease-out);
@@ -2646,10 +2768,13 @@ div.compose-body[data-empty='true']::before {
   color: var(--text-quaternary);
 }
 
+.onboard-field input:hover {
+  border-color: var(--border-strong);
+}
+
 .onboard-field input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--surface-active);
+  border-color: var(--border-strong);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 0 0 3px var(--surface-hover);
 }
 
 .onboard-row {
@@ -2658,19 +2783,21 @@ div.compose-body[data-empty='true']::before {
 }
 
 .onboard-port {
-  flex: 0 0 72px;
+  flex: 0 0 80px;
 }
 
 .onboard-hint {
+  padding-left: 2px;
   font-size: var(--text-xs);
   line-height: var(--leading-normal);
   color: var(--text-tertiary);
   margin: calc(var(--space-1) * -1) 0 0;
+  animation: fade-in var(--duration-base) var(--ease-out);
 }
 
 .onboard-disclose {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
   width: 100%;
@@ -2680,10 +2807,11 @@ div.compose-body[data-empty='true']::before {
   background: none;
   border: none;
   border-top: 1px solid var(--border);
-  padding: var(--space-3) 0 0;
+  padding: var(--space-3) 2px 0;
   margin-top: var(--space-1);
   cursor: pointer;
   text-align: left;
+  transition: color var(--duration-fast) var(--ease-out);
 }
 
 .onboard-disclose:hover {
@@ -2691,31 +2819,84 @@ div.compose-body[data-empty='true']::before {
 }
 
 .onboard-disclose-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 70%;
   font-size: var(--text-xs);
   color: var(--text-quaternary);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 60%;
 }
 
+.onboard-chevron {
+  flex-shrink: 0;
+  transition: transform var(--duration-base) var(--ease-out);
+}
+
+.onboard-disclose[aria-expanded='true'] .onboard-chevron {
+  transform: rotate(180deg);
+}
+
+/* Slides open and shut: a grid row that grows from 0fr to 1fr. */
 .onboard-advanced {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  margin-top: calc(var(--space-3) * -1);
+  transition:
+    grid-template-rows 320ms var(--ease-out),
+    opacity 240ms var(--ease-out),
+    margin-top 320ms var(--ease-out);
+}
+
+.onboard-advanced[data-open='true'] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  margin-top: 0;
+}
+
+.onboard-advanced-inner {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  animation: onboard-rise var(--duration-fast) var(--ease-out) both;
+  min-height: 0;
+  overflow: hidden;
+  /* Room for the focus ring inside the clipped box. */
+  padding: 3px;
+  margin: -3px;
 }
 
 .onboard-error {
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
   color: var(--text-primary);
-  background: var(--bg-sunken);
-  border-left: 2px solid var(--flag);
-  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--flag) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--flag) 28%, transparent);
+  border-radius: 12px;
   padding: var(--space-2) var(--space-3);
   margin: 0;
-  animation: onboard-rise var(--duration-fast) var(--ease-out) both;
+  animation: onboard-shake 380ms var(--ease-out) both;
+}
+
+/* A small nudge, like a password field that did not take. */
+@keyframes onboard-shake {
+  0% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+  25% {
+    opacity: 1;
+    transform: translateX(-4px);
+  }
+  55% {
+    transform: translateX(3px);
+  }
+  80% {
+    transform: translateX(-1px);
+  }
 }
 
 .onboard-actions {
@@ -2730,15 +2911,19 @@ div.compose-body[data-empty='true']::before {
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
+  height: 40px;
+  padding: 0 var(--space-5);
   font-family: var(--font-ui);
   font-size: var(--text-base);
   font-weight: 500;
-  border-radius: var(--radius-sm);
-  padding: 8px var(--space-4);
+  border-radius: 999px;
   cursor: pointer;
   transition:
     background var(--duration-fast) var(--ease-out),
-    opacity var(--duration-fast) var(--ease-out);
+    border-color var(--duration-fast) var(--ease-out),
+    opacity var(--duration-base) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out),
+    filter var(--duration-fast) var(--ease-out);
 }
 
 .onboard-primary {
@@ -2748,13 +2933,40 @@ div.compose-body[data-empty='true']::before {
   border: 1px solid transparent;
 }
 
+.onboard-welcome .onboard-primary {
+  flex: none;
+}
+
 .onboard-primary:hover:not(:disabled) {
-  filter: brightness(1.06);
+  filter: brightness(1.08);
+}
+
+.onboard-primary:active:not(:disabled),
+.onboard-secondary:active {
+  transform: scale(0.98);
 }
 
 .onboard-primary:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: default;
+}
+
+/* The arrow leans forward on hover: this is the way in. */
+.onboard-arrow {
+  transition: transform var(--duration-base) var(--ease-out);
+}
+
+.onboard-primary:hover:not(:disabled) .onboard-arrow {
+  transform: translateX(3px);
+}
+
+/* Connected: the button stays lit and the check pops in. */
+.onboard-primary[data-done='true'] {
+  opacity: 1;
+}
+
+.onboard-check {
+  animation: onboard-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
 .onboard-secondary {
@@ -2765,6 +2977,7 @@ div.compose-body[data-empty='true']::before {
 
 .onboard-secondary:hover {
   background: var(--surface-hover);
+  border-color: var(--border-strong);
   color: var(--text-primary);
 }
 
@@ -2775,6 +2988,7 @@ div.compose-body[data-empty='true']::before {
 .onboard-privacy {
   display: flex;
   align-items: flex-start;
+  justify-content: center;
   gap: var(--space-1);
   font-size: var(--text-xs);
   line-height: var(--leading-normal);
@@ -2788,11 +3002,17 @@ div.compose-body[data-empty='true']::before {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .onboard-panel,
-  .onboard-mark span,
-  .onboard-advanced,
-  .onboard-error {
+  .onboard-in,
+  .bm-cell,
+  .bm-cell.bm-on,
+  .onboard-error,
+  .onboard-check,
+  .onboard-provider {
     animation: none;
+  }
+  .onboard-welcome,
+  .onboard-advanced {
+    transition: none;
   }
   .onboard-spin {
     animation-duration: 2s;
@@ -3553,19 +3773,6 @@ button.sidebar-account svg {
   }
 }
 
-.onboard-providers { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
-.onboard-provider-btn {
-  display: flex; align-items: center; justify-content: center; gap: var(--space-2);
-  height: 36px; border-radius: var(--radius-md);
-  border: 1px solid var(--border-strong); background: var(--bg-raised); color: var(--text-primary);
-  font: inherit; font-size: var(--text-base); cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-out);
-}
-.onboard-provider-btn:hover:not(:disabled) { background: var(--surface-hover); }
-.onboard-provider-btn:disabled { opacity: 0.6; cursor: default; }
-.onboard-note { margin: 0; color: var(--text-tertiary); font-size: var(--text-sm); text-align: center; }
-.onboard-divider { display: flex; align-items: center; gap: var(--space-2); color: var(--text-tertiary); font-size: var(--text-sm); }
-.onboard-divider::before, .onboard-divider::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
 
 .reauth-banner {
   display: flex; align-items: center; gap: var(--space-2);
