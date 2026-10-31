@@ -4350,3 +4350,222 @@ button.sidebar-account svg {
     color var(--duration-fast) var(--ease-out),
     border-color var(--duration-fast) var(--ease-out);
 }
+
+/* ---- compose, Scape-style: one card for a new message, a reply or a forward ---- */
+
+.compose {
+  padding-top: 0;
+}
+
+.compose-heading[data-empty='true'] {
+  color: var(--text-quaternary);
+}
+
+.compose-card {
+  margin-top: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  animation: view-in var(--duration-base) var(--ease-out);
+}
+
+/* At the end of a thread it sits where the next message would be. */
+.compose-card[data-inline='true'] {
+  margin-top: var(--space-5);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.04));
+}
+
+.compose-card .compose-fields {
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.compose-card .compose-field {
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.compose-card .compose-field:last-child {
+  border-bottom: none;
+}
+
+.compose-card .compose-field > span {
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.compose-card .compose-field > span::after {
+  content: ':';
+}
+
+.compose-to-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.compose-to-row > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.compose-to-row .compose-field {
+  border-bottom: none;
+}
+
+.compose-to-row:last-child {
+  border-bottom: none;
+}
+
+.compose-ccbcc {
+  flex: none;
+  margin-right: var(--space-4);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.compose-ccbcc:hover {
+  background: var(--surface-hover);
+}
+
+.compose-card .compose-body {
+  min-height: 160px;
+  padding: var(--space-4);
+}
+
+.compose-card[data-inline='true'] .compose-body {
+  min-height: 120px;
+}
+
+.compose-card .compose-error,
+.compose-card .compose-remind {
+  margin: var(--space-3) var(--space-4) 0;
+}
+
+.compose-card .compose-attachments {
+  padding: 0 var(--space-4) var(--space-2);
+}
+
+.compose-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.compose-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+}
+
+.compose-pill button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+}
+
+.compose-pill button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.compose-footer-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+}
+
+.compose-reminder {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 30px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.compose-reminder:hover {
+  background: var(--surface-hover);
+}
+
+.compose-footer-spacer {
+  flex: 1;
+}
+
+.compose-later {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--text-tertiary);
+}
+
+.compose-later:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+/* Round send, accent when it can go, grey until there is a recipient. */
+.compose-send {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-fg);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.compose-send:hover:not(:disabled) {
+  transform: scale(1.06);
+}
+
+.compose-send:disabled {
+  background: var(--surface-active);
+  color: var(--text-quaternary);
+  cursor: default;
+}
+
+/* A reply's quoted original stays in the body (it is sent) but folds away. */
+.compose-card[data-quote-folded='true'] .compose-body .supermail-quote {
+  display: none;
+}
+
+.compose-card[data-quote-folded='true'] .compose-body {
+  min-height: 96px;
+}
+
+.compose-quote-toggle {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 20px;
+  margin: 0 var(--space-4) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-tertiary);
+}
+
+.compose-quote-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}

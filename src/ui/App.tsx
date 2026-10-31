@@ -1727,6 +1727,23 @@ export default function App() {
 
   const bar = syncBar(syncCounts)
 
+  // A reply or forward to the open thread is written at its end (Scape); a new
+  // message, or one whose thread is no longer open, gets the compose page.
+  const composeInline = !!(compose && openThread && compose.mode !== 'new' && !tasksOpen)
+  const composer = compose ? (
+    <Compose
+      compose={compose}
+      inline={composeInline}
+      me={(() => {
+        const a = accounts.find((x) => x.accountId === (compose.accountId ?? activeAccountId))
+        return { name: a?.name ?? null, email: a?.email ?? email }
+      })()}
+      cancelOnReplyDefault={cancelOnReplyDefault}
+      onClose={closeCompose}
+      onSent={onSent}
+    />
+  ) : null
+
   return (
     <div className="app">
       <div className="titlebar-drag" />
@@ -1819,17 +1836,8 @@ export default function App() {
             </button>
           </div>
         )}
-        {compose ? (
-          <Compose
-            compose={compose}
-            me={(() => {
-              const a = accounts.find((x) => x.accountId === (compose.accountId ?? activeAccountId))
-              return { name: a?.name ?? null, email: a?.email ?? email }
-            })()}
-            cancelOnReplyDefault={cancelOnReplyDefault}
-            onClose={closeCompose}
-            onSent={onSent}
-          />
+        {compose && !composeInline ? (
+          composer
         ) : tasksOpen ? (
           <>
             {/* The title lives in the tab bar now; only the action stays. */}
@@ -1866,6 +1874,7 @@ export default function App() {
               onReply={(all) => void startReply(all)}
               onReplyWith={(pick) => void startReply(false, pick)}
               onForward={() => void startForward()}
+              composer={composeInline ? composer : undefined}
               onTrash={() => void triageFromThread(triageSelected)}
               onDone={() => void triageFromThread(doneSelected)}
               onStar={() => void starFromThread()}

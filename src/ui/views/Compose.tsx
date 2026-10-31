@@ -7,7 +7,7 @@ import {
   type ClipboardEvent,
   type KeyboardEvent as ReactKeyboardEvent
 } from 'react'
-import { Link2, List, ListOrdered, Paperclip, Sparkles, X } from 'lucide-react'
+import { ArrowLeft, ArrowUp, Bold, ChevronDown, Clock, Ellipsis, Italic, Link2, List, ListOrdered, Paperclip, SendHorizontal, Sparkles, Trash2, Underline, X } from 'lucide-react'
 import { useCommandChord } from '../hooks/useCommandChord'
 import { aiTargetRange, aiWriteRange, applyLink, captureCaret, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
 import { latestOnly, rangeText, textToHtml } from '../aiText'
@@ -28,6 +28,11 @@ interface Props {
   /** Settings default for "Cancel if someone replies first" on a scheduled reply. */
   cancelOnReplyDefault: boolean
   onClose: () => void
+  /**
+   * A reply or forward at the end of the open thread (Scape): just the card,
+   * no page bar or heading.
+   */
+  inline?: boolean
   /** `doneId` is the replied-to message when the send was ⌘⇧↵ (Send + Done). */
   onSent: (
     outboxId: number,
@@ -40,21 +45,26 @@ interface Props {
 
 // B/I/U stay as letterforms — they read faster than glyphs for text styling.
 const TOOLS = [
-  { cmd: 'bold', label: 'B', title: 'Bold ⌘B' },
-  { cmd: 'italic', label: 'I', title: 'Italic ⌘I' },
-  { cmd: 'underline', label: 'U', title: 'Underline ⌘U' },
+  { cmd: 'bold', icon: Bold, title: 'Bold ⌘B' },
+  { cmd: 'italic', icon: Italic, title: 'Italic ⌘I' },
+  { cmd: 'underline', icon: Underline, title: 'Underline ⌘U' },
   { cmd: 'insertUnorderedList', icon: List, title: 'Bulleted list' },
   { cmd: 'insertOrderedList', icon: ListOrdered, title: 'Numbered list' }
 ] as const
 
-export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent }: Props) {
+export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, inline = false }: Props) {
   const updateCompose = useStore((s) => s.updateCompose)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [laterOpen, setLaterOpen] = useState(false)
   const [reminding, setReminding] = useState(false)
   const [linking, setLinking] = useState(false)
+  /** Cc and Bcc rows stay folded behind "Cc / Bcc" until used (Scape). */
+  const [showCc, setShowCc] = useState(() => !!(compose.cc || compose.bcc))
+  /** A reply's quoted original folds behind "…" (Scape); it is still sent. */
+  const [showQuote, setShowQuote] = useState(false)
   const editorRef = useRef<HTMLDivElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
   const sendingRef = useRef(false)
 
   const title = useMemo(() => {
@@ -325,7 +335,11 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent }: 
     updateCompose(next)
   }, [compose, updateCompose])
 
-  const focusField = (id: string) => () => document.getElementById(id)?.focus()
+  const focusField = (id: string) => () => {
+    // Cc / Bcc may still be folded away; unfold, then focus once rendered.
+    if (id !== 'compose-to' && id !== 'compose-subject') setShowCc(true)
+    requestAnimationFrame(() => document.getElementById(id)?.focus())
+  }
   // Each chord is declared in commands.ts (compose.*, external) so the sheet lists it.
   const chords = useMemo(
     () => [
@@ -362,34 +376,34 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent }: 
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose, laterOpen, reminding, pickingSnippet, aiOpen])
 
-  return (
-    <div className="compose">
-      <header className="compose-header">
-        <h1 className="compose-title">{title}</h1>
-        <div className="compose-actions">
-          <button type="button" className="compose-btn" onClick={onClose} disabled={sending}>
-            Discard
-          </button>
-          <button
-            type="button"
-            className="compose-btn"
-            onClick={() => setLaterOpen(true)}
-            disabled={sending}
-            title="Send later (⌘⇧L)"
-          >
-            Later
-          </button>
-          <button
-            type="button"
-            className="compose-btn compose-btn-primary"
-            disabled={sending}
-            onClick={() => void persistAndQueue(null)}
-          >
-            {sending ? 'Queuing…' : 'Send'}
-            <span className="compose-hint">⌘↵</span>
-          </button>
-        </div>
-      </header>
+  // A reply already has its subject in the thread above; a forward and a new
+  // message need the field.
+  const showSubject = !inline || compose.mode === 'forward'
+  const canSend = !sending && !!compose.to.trim()
+  const isReply = compose.mode === 'reply' || compose.mode === 'replyAll'
+  const quoteFolded = isReply && !showQuote && compose.body.includes('supermail-quote')
+
+  // An inline reply scrolls into view and takes the caret, like Scape's.
+  useEffect(() => {
+    if (!inline) return
+    cardRef.current?.scrollIntoView({ block: 'nearest' })
+    if (compose.to) {
+      const el = editorRef.current
+      el?.focus()
+      if (el) {
+        const r = document.createRange()
+        r.setStart(el, 0)
+        r.collapse(true)
+        const sel = window.getSelection()
+        sel?.removeAllRanges()
+        sel?.addRange(r)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inline, compose.draftId])
+
+  const card = (
+    <div className="compose-card" ref={cardRef} data-inline={inline} data-quote-folded={quoteFolded}>
       {compose.remindAt && (
         <div className="compose-remind">
           Remind me if no reply ·{' '}
@@ -409,6 +423,200 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent }: 
           </button>
         </div>
       )}
+      {error && (
+        <div className="compose-error" role="alert">
+          {error}
+        </div>
+      )}
+      <div className="compose-fields">
+        <div className="compose-to-row">
+          <RecipientField
+            label="To"
+            value={compose.to}
+            onChange={(to) => updateCompose({ to })}
+            inputId="compose-to"
+            autoFocus={!inline || !compose.to}
+          />
+          {!showCc && (
+            <button type="button" className="compose-ccbcc" onClick={focusField('compose-cc')}>
+              Cc / Bcc
+            </button>
+          )}
+        </div>
+        {showCc && (
+          <>
+            <RecipientField
+              label="Cc"
+              value={compose.cc}
+              onChange={(cc) => updateCompose({ cc })}
+              inputId="compose-cc"
+            />
+            <RecipientField
+              label="Bcc"
+              value={compose.bcc}
+              onChange={(bcc) => updateCompose({ bcc })}
+              inputId="compose-bcc"
+            />
+          </>
+        )}
+        {showSubject && (
+          <label className="compose-field">
+            <span>Subject</span>
+            <input
+              id="compose-subject"
+              value={compose.subject}
+              onChange={(e) => updateCompose({ subject: e.target.value })}
+            />
+          </label>
+        )}
+      </div>
+      {linking && (
+        <LinkPrompt
+          onSubmit={submitLink}
+          onCancel={() => {
+            setLinking(false)
+            pendingRange.current = null
+          }}
+        />
+      )}
+      {aiOpen && (
+        <AiWriteMenu
+          scope={aiScope}
+          busy={aiBusy}
+          error={aiError}
+          focusKey={aiFocus}
+          onRun={(action, instruction) => void runAi(action, instruction)}
+          onClose={() => {
+            aiReq.current.cancel()
+            setAiBusy(false)
+            setAiOpen(false)
+            editorRef.current?.focus()
+          }}
+        />
+      )}
+      <div
+        ref={editorRef}
+        className="compose-body"
+        contentEditable
+        suppressContentEditableWarning
+        role="textbox"
+        aria-multiline="true"
+        aria-label="Message body"
+        data-empty={!compose.body}
+        data-placeholder="Write your message, or press ⌘J to draft it with AI"
+        onInput={(e) => updateCompose({ body: e.currentTarget.innerHTML })}
+        onPaste={onPaste}
+        onKeyDown={onEditorKeyDown}
+      />
+      {quoteFolded && (
+        <button type="button" className="compose-quote-toggle" title="Show quoted text" aria-label="Show quoted text" onClick={() => setShowQuote(true)}>
+          <Ellipsis size={14} strokeWidth={2} />
+        </button>
+      )}
+      {compose.attachments.length > 0 && (
+        <div className="compose-attachments">
+          {compose.attachments.map((a) => (
+            <span key={a.path} className="compose-chip">
+              {a.filename}
+              <button
+                type="button"
+                aria-label={`Remove ${a.filename}`}
+                onClick={() =>
+                  updateCompose({
+                    attachments: compose.attachments.filter((x) => x.path !== a.path)
+                  })
+                }
+              >
+                <X size={12} strokeWidth={2.5} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {/* Scape's footer: tool pills on the left, reminder, then later + send. */}
+      <div className="compose-footer">
+        <span className="compose-pill">
+          <button
+            type="button"
+            title="Attach files"
+            aria-label="Attach files"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => void onPickFiles()}
+          >
+            <Paperclip size={15} strokeWidth={1.75} />
+          </button>
+          <button type="button" title="Discard (Esc)" aria-label="Discard" onClick={onClose} disabled={sending}>
+            <Trash2 size={15} strokeWidth={1.75} />
+          </button>
+        </span>
+        <span className="compose-pill">
+          {TOOLS.map((t) => {
+            const Icon = t.icon
+            return (
+              <button
+                key={t.cmd}
+                type="button"
+                title={t.title}
+                aria-label={t.title}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => exec(t.cmd)}
+              >
+                <Icon size={15} strokeWidth={1.75} />
+              </button>
+            )
+          })}
+          <button
+            type="button"
+            title="Insert link"
+            aria-label="Insert link"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onLink}
+          >
+            <Link2 size={15} strokeWidth={1.75} />
+          </button>
+          <button
+            type="button"
+            title="Write with AI ⌘J"
+            aria-label="Write with AI"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={openAi}
+          >
+            <Sparkles size={15} strokeWidth={1.75} />
+          </button>
+        </span>
+        <span className="compose-footer-sep" />
+        <button type="button" className="compose-reminder" onClick={() => setReminding(true)} title="Remind me if no reply (⌘⇧H)">
+          <Clock size={15} strokeWidth={1.75} />
+          {compose.remindAt ? 'Reminder set' : 'No reminder'}
+          <ChevronDown size={14} strokeWidth={1.75} />
+        </button>
+        <span className="compose-footer-spacer" />
+        <button
+          type="button"
+          className="compose-later"
+          onClick={() => setLaterOpen(true)}
+          disabled={sending}
+          title="Send later (⌘⇧L)"
+          aria-label="Send later"
+        >
+          <SendHorizontal size={15} strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          className="compose-send"
+          disabled={!canSend}
+          onClick={() => void persistAndQueue(null)}
+          title={sending ? 'Queuing…' : 'Send (⌘↵)'}
+          aria-label="Send"
+        >
+          <ArrowUp size={16} strokeWidth={2.25} />
+        </button>
+      </div>
+    </div>
+  )
+
+  const pickers = (
+    <>
       {/* Always "if no reply" (main sets it on send), so the checkbox only matters for h. */}
       {reminding && (
         <RemindPicker
@@ -444,147 +652,41 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent }: 
           onClose={() => setPickingSnippet(false)}
         />
       )}
-      {error && (
-        <div className="compose-error" role="alert">
-          {error}
+    </>
+  )
+
+  if (inline) {
+    return (
+      <>
+        {pickers}
+        {card}
+      </>
+    )
+  }
+
+  return (
+    <div className="compose">
+      {/* Same bar as a thread: round back on the left, discard on the right. */}
+      <header className="thread-toolbar">
+        <button className="thread-circle" onClick={onClose} aria-label="Close" title="Close (Esc)">
+          <ArrowLeft size={16} strokeWidth={1.75} />
+        </button>
+        <span className="thread-toolbar-subject" />
+        <span className="thread-pill">
+          <button type="button" title="Discard (Esc)" aria-label="Discard" onClick={onClose} disabled={sending}>
+            <Trash2 size={15} strokeWidth={1.75} />
+          </button>
+        </span>
+      </header>
+      {pickers}
+      <div className="thread-scroll">
+        <div className="thread-column">
+          <h1 className="thread-title compose-heading" data-empty={!compose.subject.trim()}>
+            {compose.subject.trim() || (compose.mode === 'new' || !compose.mode ? 'New email' : title)}
+          </h1>
+          {card}
         </div>
-      )}
-      <div className="compose-fields">
-        <RecipientField
-          label="To"
-          value={compose.to}
-          onChange={(to) => updateCompose({ to })}
-          inputId="compose-to"
-          autoFocus
-        />
-        <RecipientField
-          label="Cc"
-          value={compose.cc}
-          onChange={(cc) => updateCompose({ cc })}
-          inputId="compose-cc"
-        />
-        <RecipientField
-          label="Bcc"
-          value={compose.bcc}
-          onChange={(bcc) => updateCompose({ bcc })}
-          inputId="compose-bcc"
-        />
-        <label className="compose-field">
-          <span>Subject</span>
-          <input
-            id="compose-subject"
-            value={compose.subject}
-            onChange={(e) => updateCompose({ subject: e.target.value })}
-          />
-        </label>
       </div>
-      <div className="compose-toolbar">
-        {TOOLS.map((t) => {
-          const Icon = 'icon' in t ? t.icon : null
-          return (
-            <button
-              key={t.cmd}
-              type="button"
-              className="compose-tool"
-              title={t.title}
-              aria-label={t.title}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => exec(t.cmd)}
-            >
-              {Icon ? <Icon size={15} strokeWidth={2} /> : 'label' in t && t.label}
-            </button>
-          )
-        })}
-        <button
-          type="button"
-          className="compose-tool"
-          title="Insert link"
-          aria-label="Insert link"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={onLink}
-        >
-          <Link2 size={15} strokeWidth={2} />
-        </button>
-        <button
-          type="button"
-          className="compose-tool"
-          title="Write with AI ⌘J"
-          aria-label="Write with AI"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={openAi}
-        >
-          <Sparkles size={15} strokeWidth={2} />
-        </button>
-        <span className="compose-toolbar-sep" />
-        <button
-          type="button"
-          className="compose-tool"
-          title="Attach files"
-          aria-label="Attach files"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => void onPickFiles()}
-        >
-          <Paperclip size={15} strokeWidth={2} />
-        </button>
-      </div>
-      {linking && (
-        <LinkPrompt
-          onSubmit={submitLink}
-          onCancel={() => {
-            setLinking(false)
-            pendingRange.current = null
-          }}
-        />
-      )}
-      {aiOpen && (
-        <AiWriteMenu
-          scope={aiScope}
-          busy={aiBusy}
-          error={aiError}
-          focusKey={aiFocus}
-          onRun={(action, instruction) => void runAi(action, instruction)}
-          onClose={() => {
-            aiReq.current.cancel()
-            setAiBusy(false)
-            setAiOpen(false)
-            editorRef.current?.focus()
-          }}
-        />
-      )}
-      <div
-        ref={editorRef}
-        className="compose-body"
-        contentEditable
-        suppressContentEditableWarning
-        role="textbox"
-        aria-multiline="true"
-        aria-label="Message body"
-        data-empty={!compose.body}
-        data-placeholder="Write your message…"
-        onInput={(e) => updateCompose({ body: e.currentTarget.innerHTML })}
-        onPaste={onPaste}
-        onKeyDown={onEditorKeyDown}
-      />
-      {compose.attachments.length > 0 && (
-        <div className="compose-attachments">
-          {compose.attachments.map((a) => (
-            <span key={a.path} className="compose-chip">
-              {a.filename}
-              <button
-                type="button"
-                aria-label={`Remove ${a.filename}`}
-                onClick={() =>
-                  updateCompose({
-                    attachments: compose.attachments.filter((x) => x.path !== a.path)
-                  })
-                }
-              >
-                <X size={12} strokeWidth={2.5} />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

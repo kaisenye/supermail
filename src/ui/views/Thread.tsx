@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react'
 import {
   Archive,
   ArrowLeft,
@@ -34,6 +34,8 @@ interface Props {
   /** An Instant Reply: App opens Reply with this text, addressed to the message it answers. */
   onReplyWith: (pick: ReplyPick) => void
   onForward: () => void
+  /** A reply or forward being written: shown at the end, in place of the reply buttons. */
+  composer?: ReactNode
   onDone: () => void
   onTrash: () => void
   onStar: () => void
@@ -70,6 +72,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
     onReply,
     onReplyWith,
     onForward,
+    composer,
     onDone,
     onTrash,
     onStar,
@@ -298,7 +301,9 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
 
         <ReplySuggestions insights={ai.insights} busy={ai.busy} onUse={onReplyWith} />
 
-        {/* Reply lives at the end of the conversation, where you finish reading. */}
+        {/* Reply lives at the end of the conversation, where you finish reading;
+            once started it is written right there (Scape). */}
+        {composer ?? (
         <div className="thread-reply-bar">
           <button type="button" onClick={() => onReply(false)}>
             <ArrowUpLeft size={14} strokeWidth={2} /> Reply
@@ -313,6 +318,7 @@ export const Thread = forwardRef<ThreadHandle, Props>(function Thread(
             <span className="thread-reply-hint">f</span>
           </button>
         </div>
+        )}
         </div>
       </div>
     </div>
