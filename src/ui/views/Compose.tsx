@@ -438,7 +438,7 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
   // Bcc-only (undisclosed recipients) mail is valid, so any recipient field counts.
   const canSend = !sending && !!(compose.to.trim() || compose.cc.trim() || compose.bcc.trim())
   // A reply's quoted original and a forward's forwarded message both fold.
-  const quoteFolded = compose.mode !== 'new' && !showQuote && compose.body.includes('supermail-quote')
+  const quoteFolded = compose.mode !== 'new' && !showQuote && /(?:sovo|supermail)-quote/.test(compose.body)
 
   // An inline reply scrolls into view and takes the caret, like Scape's.
   useEffect(() => {

@@ -30,6 +30,7 @@ import { startOutboxWorker } from '../src/core/send/flush.js'
 import { restartIdleWatchers, stopIdleWatcher } from '../src/core/sync/idle.js'
 import { closePool, dropIdleConnections } from '../src/core/sync/pool.js'
 import { refreshSentFolder, startAccountWorkers, watchSentFolder } from './workers.js'
+import { adoptLegacyData } from '../src/core/store/legacyData.js'
 import { addAccount, getAccount, listAccounts, markNeedsReauth, setBootError } from './state.js'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -64,7 +65,19 @@ function envLocalPath(): string {
 }
 
 function boot(): void {
-  initDb(join(app.getPath('userData'), 'supermail.db'))
+  // First launch after the rename: bring over Supermail's mail and attachments.
+  // Only into the default folder; a --user-data-dir run is a separate profile.
+  const appData = app.getPath('appData')
+  try {
+    if (
+      app.getPath('userData') === join(appData, app.getName()) &&
+      adoptLegacyData(join(appData, 'Supermail'), app.getPath('userData'), 'sovo.db')
+    )
+      console.log('[boot] copied mail data from the Supermail folder')
+  } catch (e) {
+    console.error('[boot] copying Supermail data failed:', e)
+  }
+  initDb(join(app.getPath('userData'), 'sovo.db'))
   initAttachmentStore(app.getPath('userData'))
   initVault(app.getPath('userData'))
 
@@ -97,8 +110,8 @@ function startAi(): void {
     key: aiKey,
     usage: { spentMicros, record: recordAiUsage },
     providers: {
-      anthropic: createAnthropicProvider({ baseURL: override('SUPERMAIL_ANTHROPIC_BASE_URL') }),
-      openai: createOpenAiProvider({ baseURL: override('SUPERMAIL_OPENAI_BASE_URL') })
+      anthropic: createAnthropicProvider({ baseURL: override('SOVO_ANTHROPIC_BASE_URL') }),
+      openai: createOpenAiProvider({ baseURL: override('SOVO_OPENAI_BASE_URL') })
     }
   })
 }
@@ -171,7 +184,7 @@ function createWindow(): void {
  */
 function brandDevApp(): void {
   if (app.isPackaged) return
-  app.setName('Supermail')
+  app.setName('Sovo')
 }
 
 /** The Dock icon, unlike the name, can be replaced once the dock exists. */

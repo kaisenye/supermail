@@ -44,7 +44,7 @@ export function goDoneTarget(
   return {
     message:
       provider === 'gmail'
-        ? 'On Gmail, Done mail lives in All Mail, which Supermail does not show as a folder.'
+        ? 'On Gmail, Done mail lives in All Mail, which Sovo does not show as a folder.'
         : 'No Done folder yet. Create one in Settings → Done folder.'
   }
 }

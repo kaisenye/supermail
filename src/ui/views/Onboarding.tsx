@@ -116,7 +116,7 @@ export function Onboarding({ mode = 'first-run', onCancel, onConnected }: Props)
       <div className="onboard">
         <div className="onboard-panel onboard-welcome">
           <BrandMark className="onboard-mark" />
-          <h1>Supermail</h1>
+          <h1>Sovo</h1>
           <p className="onboard-lede">
             Your mail, stored locally and searchable instantly. Connect an IMAP account to begin.
           </p>

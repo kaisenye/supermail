@@ -81,8 +81,8 @@ export function planUnsubscribe(header: string | null, oneClick: boolean): Unsub
 
 /** What the confirm dialog says will happen. */
 export function describePlan(plan: UnsubscribePlan): string {
-  if (plan.method === 'post') return `Supermail will send an unsubscribe request to ${plan.host}.`
-  if (plan.method === 'mailto') return `Supermail will send an unsubscribe email to ${plan.to}.`
+  if (plan.method === 'post') return `Sovo will send an unsubscribe request to ${plan.host}.`
+  if (plan.method === 'mailto') return `Sovo will send an unsubscribe email to ${plan.to}.`
   return `This opens ${plan.host} in your browser to finish unsubscribing.`
 }
 

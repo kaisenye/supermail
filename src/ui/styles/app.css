@@ -4150,6 +4150,7 @@ button.sidebar-account svg {
 }
 
 /* A reply's quoted original stays in the body (it is sent) but folds away. */
+.compose-card[data-quote-folded='true'] .compose-body .sovo-quote,
 .compose-card[data-quote-folded='true'] .compose-body .supermail-quote {
   display: none;
 }

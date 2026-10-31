@@ -135,7 +135,7 @@ export async function exchangeCode(
     throw new Error(body.error_description ?? body.error ?? `token exchange failed (${status})`)
   }
   if (!body.refresh_token) {
-    throw new Error('The provider returned no refresh token, so Supermail could not stay signed in.')
+    throw new Error('The provider returned no refresh token, so Sovo could not stay signed in.')
   }
   return {
     accessToken: body.access_token,

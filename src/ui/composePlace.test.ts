@@ -26,7 +26,7 @@ describe('where a reply is written', () => {
 })
 
 describe('closing compose keeps a draft only when something changed', () => {
-  const base = { to: 'a@x.com', cc: '', bcc: '', subject: 'Hi', body: '<p><br></p><div class="supermail-signature">S</div>', attachments: 0 }
+  const base = { to: 'a@x.com', cc: '', bcc: '', subject: 'Hi', body: '<p><br></p><div class="sovo-signature">S</div>', attachments: 0 }
   it('an untouched compose (or reopened draft) is not saved again', () => {
     expect(composeDirty(base, { ...base })).toBe(false)
   })
@@ -34,7 +34,7 @@ describe('closing compose keeps a draft only when something changed', () => {
     expect(composeDirty(base, { ...base, to: 'a@x.com, b@y.com' })).toBe(true)
     expect(composeDirty(base, { ...base, bcc: 'c@z.com' })).toBe(true)
     expect(composeDirty(base, { ...base, subject: 'Hi there' })).toBe(true)
-    expect(composeDirty(base, { ...base, body: '<p>Thanks</p><div class="supermail-signature">S</div>' })).toBe(true)
+    expect(composeDirty(base, { ...base, body: '<p>Thanks</p><div class="sovo-signature">S</div>' })).toBe(true)
     expect(composeDirty(base, { ...base, attachments: 1 })).toBe(true)
   })
 })

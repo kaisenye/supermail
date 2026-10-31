@@ -1,5 +1,5 @@
 {
-  "name": "supermail",
+  "name": "sovo",
   "version": "0.1.0",
   "description": "Local-first, keyboard-driven desktop mail for people who live in their inbox",
   "main": "./out/main/index.js",
@@ -7,11 +7,11 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kaisenye/supermail.git"
+    "url": "https://github.com/kaisenye/sovo.git"
   },
-  "homepage": "https://github.com/kaisenye/supermail",
+  "homepage": "https://sovomail.xyz",
   "bugs": {
-    "url": "https://github.com/kaisenye/supermail/issues"
+    "url": "https://github.com/kaisenye/sovo/issues"
   },
   "license": "MIT",
   "author": "Kaisen Ye",

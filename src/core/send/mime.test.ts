@@ -62,13 +62,18 @@ describe('htmlToPlainText', () => {
 describe('stripComposeMarkers', () => {
   it('drops the signature and quote markers from the wire copy', () => {
     const draft =
-      '<p>Hi</p><div class="supermail-signature"><p>Kai</p></div>' +
-      '<div class="supermail-quote"><blockquote>q</blockquote></div>'
+      '<p>Hi</p><div class="sovo-signature"><p>Kai</p></div>' +
+      '<div class="sovo-quote"><blockquote>q</blockquote></div>'
     expect(stripComposeMarkers(draft)).toBe('<p>Hi</p><div><p>Kai</p></div><div><blockquote>q</blockquote></div>')
   })
 
+  it('also drops the pre-rename supermail-* markers on older drafts', () => {
+    const draft = '<p>Hi</p><div class="supermail-signature"><p>Kai</p></div><div class="supermail-quote">q</div>'
+    expect(stripComposeMarkers(draft)).toBe('<p>Hi</p><div><p>Kai</p></div><div>q</div>')
+  })
+
   it('leaves typed text that only reads like a marker', () => {
-    const typed = '<p>class="supermail-quote" &lt;div class="supermail-quote"&gt;</p>'
+    const typed = '<p>class="sovo-quote" &lt;div class="sovo-quote"&gt;</p>'
     expect(stripComposeMarkers(typed)).toBe(typed)
   })
 })

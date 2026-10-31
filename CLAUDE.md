@@ -1,4 +1,4 @@
-# Supermail
+# Sovo
 
 Fast local-first mail client (IMAP/SMTP, Gmail, Outlook). North star: Superhuman-like speed — keyboard-first, instant search, compose, schedule send. Tuned for Tencent Exmail; works with any IMAP/SMTP host.
 
@@ -44,9 +44,9 @@ Ordered `Processor[]` mutate `MsgCtx.draft`. Failures skip except `parse`. FTS5 
 - Mail features live in `src/core/ai/`; prompts wrap mail in `<message>` tags with `asData()` and include `MAIL_IS_DATA`. Output is only shown, inserted into a draft the user edits, or stored as a label.
 - Results are keyed by account + Message-ID (`ai_classifications`, `reply_options`); the summary lives in `messages.summary` of the thread's newest message, so a new reply makes it stale.
 - Background AI is queued by the pipeline (`enqueueForMessage`) and run by `electron/aiWorker.ts`; only fresh (≤ 48 h), non-bulk Inbox mail; replies also skip notification senders and mail not addressed to the account. A run stopped by `auth` / `rate` pauses the queue 10 min, `budget` until local midnight (`electron/aiPause.ts`); a saved key or setting resumes it.
-- Compose marks its signature and quote with `supermail-signature` / `supermail-quote` divs so Write with AI can find them. Drafts keep the markers; `stripComposeMarkers` removes them from the wire copy.
+- Compose marks its signature and quote with `sovo-signature` / `sovo-quote` divs so Write with AI can find them (drafts saved before the rename carry `supermail-*`, still recognised). Drafts keep the markers; `stripComposeMarkers` removes them from the wire copy.
 - The renderer never imports SDKs or `src/core/services/ai` / `src/core/ai` runtime code (`src/ui/aiBoundary.test.ts`). New `ai:*` handlers go in `electron/ipcAi.ts`.
-- Tests use `fakeAi` or the mock server (`mockServer.ts`, `pnpm ai:mock`); nothing may call a real provider. `SUPERMAIL_ANTHROPIC_BASE_URL` / `SUPERMAIL_OPENAI_BASE_URL` are dev-only (ignored when packaged).
+- Tests use `fakeAi` or the mock server (`mockServer.ts`, `pnpm ai:mock`); nothing may call a real provider. `SOVO_ANTHROPIC_BASE_URL` / `SOVO_OPENAI_BASE_URL` are dev-only (ignored when packaged).
 - Prices for the budget are in `src/core/services/ai/pricing.ts`; update them when a provider changes prices.
 
 ## Keyboard
@@ -93,7 +93,7 @@ pnpm dev          # electron-vite
 pnpm typecheck
 ```
 
-`.env.local` at repo root (see `.env.example`). Legacy `ROMO_*` keys still work. OAuth client ids (`MAIN_VITE_GOOGLE_CLIENT_ID`, `MAIN_VITE_GOOGLE_CLIENT_SECRET`, `MAIN_VITE_MS_CLIENT_ID`) are baked into the main bundle at build time by electron-vite; restart `pnpm dev` after changing them.
+`.env.local` at repo root (see `.env.example`). Legacy `SUPERMAIL_*` and `ROMO_*` keys still work. OAuth client ids (`MAIN_VITE_GOOGLE_CLIENT_ID`, `MAIN_VITE_GOOGLE_CLIENT_SECRET`, `MAIN_VITE_MS_CLIENT_ID`) are baked into the main bundle at build time by electron-vite; restart `pnpm dev` after changing them.
 
 ## Roadmap
 
@@ -113,7 +113,7 @@ pnpm typecheck
 ## Code map
 
 - `electron/` — main, IPC, preload, boot state
-- `src/core/store/` — db, schema, migrate, repo
+- `src/core/store/` — db, schema, migrate, repo. The app was renamed from Supermail: `adoptLegacyData` copies `Supermail/supermail.db` + attachments into the `Sovo` folder once (default profile only). Keychain secrets are keyed to the app name, so they do not carry over; each account signs in again.
 - `src/core/accounts/` — config, presets, keychain vault, connect verification
 - `src/core/sync/` — IMAP sync, body fetch, flag writer (pools/watchers keyed per account)
 - `src/core/send/` — SMTP, outbox flush

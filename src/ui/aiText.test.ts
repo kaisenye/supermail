@@ -11,7 +11,7 @@ describe('model text to compose HTML', () => {
   })
 
   it('marks the signature so Write with AI stops above it', () => {
-    expect(signatureBlock('<p>Kai</p>')).toBe('<div class="supermail-signature"><p>Kai</p></div>')
+    expect(signatureBlock('<p>Kai</p>')).toBe('<div class="sovo-signature"><p>Kai</p></div>')
   })
 })
 

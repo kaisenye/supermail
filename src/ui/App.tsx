@@ -2074,7 +2074,7 @@ export default function App() {
       {overlay?.kind === 'attachment' && !overlay.canPreview && (
         <ConfirmDialog
           title={`Open ${overlay.attachment.filename ?? 'untitled'}?`}
-          body="This file came by email and opens in its default app, outside Supermail. Only open files you trust."
+          body="This file came by email and opens in its default app, outside Sovo. Only open files you trust."
           confirmLabel="Open"
           onCancel={() => setOverlay(null)}
           onConfirm={() => {

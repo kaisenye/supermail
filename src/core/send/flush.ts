@@ -71,7 +71,7 @@ export function extractInlineImages(html: string | null): {
     /(<img\b[^>]*\bsrc=")data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)(")/gi,
     (_m, pre: string, mime: string, b64: string, post: string) => {
       n++
-      const contentId = `sig${n}@supermail`
+      const contentId = `sig${n}@sovo`
       const ext = mime.split('/')[1]?.replace(/[^a-z0-9]/gi, '') || 'png'
       inline.push({
         contentId,
@@ -133,7 +133,7 @@ export async function flushOutboxRow(
     return { ok: false, error: 'not pending' }
   }
   try {
-    const messageId = `<supermail-${row.id}-${Date.now()}@local>`
+    const messageId = `<sovo-${row.id}-${Date.now()}@local>`
     const attachments = readAttachments(row)
     const { html, inline } = extractInlineImages(row.body_html)
     const result = await sendSmtp(config, {

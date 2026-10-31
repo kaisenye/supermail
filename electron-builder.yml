@@ -1,5 +1,5 @@
-appId: com.kaisenye.supermail
-productName: Supermail
+appId: xyz.sovomail.app
+productName: Sovo
 copyright: Copyright © 2026 Kaisen Ye
 
 directories:
@@ -46,5 +46,5 @@ linux:
 publish: null
 
 # productName drives the userData directory name. It differs in case from the
-# dev value ("supermail"), which resolves to the same folder only because macOS
+# dev value ("sovo"), which resolves to the same folder only because macOS
 # is case-insensitive — do not rely on that on Linux.

@@ -14,7 +14,7 @@ const ESCAPES: Record<string, string> = {
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ESCAPES[c])
 
 const PAGE = (msg: string) =>
-  `<!doctype html><meta charset="utf-8"><title>Supermail</title>` +
+  `<!doctype html><meta charset="utf-8"><title>Sovo</title>` +
   `<body style="font:15px -apple-system,sans-serif;padding:48px">${escapeHtml(msg)}</body>`
 
 /**
@@ -50,7 +50,7 @@ export function waitForRedirect(opts: {
       if (!code) return fail('no code returned')
       res
         .writeHead(200, { 'content-type': 'text/html' })
-        .end(PAGE('Signed in. You can close this tab and return to Supermail.'))
+        .end(PAGE('Signed in. You can close this tab and return to Sovo.'))
       finish(null, code)
     })
 

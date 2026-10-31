@@ -51,7 +51,7 @@ export function buildReplyBody(msg: QuoteSource): string {
   )
   return (
     '<p><br></p>' +
-    `<div class="supermail-quote"><p>${attribution}</p>` +
+    `<div class="sovo-quote"><p>${attribution}</p>` +
     `<blockquote style="margin:0 0 0 0.8ex;border-left:2px solid #ccc;padding-left:1ex">${inner}</blockquote></div>`
   )
 }
@@ -74,7 +74,7 @@ export function buildForwardBody(msg: QuoteSource): string {
 
   return (
     '<p><br></p>' +
-    '<div class="supermail-quote"><p>---------- Forwarded message ----------</p>' +
+    '<div class="sovo-quote"><p>---------- Forwarded message ----------</p>' +
     `<p>${rows.join('<br>')}</p>${inner}</div>`
   )
 }
@@ -84,5 +84,5 @@ export function buildForwardBody(msg: QuoteSource): string {
  * keeps the class; main strips it on queueSend, so the mail carries no marker.
  */
 export function signatureBlock(signature: string): string {
-  return `<div class="supermail-signature">${signature}</div>`
+  return `<div class="sovo-signature">${signature}</div>`
 }

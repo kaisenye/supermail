@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url'
 /**
  * A local stand-in for the Anthropic Messages API and the OpenAI Responses
  * API. Tests start it on port 0; manual QA runs `pnpm ai:mock 4010` and points
- * the app at it (SUPERMAIL_ANTHROPIC_BASE_URL / SUPERMAIL_OPENAI_BASE_URL).
+ * the app at it (SOVO_ANTHROPIC_BASE_URL / SOVO_OPENAI_BASE_URL).
  * It never forwards anything anywhere.
  *
  * Put MOCK_401 anywhere in a prompt to get a rejected-key error, or
@@ -153,6 +153,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const port = Number(process.argv[2] ?? 4010)
   void startMockAiServer(port, true).then((m) => {
     console.log(`Mock AI server on ${m.url}`)
-    console.log(`  SUPERMAIL_ANTHROPIC_BASE_URL=${m.url} SUPERMAIL_OPENAI_BASE_URL=${m.url}/v1 pnpm dev`)
+    console.log(`  SOVO_ANTHROPIC_BASE_URL=${m.url} SOVO_OPENAI_BASE_URL=${m.url}/v1 pnpm dev`)
   })
 }

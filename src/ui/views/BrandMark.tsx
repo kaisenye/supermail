@@ -13,7 +13,7 @@ export function BrandMark({ className, size = 44 }: { className?: string; size?:
       src={MARK}
       width={size}
       height={size}
-      alt="Supermail"
+      alt="Sovo"
       draggable={false}
     />
   )

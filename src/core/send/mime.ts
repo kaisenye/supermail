@@ -39,7 +39,7 @@ export interface MimeInput {
 const CRLF = '\r\n'
 
 function boundary(): string {
-  return `----=_supermail_${randomBytes(12).toString('hex')}`
+  return `----=_sovo_${randomBytes(12).toString('hex')}`
 }
 
 function isAscii(s: string): boolean {
@@ -281,8 +281,9 @@ export function htmlToPlainText(html: string): string {
  * renderer keeps them on the saved draft (so Write with AI can still find the
  * signature after a reopen) but the recipient should never see them. Anchored
  * to `<div` because serialised HTML escapes `<` in text, so typed text that
- * merely reads `class="supermail-quote"` is left alone.
+ * merely reads `class="sovo-quote"` is left alone.
  */
 export function stripComposeMarkers(html: string): string {
-  return html.replace(/<div class="supermail-(?:signature|quote)"/g, '<div')
+  // supermail-* is the pre-rename spelling, still on drafts saved before it.
+  return html.replace(/<div class="(?:sovo|supermail)-(?:signature|quote)"/g, '<div')
 }

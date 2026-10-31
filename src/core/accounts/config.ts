@@ -57,10 +57,9 @@ function parseEnv(text: string): Record<string, string> {
   return out
 }
 
-/** Prefer SUPERMAIL_*; accept legacy ROMO_* for existing installs. */
+/** Prefer SOVO_*; accept the older SUPERMAIL_* and ROMO_* names for existing installs. */
 function envGet(env: Record<string, string>, key: string): string | undefined {
-  const legacy = key.replace(/^SUPERMAIL_/, 'ROMO_')
-  return env[key] || env[legacy]
+  return env[key] || env[key.replace(/^SOVO_/, 'SUPERMAIL_')] || env[key.replace(/^SOVO_/, 'ROMO_')]
 }
 
 /**
@@ -71,19 +70,19 @@ export function loadAccountConfig(envPath: string): AccountConfig {
   if (!existsSync(envPath)) {
     throw new ConfigError(
       `Missing ${envPath}. Create it with:\n` +
-        `  SUPERMAIL_EMAIL=you@yourdomain.com\n` +
-        `  SUPERMAIL_PASS=<app-specific password from the Exmail admin console>\n` +
-        `  SUPERMAIL_NAME=Your Full Name\n` +
+        `  SOVO_EMAIL=you@yourdomain.com\n` +
+        `  SOVO_PASS=<app-specific password from the Exmail admin console>\n` +
+        `  SOVO_NAME=Your Full Name\n` +
         `Note: Exmail rejects your normal login password here.`
     )
   }
 
   const env = parseEnv(readFileSync(envPath, 'utf8'))
-  const email = envGet(env, 'SUPERMAIL_EMAIL')
-  const pass = envGet(env, 'SUPERMAIL_PASS')
+  const email = envGet(env, 'SOVO_EMAIL')
+  const pass = envGet(env, 'SOVO_PASS')
 
-  if (!email) throw new ConfigError(`SUPERMAIL_EMAIL not set in ${envPath}`)
-  if (!pass) throw new ConfigError(`SUPERMAIL_PASS not set in ${envPath}`)
+  if (!email) throw new ConfigError(`SOVO_EMAIL not set in ${envPath}`)
+  if (!pass) throw new ConfigError(`SOVO_PASS not set in ${envPath}`)
 
   const port = (key: string, fallback: number): number => {
     const raw = envGet(env, key)
@@ -99,18 +98,18 @@ export function loadAccountConfig(envPath: string): AccountConfig {
     email,
     auth: { kind: 'password', pass },
     provider: 'imap',
-    name: envGet(env, 'SUPERMAIL_NAME')?.trim() || null,
-    imapHost: envGet(env, 'SUPERMAIL_IMAP_HOST') || DEFAULTS.imapHost,
-    imapPort: port('SUPERMAIL_IMAP_PORT', DEFAULTS.imapPort),
-    smtpHost: envGet(env, 'SUPERMAIL_SMTP_HOST') || DEFAULTS.smtpHost,
-    smtpPort: port('SUPERMAIL_SMTP_PORT', DEFAULTS.smtpPort),
+    name: envGet(env, 'SOVO_NAME')?.trim() || null,
+    imapHost: envGet(env, 'SOVO_IMAP_HOST') || DEFAULTS.imapHost,
+    imapPort: port('SOVO_IMAP_PORT', DEFAULTS.imapPort),
+    smtpHost: envGet(env, 'SOVO_SMTP_HOST') || DEFAULTS.smtpHost,
+    smtpPort: port('SOVO_SMTP_PORT', DEFAULTS.smtpPort),
     // Exmail/QQ file sent mail during SMTP. Default on for those hosts, and
     // overridable for anything else.
     smtpSavesSent: (() => {
-      const raw = envGet(env, 'SUPERMAIL_SMTP_SAVES_SENT')?.trim().toLowerCase()
+      const raw = envGet(env, 'SOVO_SMTP_SAVES_SENT')?.trim().toLowerCase()
       if (raw === 'true' || raw === '1') return true
       if (raw === 'false' || raw === '0') return false
-      const host = (envGet(env, 'SUPERMAIL_SMTP_HOST') || DEFAULTS.smtpHost).toLowerCase()
+      const host = (envGet(env, 'SOVO_SMTP_HOST') || DEFAULTS.smtpHost).toLowerCase()
       return /\.qq\.com$/.test(host)
     })()
   }

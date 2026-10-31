@@ -49,8 +49,11 @@ function newlinesToBreaks(doc: Document): void {
   }
 }
 
-/** Compose-only markers: where the signature and the quoted original start. */
-export const COMPOSE_MARKERS = new Set(['supermail-signature', 'supermail-quote'])
+/**
+ * Compose-only markers: where the signature and the quoted original start.
+ * supermail-* is the pre-rename spelling, still on drafts saved before it.
+ */
+export const COMPOSE_MARKERS = new Set(['sovo-signature', 'sovo-quote', 'supermail-signature', 'supermail-quote'])
 
 /**
  * `keepMarkers` keeps the two compose marker classes on a <div> — and nothing

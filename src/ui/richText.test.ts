@@ -27,7 +27,7 @@ describe('Write with AI target range', () => {
   // Ending at the element boundary (el, k) made Chromium's insertHTML merge
   // the signature's first line into the AI text and unwrap the signature div.
   it('ends inside the last block above the signature, not at the editor boundary', () => {
-    const el = editor('<p>Hello</p><p><br></p><div class="supermail-signature"><p>Kai</p><p>CEO</p></div>')
+    const el = editor('<p>Hello</p><p><br></p><div class="sovo-signature"><p>Kai</p><p>CEO</p></div>')
     const r = aiTargetRange(el)!
     expect(r.endContainer).toBe(el.childNodes[0])
     expect(r.endOffset).toBe(1)
@@ -65,7 +65,7 @@ describe('Write with AI target range', () => {
       '<p><br></p><p><br></p>' + signatureBlock('Qa Tester'),
       '<p><br></p>' + signatureBlock('Qa Tester'),
       signatureBlock('<p>Kai</p>'),
-      '<p><br></p><div class="supermail-quote"><p>On Mon:</p><blockquote>q</blockquote></div>',
+      '<p><br></p><div class="sovo-quote"><p>On Mon:</p><blockquote>q</blockquote></div>',
       ''
     ]) {
       const el = editor(html)
@@ -86,12 +86,12 @@ describe('Write with AI target range', () => {
     expect(w.startContainer).toBe(el.children[0])
     expect(el.children[0].outerHTML).toBe('<p><br></p>')
     expect(el.children[1].outerHTML).toBe('<p><br></p>')
-    expect(el.children[2].className).toBe('supermail-signature')
+    expect(el.children[2].className).toBe('sovo-signature')
   })
 
   it('stops above a one-paragraph signature when a reply quote follows', () => {
     const body = '<p>Yes Friday works.</p>' + signatureBlock('<p>Kai</p>') +
-      '<div class="supermail-quote"><p>On Mon, Ann wrote:</p><blockquote><p>Friday?</p></blockquote></div>'
+      '<div class="sovo-quote"><p>On Mon, Ann wrote:</p><blockquote><p>Friday?</p></blockquote></div>'
     const el = editor(body)
     const r = aiTargetRange(el)!
     expect(r.endContainer).toBe(el.firstChild)
@@ -99,7 +99,7 @@ describe('Write with AI target range', () => {
   })
 
   it('ends inside a bare top-level text line', () => {
-    const el = editor('Hi Ann<div class="supermail-signature">Kai</div>')
+    const el = editor('Hi Ann<div class="sovo-signature">Kai</div>')
     const r = aiTargetRange(el)!
     expect(r.endContainer).toBe(el.firstChild)
     expect(r.endOffset).toBe(6)
@@ -107,14 +107,14 @@ describe('Write with AI target range', () => {
   })
 
   it('gives a signature-first editor an empty paragraph to write into, outside the signature', () => {
-    const el = editor('<div class="supermail-signature"><p>Kai</p></div>')
+    const el = editor('<div class="sovo-signature"><p>Kai</p></div>')
     const r = aiWriteRange(el, aiTargetRange(el)!)
     expect(r.collapsed).toBe(true)
     const p = el.firstChild as HTMLElement
     expect(p.tagName).toBe('P')
     expect(r.startContainer).toBe(p)
-    expect((el.childNodes[1] as HTMLElement).className).toBe('supermail-signature')
-    expect(el.querySelector('.supermail-signature')!.contains(r.startContainer)).toBe(false)
+    expect((el.childNodes[1] as HTMLElement).className).toBe('sovo-signature')
+    expect(el.querySelector('.sovo-signature')!.contains(r.startContainer)).toBe(false)
   })
 
   it('never reaches into the quoted original of a draft saved without markers', () => {
@@ -122,7 +122,7 @@ describe('Write with AI target range', () => {
     const stored = cleanPastedHtml('<p>Sounds good</p>' + buildReplyBody({
       from_addr: 'ann@x.com', from_name: 'Ann', date: null, body_text: 'Friday?', body_html: null
     }))
-    expect(stored).not.toContain('supermail-quote')
+    expect(stored).not.toContain('sovo-quote')
     const el = editor(stored)
     const r = aiTargetRange(el)!
     expect(covered(r)).not.toContain('Friday?')
@@ -142,20 +142,20 @@ describe('Write with AI target range', () => {
 
 describe('compose markers through the sanitiser', () => {
   const body = '<p>Hi</p>' + signatureBlock('<p class="x">Kai</p>') +
-    '<div class="supermail-quote"><p>On Mon:</p><blockquote style="margin:0">q</blockquote></div>'
+    '<div class="sovo-quote"><p>On Mon:</p><blockquote style="margin:0">q</blockquote></div>'
 
   it('keeps only the two marker classes on a div when saving a draft', () => {
     const saved = cleanPastedHtml(body, { keepMarkers: true })
     expect(saved).toBe(
-      '<p>Hi</p><div class="supermail-signature"><p>Kai</p></div>' +
-        '<div class="supermail-quote"><p>On Mon:</p><blockquote>q</blockquote></div>'
+      '<p>Hi</p><div class="sovo-signature"><p>Kai</p></div>' +
+        '<div class="sovo-quote"><p>On Mon:</p><blockquote>q</blockquote></div>'
     )
-    expect(cleanPastedHtml('<p class="supermail-quote">x</p><div class="supermail-quote other">y</div>', { keepMarkers: true }))
+    expect(cleanPastedHtml('<p class="sovo-quote">x</p><div class="sovo-quote other">y</div>', { keepMarkers: true }))
       .toBe('<p>x</p><div>y</div>')
   })
 
   it('strips them from a paste', () => {
-    expect(cleanPastedHtml(body)).not.toContain('supermail-')
+    expect(cleanPastedHtml(body)).not.toContain('sovo-')
   })
 
   it('a reopened draft still scopes Write with AI above the signature', () => {

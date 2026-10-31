@@ -146,7 +146,7 @@ export function AiSettings() {
 
       <p className="settings-note ai-privacy">
         Privacy: when a feature runs, the sender, subject and text of the messages it works on are sent from this Mac
-        straight to {NAME[p]} with your key. Supermail has no server of its own. Your key is encrypted with the macOS
+        straight to {NAME[p]} with your key. Sovo has no server of its own. Your key is encrypted with the macOS
         keychain and never leaves this Mac except to {NAME[p]}. Ask AI sends the few local messages that match your
         question.
       </p>
