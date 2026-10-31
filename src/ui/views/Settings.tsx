@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'react'
-import { ArrowLeft, Bold, Bot, Image as ImageIcon, Italic, Inbox, Keyboard, Link2, PenLine, Search, Settings as SettingsIcon, TextQuote, Unlink } from 'lucide-react'
+import { ArrowLeft, Bold, Bot, Image as ImageIcon, Italic, Inbox, Keyboard, Link2, Monitor, Moon, PenLine, Search, Settings as SettingsIcon, Sun, TextQuote, Unlink } from 'lucide-react'
 import { applyLink, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
 import { onDialogEscape } from '../keyLayers'
 import { useActiveFormats } from '../hooks/useActiveFormats'
@@ -59,10 +59,10 @@ const GROUPS: { title: string; sections: SectionInfo[] }[] = [
 
 const SECTIONS = GROUPS.flatMap((g) => g.sections)
 
-const THEMES: { id: Theme; label: string }[] = [
-  { id: 'system', label: 'System' },
-  { id: 'light', label: 'Light' },
-  { id: 'dark', label: 'Dark' }
+const THEMES: { id: Theme; label: string; icon: typeof Sun }[] = [
+  { id: 'system', label: 'System', icon: Monitor },
+  { id: 'light', label: 'Light', icon: Sun },
+  { id: 'dark', label: 'Dark', icon: Moon }
 ]
 
 export function Settings({
@@ -328,13 +328,20 @@ export function Settings({
                     <div className="setting-label">Appearance</div>
                     <div className="setting-desc">Match your system theme or choose a fixed one.</div>
                   </div>
-                  <select className="settings-select" value={theme} onChange={(e) => onTheme(e.target.value as Theme)}>
-                    {THEMES.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.label}
-                      </option>
+                  <div className="settings-segmented" role="radiogroup" aria-label="Appearance">
+                    {THEMES.map(({ id, label, icon: Icon }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        role="radio"
+                        aria-checked={theme === id}
+                        onClick={() => onTheme(id)}
+                      >
+                        <Icon size={14} strokeWidth={2} />
+                        {label}
+                      </button>
                     ))}
-                  </select>
+                  </div>
                 </div>
                 <div className="setting-row">
                   <div className="setting-text">
