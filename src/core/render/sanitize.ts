@@ -78,10 +78,18 @@ function markQuotedBlocks(root: Element): void {
   // History is everything from its first marker on: a divider line or a
   // client's quote wrapper. Blockquotes are not used as a start, since replies
   // written between quoted lines must stay visible.
-  const divider = [...root.querySelectorAll('div,p,span,font,b,strong,td')].find((el) => {
-    const t = (el.textContent ?? '').replace(/\u00a0/g, ' ').trim()
-    return t.length < 80 && DIVIDER_RE.test(t)
-  })
+  // One pass over text nodes: reading textContent of every element was
+  // quadratic on big, deeply nested mail.
+  let divider: Element | null = null
+  const walker = root.ownerDocument.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */)
+  for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+    const text = t.nodeValue ?? ''
+    if (text.length > 80 || !text.includes('-') && !text.includes('_')) continue
+    if (DIVIDER_RE.test(text.replace(/\u00a0/g, ' ').trim())) {
+      divider = t.parentElement
+      break
+    }
+  }
   const wrapper = root.querySelector(`[${QUOTE_ATTR}]`)
   const start =
     divider && wrapper
