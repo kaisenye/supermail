@@ -130,7 +130,7 @@ const ROLE_LABELS: Record<FolderRole, string> = {
   sent: 'Sent',
   drafts: 'Drafts',
   trash: 'Trash',
-  junk: 'Junk',
+  junk: 'Spam',
   archive: 'Archive',
   all: 'All Mail'
 }

@@ -85,6 +85,10 @@ export interface AccountSummary {
   provider: MailProvider
   active: boolean
   needsReauth: boolean
+  /** The provider's photo as a data URL (boot:status fills it); null shows the grey placeholder. */
+  avatar?: string | null
+  /** An OAuth inbox signed in before Sovo asked for `profile`: a reconnect loads its name and photo. */
+  needsProfile?: boolean
 }
 
 /** Renderer-safe view: never exposes the password over IPC. */

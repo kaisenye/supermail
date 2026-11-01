@@ -499,6 +499,19 @@ CREATE TABLE ai_message_labels (
 ) WITHOUT ROWID;
 
 CREATE INDEX idx_ai_message_labels_label ON ai_message_labels (label_id);
+`),
+  // v23: the colours a Gmail user gave their labels. IMAP does not carry them;
+  // the Gmail API's label list does, read with the account's OAuth token.
+  // name is the label's full name, the same as its IMAP folder path.
+  (db) =>
+    db.exec(`
+CREATE TABLE gmail_label_colors (
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  bg TEXT NOT NULL,
+  fg TEXT NOT NULL,
+  PRIMARY KEY (account_id, name)
+) WITHOUT ROWID;
 `)
 ]
 

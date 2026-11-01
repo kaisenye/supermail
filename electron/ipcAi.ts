@@ -16,7 +16,7 @@ import {
   queueLabelBackfill,
   saveAiLabel
 } from '../src/core/store/aiLabels.js'
-import { gmailLabelChoices } from '../src/core/store/labels.js'
+import { gmailLabelChoices, labelColors } from '../src/core/store/labels.js'
 import { getMessage, getSettings, getThread, listFolders, setSetting } from '../src/core/store/repo.js'
 import { ensureBody } from '../src/core/sync/fetchBody.js'
 import { aiFail, aiWrite, createAiHandlers, type AiWriteInput } from './aiHandlers.js'
@@ -70,10 +70,15 @@ export function registerAiIpc(): void {
   // last 14 days in the background, when the classifier is on.
   ipcMain.handle('ai:labels', (_e, accountId: number) => listAiLabels(accountId))
   // The sidebar's "your labels": the mail server's (Gmail user labels) first, then the inbox's own.
-  ipcMain.handle('ai:sidebarLabels', (_e, accountId: number) => ({
-    provider: getAccount(accountId)?.config.provider === 'gmail' ? gmailLabelChoices(listFolders(accountId)) : [],
-    own: listAiLabels(accountId).map((l) => l.name)
-  }))
+  // Gmail labels carry the colours set in Gmail (v23), for the sidebar dots and row chips.
+  ipcMain.handle('ai:sidebarLabels', (_e, accountId: number) => {
+    const gmail = getAccount(accountId)?.config.provider === 'gmail'
+    return {
+      provider: gmail ? gmailLabelChoices(listFolders(accountId)) : [],
+      own: listAiLabels(accountId).map((l) => l.name),
+      colors: gmail ? labelColors(accountId) : {}
+    }
+  })
   ipcMain.handle('ai:saveLabel', (_e, input: { id?: number; accountId: number; name: string; description: string }) => {
     try {
       if (!getAccount(input.accountId)) throw new Error('No such inbox')

@@ -64,6 +64,25 @@ export function deleteFolder(folderId: number): void {
   getDb().prepare('DELETE FROM folders WHERE id = ?').run(folderId)
 }
 
+/**
+ * Drops the account's folders the server no longer lists (a Gmail label
+ * deleted or renamed in Gmail). Only folders holding no local mail go:
+ * a mailbox with stored messages is never removed on one LIST reply.
+ * Returns how many went.
+ */
+export function pruneVanishedFolders(accountId: number, livePaths: Iterable<string>): number {
+  const live = new Set(livePaths)
+  let n = 0
+  for (const f of listFolders(accountId)) {
+    if (live.has(f.path)) continue
+    const used = getDb().prepare('SELECT 1 FROM messages WHERE folder_id = ? LIMIT 1').get(f.id)
+    if (used) continue
+    deleteFolder(f.id)
+    n++
+  }
+  return n
+}
+
 export function listFolders(accountId: number): Folder[] {
   return getDb()
     .prepare('SELECT * FROM folders WHERE account_id = ? ORDER BY path')

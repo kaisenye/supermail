@@ -173,7 +173,12 @@ export const LIST_ROW_COLS = `${M_COLS}, lr.msg_count AS thread_count, lr.unread
                  JOIN ai_labels al ON al.id = x.label_id
                  JOIN messages mx ON mx.account_id = x.account_id AND mx.message_id = x.message_id
                 WHERE x.account_id = lr.account_id
-                  AND COALESCE(mx.thread_id, '#' || mx.id) = lr.thread_key) AS ai_labels`
+                  AND COALESCE(mx.thread_id, '#' || mx.id) = lr.thread_key) AS ai_labels,
+              (SELECT group_concat(DISTINCT l.name) FROM message_labels ml
+                 JOIN labels l ON l.id = ml.label_id
+                 JOIN messages mx ON mx.id = ml.message_id
+                WHERE mx.account_id = lr.account_id AND l.account_id = lr.account_id
+                  AND COALESCE(mx.thread_id, '#' || mx.id) = lr.thread_key) AS server_labels`
 
 /** One page of a folder, newest conversation first. Hidden rows (reminders, mutes) are left out. */
 export function listView(folderId: number, opts: ListViewOptions = {}): MessageListRow[] {

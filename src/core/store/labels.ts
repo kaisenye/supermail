@@ -114,3 +114,26 @@ export function removeMessageLabel(messageId: number, accountId: number, name: s
 export function labelsForMessages(ids: number[]): Record<number, string[]> {
   return Object.fromEntries(ids.map((id) => [id, messageLabels(id)]))
 }
+
+/** A Gmail label's colours as Gmail defines them: background and text, `#rrggbb`. */
+export interface LabelColor {
+  bg: string
+  fg: string
+}
+
+/** Replaces the account's Gmail label colours (v23). A label with none is simply absent. */
+export function saveLabelColors(accountId: number, colors: { name: string; bg: string; fg: string }[]): void {
+  const db = getDb()
+  db.transaction(() => {
+    db.prepare('DELETE FROM gmail_label_colors WHERE account_id = ?').run(accountId)
+    const ins = db.prepare('INSERT OR REPLACE INTO gmail_label_colors (account_id, name, bg, fg) VALUES (?, ?, ?, ?)')
+    for (const c of colors) ins.run(accountId, c.name, c.bg, c.fg)
+  })()
+}
+
+export function labelColors(accountId: number): Record<string, LabelColor> {
+  const rows = getDb()
+    .prepare('SELECT name, bg, fg FROM gmail_label_colors WHERE account_id = ?')
+    .all(accountId) as { name: string; bg: string; fg: string }[]
+  return Object.fromEntries(rows.map((r) => [r.name, { bg: r.bg, fg: r.fg }]))
+}

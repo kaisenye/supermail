@@ -38,7 +38,7 @@ import { AttachmentPreview } from './views/AttachmentPreview'
 import { ZeroModal } from './views/ZeroModal'
 import { ZeroState } from './views/ZeroState'
 import { Settings, type Section as SettingsSection } from './views/Settings'
-import { DEFAULT_SIDEBAR_LABELS, yourSidebarLabels, type SidebarLabel } from './labelChips'
+import { DEFAULT_SIDEBAR_LABELS, yourSidebarLabels, type LabelColors, type SidebarLabel } from './labelChips'
 import { Tasks } from './views/Tasks'
 import { ShortcutHelp } from './views/ShortcutHelp'
 import { Onboarding } from './views/Onboarding'
@@ -239,26 +239,32 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
 
   const [reauthBusy, setReauthBusy] = useState(false)
   const reauthBusyRef = useRef(false)
+  /** Signs an OAuth inbox in again in the browser; true when it worked. */
+  const signInAgain = useCallback(
+    async (email: string): Promise<boolean> => {
+      // One browser round-trip at a time; a second click would race the first.
+      if (reauthBusyRef.current) return false
+      reauthBusyRef.current = true
+      setReauthBusy(true)
+      try {
+        // From the account itself, not the domain: Google Workspace and M365
+        // tenants use custom domains.
+        const acct = accounts.find((a) => a.email.toLowerCase() === email.toLowerCase())
+        const res = await window.api.accountOAuth(acct?.provider === 'gmail' ? 'google' : 'microsoft', email)
+        if (!res.ok) setSyncError(res.error)
+        // The sign-in may have brought a name and photo.
+        else setAccounts((await window.api.bootStatus()).accounts ?? [])
+        return res.ok
+      } finally {
+        reauthBusyRef.current = false
+        setReauthBusy(false)
+      }
+    },
+    [accounts, setSyncError]
+  )
   const reauth = useCallback(async () => {
-    // One browser round-trip at a time; a second click would race the first.
-    if (!reauthEmail || reauthBusyRef.current) return
-    reauthBusyRef.current = true
-    setReauthBusy(true)
-    try {
-      // From the account itself, not the domain: Google Workspace and M365
-      // tenants use custom domains.
-      const acct = accounts.find((a) => a.email.toLowerCase() === reauthEmail.toLowerCase())
-      const res = await window.api.accountOAuth(
-        acct?.provider === 'gmail' ? 'google' : 'microsoft',
-        reauthEmail
-      )
-      if (res.ok) setReauthEmail(null)
-      else setSyncError(res.error)
-    } finally {
-      reauthBusyRef.current = false
-      setReauthBusy(false)
-    }
-  }, [reauthEmail, accounts, setSyncError])
+    if (reauthEmail && (await signInAgain(reauthEmail))) setReauthEmail(null)
+  }, [reauthEmail, signInAgain])
   /**
    * Root remounts App with a fresh store for the new account: folders, rows,
    * counts, unread and any open thread all belong to the old one, and a new
@@ -282,10 +288,26 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
   )
 
   const [settingsOpen, setSettingsOpen] = useState(false)
+  /**
+   * Which way the screens swap: Settings slides in from the right, and the app
+   * slides back in from the left when it closes. Null at boot and after the
+   * swap, so a later remount (an account switch) never replays it.
+   */
+  const [screenSwap, setScreenSwap] = useState<'settings' | 'back' | null>(null)
+  const settingsWasOpen = useRef(false)
+  useEffect(() => {
+    if (settingsOpen === settingsWasOpen.current) return
+    settingsWasOpen.current = settingsOpen
+    setScreenSwap(settingsOpen ? 'settings' : 'back')
+    const t = setTimeout(() => setScreenSwap(null), 400)
+    return () => clearTimeout(t)
+  }, [settingsOpen])
   /** The page Settings opens on; set by the sidebar's Labels +. */
   const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>()
   /** The sidebar's "Your labels": Gmail labels, then the inbox's own (Settings → AI). */
   const [yourLabels, setYourLabels] = useState<SidebarLabel[]>([])
+  /** Gmail label colours for row chips (v23); empty for other accounts. */
+  const [labelColors, setLabelColors] = useState<LabelColors>({})
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [overlay, setOverlay] = useState<Overlay | null>(null)
   /** threadKeyOf the thread whose messages have loaded; the contact pane waits for it. */
@@ -297,7 +319,9 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
 
   const loadSidebarLabels = useCallback(async () => {
     if (activeAccountId == null) return
-    setYourLabels(yourSidebarLabels(await window.api.aiSidebarLabels(activeAccountId)))
+    const r = await window.api.aiSidebarLabels(activeAccountId)
+    setYourLabels(yourSidebarLabels(r))
+    setLabelColors(r.colors)
   }, [activeAccountId])
   const loadSidebarLabelsRef = useRef(loadSidebarLabels)
   loadSidebarLabelsRef.current = loadSidebarLabels
@@ -1592,6 +1616,15 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
           void window.api.setSettings({ list_group_by_date: on ? '1' : '0' })
         },
         'select.all': () => setCheckedAll(useStore.getState().rows.map((r) => r.id)),
+        // The pager's ‹ and ›, with the same limits.
+        'page.prev': () => {
+          const s = useStore.getState()
+          if (s.page > 0) void goToPage(s.page - 1)
+        },
+        'page.next': () => {
+          const s = useStore.getState()
+          if ((s.page + 1) * PAGE_SIZE < s.totalRows) void goToPage(s.page + 1)
+        },
         'select.extendDown': () => extendSelection(1),
         'select.extendUp': () => extendSelection(-1),
         ...(Object.fromEntries(
@@ -1641,7 +1674,8 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
       viewNow,
       showWorkspace,
       stepWorkspace,
-      stepConversation
+      stepConversation,
+      goToPage
     ]
   )
 
@@ -1803,7 +1837,7 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
   ) : null
 
   return (
-    <div className="app">
+    <div className="app" data-swap={screenSwap ?? undefined}>
       <div className="titlebar-drag" />
       {settingsOpen ? (
         <Settings
@@ -1834,6 +1868,7 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
         activeAccountId={activeAccountId}
         onSwitchAccount={switchAccount}
         onAddAccount={() => setAddingAccount(true)}
+        onReconnectAccount={(a) => void signInAgain(a.email)}
         folders={folders}
         activeFolderId={activeFolderId}
         onSelect={(id) => {
@@ -2023,6 +2058,7 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
               /* Rendered even when empty: swapping it out for an empty-state
                  div would unmount the pager and make it flash on every page. */
               <MessageList
+                labelColors={labelColors}
                 // A new folder, split or chip remounts the list, so it fades in
                 // from the top instead of swapping rows under the cursor.
                 key={`${activeFolderId}:${splitId}:${chip ?? ''}`}
@@ -2118,6 +2154,8 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
             const add = !item?.checked
             const r = await window.api.setLabel(overlay.ids, label, add)
             if (!r.ok) return setActionError(r.error)
+            // Row chips are read with the page, so repaint it: the label shows (or goes) at once.
+            void refreshRows()
             setOverlay({
               ...overlay,
               items: overlay.items.map((i) => (i.id === label ? { ...i, checked: add } : i))

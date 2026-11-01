@@ -55,7 +55,7 @@ describe('authUrl', () => {
     const u = new URL(authUrl('google', 'http://127.0.0.1:5000/callback', 'chal', 'st'))
     expect(u.origin + u.pathname).toBe('https://accounts.google.com/o/oauth2/v2/auth')
     expect(u.searchParams.get('client_id')).toBe('g-id')
-    expect(u.searchParams.get('scope')).toBe('https://mail.google.com/ openid email')
+    expect(u.searchParams.get('scope')).toBe('https://mail.google.com/ openid email profile')
     expect(u.searchParams.get('access_type')).toBe('offline')
     expect(u.searchParams.get('prompt')).toBe('consent')
     expect(u.searchParams.get('code_challenge_method')).toBe('S256')

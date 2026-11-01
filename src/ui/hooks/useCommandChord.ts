@@ -25,8 +25,9 @@ export function matchChord(chords: Chord[], e: ChordEvent, inText: boolean): Cho
     if (c) return c
   }
   if (!(e.metaKey || e.ctrlKey)) return undefined
-  // ⌘A in a text field selects its text, not every row behind it.
-  if (inText && key === 'a') return undefined
+  // ⌘A in a text field selects its text, not every row behind it; ⌘← / ⌘→
+  // move its caret to the line's start or end, not to another page.
+  if (inText && (key === 'a' || key === 'arrowleft' || key === 'arrowright')) return undefined
   return chords.find((x) => !x.ctrl && x.key.toLowerCase() === key && !!x.shift === e.shiftKey)
 }
 

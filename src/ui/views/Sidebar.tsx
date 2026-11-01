@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { CheckSquare, ChevronRight, Clock, Keyboard, PenSquare, Plus, Search, Settings as SettingsIcon } from 'lucide-react'
 import type { AccountSummary } from '../../../electron/preload'
 import { AccountSwitcher } from './AccountSwitcher'
@@ -16,6 +16,7 @@ interface Props {
   activeAccountId: number | null
   onSwitchAccount: (accountId: number) => void
   onAddAccount: () => void
+  onReconnectAccount: (account: AccountSummary) => void
   folders: Folder[]
   activeFolderId: number | null
   onSelect: (id: number) => void
@@ -71,6 +72,7 @@ export function Sidebar({
   activeAccountId,
   onSwitchAccount,
   onAddAccount,
+  onReconnectAccount,
   folders,
   activeFolderId,
   onSelect,
@@ -109,7 +111,12 @@ export function Sidebar({
           onLabel(l.chip)
         }}
       >
-        <span className="label-dot" data-tone={l.tone} aria-hidden="true" />
+        <span
+          className="label-dot"
+          data-tone={l.color ? 'custom' : l.tone}
+          style={l.color ? ({ '--tone': l.color } as CSSProperties) : undefined}
+          aria-hidden="true"
+        />
         <span className="folder-name">{l.name}</span>
       </button>
     </li>
@@ -153,6 +160,7 @@ export function Sidebar({
           activeAccountId={activeAccountId}
           onSwitch={onSwitchAccount}
           onAdd={onAddAccount}
+          onReconnect={onReconnectAccount}
         />
       ) : (
         <div className="sidebar-account" title={email ?? undefined}>
@@ -218,7 +226,10 @@ export function Sidebar({
                 <span className="folder-name">Your labels</span>
                 <span className="folder-count">{yourLabels.length}</span>
               </button>
-              {showYours && <ul className="folder-list sidebar-labels-yours">{yourLabels.map(labelItem)}</ul>}
+              {/* Always rendered so it can slide open and shut; inert while shut. */}
+              <ul className="folder-list sidebar-labels-yours" data-open={showYours} inert={!showYours}>
+                {yourLabels.map(labelItem)}
+              </ul>
             </>
           )}
         </div>

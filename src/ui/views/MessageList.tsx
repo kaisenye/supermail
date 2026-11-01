@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ChevronLeft, ChevronRight, Clock, Star } from 'lucide-react'
 import type { MessageListRow } from '../../core/store/types'
 import { formatDate, isFlagged, isUnread, recipientLabel, senderLabel } from '../format'
-import { rowChips } from '../labelChips'
+import { rowChips, type LabelChipView, type LabelColors } from '../labelChips'
 import { withDateGroups, type ListItem } from '../listGroups'
 
 const ROW_HEIGHT = 32
@@ -33,9 +33,12 @@ interface Props {
   showRecipient?: boolean
   /** Date headers (Today, Yesterday, …) between runs of rows. */
   groupByDate?: boolean
+  /** Gmail label colours, so a label chip wears the colour set in Gmail. */
+  labelColors?: LabelColors
 }
 
 export function MessageList({
+  labelColors,
   rows,
   selectedIndex,
   checkedIds,
@@ -199,7 +202,7 @@ export function MessageList({
             const unread =
               r.thread_unread === undefined ? isUnread(r.flags) : r.thread_unread > 0
             const isChecked = checked.has(r.id)
-            const chips = rowChips(r)
+            const chips = rowChips(r, labelColors)
             return (
               <div
                 key={r.id}
@@ -268,15 +271,6 @@ export function MessageList({
                     ? recipientLabel(r.to_addrs, senderLabel(r.from_name, r.from_addr))
                     : senderLabel(r.from_name, r.from_addr)}
                 </span>
-                {chips.length > 0 && (
-                  <span className="row-labels">
-                    {chips.map((c) => (
-                      <span key={c.name} className="row-label" data-tone={c.tone}>
-                        {c.name}
-                      </span>
-                    ))}
-                  </span>
-                )}
                 <span className="row-subject">
                   {r.subject || '(no subject)'}
                   {(r.thread_count ?? 1) > 1 && (
@@ -288,9 +282,13 @@ export function MessageList({
                   {r.reminder_fired ? (
                     <Clock className="row-reminder" size={12} strokeWidth={2} aria-label="Reminder" />
                   ) : null}
-                  {isFlagged(r.flags) && (
-                    <Star className="row-flag" size={11} strokeWidth={2} fill="currentColor" aria-label="Starred" />
-                  )}
+                  <RowLabels chips={chips} />
+                  {/* Always there, starred or not, so labels end at the same edge on every row. */}
+                  <span className="row-flag-slot">
+                    {isFlagged(r.flags) && (
+                      <Star className="row-flag" size={11} strokeWidth={2} fill="currentColor" aria-label="Starred" />
+                    )}
+                  </span>
                   <span className="row-date">{formatDate(r.remind_at ?? r.date)}</span>
                 </span>
               </div>
@@ -301,5 +299,26 @@ export function MessageList({
     </div>
     {pager}
     </>
+  )
+}
+
+/** Three labels or more overlap (Linear) and spread apart on hover. */
+const STACK_AT = 3
+
+const toneProps = (c: LabelChipView) => ({
+  'data-tone': c.color ? 'custom' : c.tone,
+  style: c.color ? ({ '--tone': c.color } as CSSProperties) : undefined
+})
+
+/** A row's label chips, in the trailing group before the star and date. */
+function RowLabels({ chips }: { chips: LabelChipView[] }) {
+  if (!chips.length) return null
+  const pills = chips.map((c) => (
+    <span key={c.name} className="row-label" {...toneProps(c)}>
+      {c.name}
+    </span>
+  ))
+  return (
+    <span className={chips.length >= STACK_AT ? 'row-labels row-labels-stack' : 'row-labels'}>{pills}</span>
   )
 }

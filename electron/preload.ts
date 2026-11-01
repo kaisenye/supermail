@@ -59,6 +59,10 @@ export interface AccountSummary {
   provider: MailProvider
   active: boolean
   needsReauth: boolean
+  /** The provider's photo as a data URL; null shows the grey placeholder. */
+  avatar?: string | null
+  /** An OAuth inbox signed in before Sovo asked for `profile`: a reconnect loads its name and photo. */
+  needsProfile?: boolean
 }
 
 export interface BootStatus {
@@ -412,7 +416,9 @@ const api = {
     ipcRenderer.invoke('settings:set', patch),
   aiLabels: (accountId: number): Promise<AiLabel[]> => ipcRenderer.invoke('ai:labels', accountId),
   /** The sidebar's "your labels": the mail server's (Gmail) labels, then the inbox's own. */
-  aiSidebarLabels: (accountId: number): Promise<{ provider: string[]; own: string[] }> =>
+  aiSidebarLabels: (
+    accountId: number
+  ): Promise<{ provider: string[]; own: string[]; colors: Record<string, { bg: string; fg: string }> }> =>
     ipcRenderer.invoke('ai:sidebarLabels', accountId),
   aiSaveLabel: (input: {
     id?: number

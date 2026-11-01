@@ -78,10 +78,13 @@ button > svg {
   background: transparent;
 }
 
+/* The inset comes from a transparent border with the fill clipped inside it,
+   so the thumb reads the same on any surface (the sidebar is not --bg). */
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);
+  background-clip: padding-box;
   border-radius: 5px;
-  border: 3px solid var(--bg);
+  border: 3px solid transparent;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -95,6 +98,38 @@ button > svg {
   grid-template-columns: var(--sidebar-width) 1fr;
   height: 100%;
   background: var(--bg);
+}
+
+/* Settings ↔ app: the arriving screen slides a few pixels in from its side
+   and fades up. Settings comes from the right, the app returns from the left. */
+.app[data-swap='settings'] > .settings-nav,
+.app[data-swap='settings'] > .settings-main {
+  animation: swap-from-right 260ms cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+.app[data-swap='back'] > .sidebar,
+.app[data-swap='back'] > .main {
+  animation: swap-from-left 260ms cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+@keyframes swap-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+}
+
+@keyframes swap-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app[data-swap] > * {
+    animation: none !important;
+  }
 }
 
 .titlebar-drag {
@@ -486,13 +521,61 @@ button > svg {
   color: var(--text-secondary);
 }
 
-/* The inbox's own AI labels (Settings → AI), quiet chips before the subject. */
+/* Label chips, in the trailing group before the star and date. */
 .row-labels {
   display: inline-flex;
   flex: none;
   gap: 4px;
-  margin-right: var(--space-2);
 }
+
+/* Three or more overlap (Linear): every chip but the last shows only its
+   start, tucked under the next; hovering the group spreads them out. The
+   width animates to the chip's real size (interpolate-size), so the motion
+   lasts as long as it looks; opening has a slight spring, closing settles. */
+.row-labels-stack {
+  interpolate-size: allow-keywords;
+}
+
+.row-labels-stack .row-label {
+  position: relative;
+  width: auto;
+  transition:
+    width 280ms cubic-bezier(0.25, 1, 0.5, 1),
+    margin-right 280ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.row-labels-stack .row-label:not(:last-child) {
+  width: 40px;
+  margin-right: -10px;
+  text-overflow: clip;
+}
+
+/* A thin line in the list colour where a chip sits over the one before it. */
+.row-labels-stack .row-label:not(:first-child) {
+  box-shadow: -2px 0 0 0 var(--bg);
+}
+
+.row-labels-stack:hover .row-label {
+  box-shadow: none;
+  transition:
+    width 380ms cubic-bezier(0.34, 1.28, 0.64, 1),
+    margin-right 380ms cubic-bezier(0.34, 1.28, 0.64, 1);
+}
+
+.row-labels-stack:hover .row-label:not(:last-child) {
+  width: auto;
+  margin-right: 0;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-labels-stack .row-label,
+  .row-labels-stack:hover .row-label {
+    transition: none;
+  }
+}
+
+
 
 .row-label {
   max-width: 120px;
@@ -501,7 +584,8 @@ button > svg {
   text-overflow: ellipsis;
   white-space: nowrap;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--tone, var(--tone-label)) 12%, transparent);
+  /* Opaque, so a chip tucked under the next does not show through it. */
+  background: color-mix(in srgb, var(--tone, var(--tone-label)) 12%, var(--bg));
   font-size: var(--text-xs);
   line-height: 16px;
   color: var(--tone, var(--tone-label));
@@ -518,6 +602,12 @@ button > svg {
 [data-tone='calendar'] { --tone: var(--tone-calendar); }
 [data-tone='support'] { --tone: var(--tone-support); }
 [data-tone='label'] { --tone: var(--tone-label); }
+
+/* A Gmail label's own colour (set inline as --tone), pulled toward the text
+   colour so a pale Gmail hue still reads on either theme. */
+.row-label[data-tone='custom'] {
+  color: color-mix(in srgb, var(--tone) 72%, var(--text-primary));
+}
 
 /* Message count, shown only on threads of two or more. Tabular so the digits
    do not shift the subject as counts change. */
@@ -566,6 +656,15 @@ button > svg {
 .row-flag {
   color: var(--flag);
   flex-shrink: 0;
+}
+
+/* The star's place is kept on every row, so the label group ends at one edge. */
+.row-flag-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 12px;
 }
 
 .row-reminder {
@@ -851,7 +950,7 @@ button > svg {
 .message-card {
   margin-top: var(--space-1);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--bg-raised);
   overflow: hidden;
   animation: view-in var(--duration-base) var(--ease-out);
@@ -1251,7 +1350,7 @@ button > svg {
   width: min(560px, calc(100vw - 32px));
   background: var(--bg-raised);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-md);
   overflow: hidden;
   animation: palette-rise var(--duration-base) var(--ease-out);
@@ -1405,7 +1504,7 @@ button > svg {
   min-width: 160px;
   background: var(--bg-raised);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   padding: var(--space-1);
   z-index: 20;
@@ -1416,7 +1515,7 @@ button > svg {
 .compose-schedule-menu button {
   text-align: left;
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--text-sm);
   color: var(--text-secondary);
   transition:
@@ -1505,7 +1604,7 @@ button > svg {
   overflow-y: auto;
   background: var(--bg-raised);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   animation: palette-rise var(--duration-fast) var(--ease-out);
 }
@@ -1516,7 +1615,7 @@ button > svg {
   gap: var(--space-2);
   width: 100%;
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   text-align: left;
   transition: background var(--duration-fast) var(--ease-out);
 }
@@ -1589,7 +1688,7 @@ button > svg {
   padding: var(--space-3) var(--space-4);
   background: var(--bg-raised);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   font-size: var(--text-sm);
   color: var(--text-secondary);
@@ -1810,7 +1909,7 @@ div.compose-body[data-empty='true']::before {
   height: min(760px, 100%);
   background: var(--bg-raised);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-md);
   overflow: hidden;
   animation: palette-rise var(--duration-base) var(--ease-out);
@@ -2034,7 +2133,7 @@ div.compose-body[data-empty='true']::before {
 .settings-card {
   padding: 0 var(--space-5);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--bg-raised);
 }
 
@@ -2166,7 +2265,7 @@ div.compose-body[data-empty='true']::before {
   margin: 0 0 var(--space-3);
   padding: var(--space-4) var(--space-5);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--bg-raised);
 }
 
@@ -2772,7 +2871,7 @@ div.compose-body[data-empty='true']::before {
   color: var(--text-primary);
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   outline: none;
   transition:
     border-color var(--duration-fast) var(--ease-out),
@@ -2890,7 +2989,7 @@ div.compose-body[data-empty='true']::before {
   color: var(--text-primary);
   background: color-mix(in srgb, var(--flag) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--flag) 28%, transparent);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: var(--space-2) var(--space-3);
   margin: 0;
   animation: onboard-shake 380ms var(--ease-out) both;
@@ -3068,7 +3167,33 @@ button.sidebar-account svg {
   opacity: 0.7;
 }
 
+/* An inbox's provider photo, or a grey person placeholder. */
+.account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--surface-selected);
+  color: var(--text-tertiary);
+}
+
+.account-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.account-menu-reconnect {
+  padding-top: 0;
+  font-size: var(--text-xs);
+  color: var(--accent);
+}
+
 .sidebar-account-email {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3085,7 +3210,7 @@ button.sidebar-account svg {
   padding: var(--space-1);
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   animation: onboard-rise var(--duration-fast) var(--ease-out) both;
 }
@@ -3101,7 +3226,7 @@ button.sidebar-account svg {
   color: var(--text-primary);
   background: none;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   cursor: pointer;
   text-align: left;
 }
@@ -3110,13 +3235,19 @@ button.sidebar-account svg {
   background: var(--surface-hover);
 }
 
-.account-menu-check {
+/* The open inbox: a light accent wash, no check mark. */
+.account-menu-item[aria-checked='true'],
+.account-menu-item[aria-checked='true']:hover {
+  background: var(--accent-soft);
+}
+
+/* Add / Reconnect icons sit in the avatars' column. */
+.account-menu-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
+  width: 22px;
   flex-shrink: 0;
-  color: var(--accent);
 }
 
 .account-menu-text {
@@ -3141,12 +3272,12 @@ button.sidebar-account svg {
 .account-menu-add {
   color: var(--text-secondary);
   border-top: 1px solid var(--border);
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
   margin-top: var(--space-1);
   padding-top: var(--space-2);
 }
 
-.account-menu-add .account-menu-check {
+.account-menu-add .account-menu-icon {
   color: var(--text-tertiary);
 }
 
@@ -3218,7 +3349,7 @@ button.sidebar-account svg {
   background: var(--bg-raised);
   border: 1px solid var(--border);
   /* Same shape as the task card: the app's floating panels share one radius. */
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.04),
     0 12px 32px -8px rgba(0, 0, 0, 0.14);
@@ -3487,7 +3618,7 @@ button.sidebar-account svg {
   padding: var(--space-1);
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   animation: onboard-rise var(--duration-fast) var(--ease-out) both;
 }
@@ -3573,7 +3704,7 @@ button.sidebar-account svg {
   padding: 4px;
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   animation: rte-drop var(--duration-fast) var(--ease-out);
 }
@@ -3816,7 +3947,7 @@ button.sidebar-account svg {
   padding: var(--space-4);
   background: var(--bg-raised);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-md);
   animation: palette-rise var(--duration-base) var(--ease-out);
 }
@@ -3901,7 +4032,7 @@ button.sidebar-account svg {
 
 .shortcut-remap { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .shortcut-remap li { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: center; font-size: 12.5px; }
-.shortcut-remap-keys kbd { font-family: inherit; padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; margin-left: 2px; }
+.shortcut-remap-keys kbd { font-family: inherit; padding: 1px 5px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-left: 2px; }
 
 .tab-bar { display: flex; flex-shrink: 0; align-items: center; gap: 6px; height: 40px; padding: 0 10px; border-bottom: 1px solid var(--border); -webkit-app-region: drag; }
 .tab-bar button, .tab-bar .tab { -webkit-app-region: no-drag; }
@@ -3913,7 +4044,7 @@ button.sidebar-account svg {
 .tab:not([aria-selected='true']):hover { background: var(--surface-hover); color: var(--text-secondary); }
 .tab[aria-selected='true'] { background: var(--surface-hover); color: var(--text-primary); }
 .tab-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab-close { display: grid; place-items: center; width: 18px; height: 18px; border: 0; border-radius: 4px; background: none; color: inherit; opacity: 0.6; }
+.tab-close { display: grid; place-items: center; width: 18px; height: 18px; border: 0; border-radius: var(--radius-sm); background: none; color: inherit; opacity: 0.6; }
 .tab-close:hover { opacity: 1; background: var(--border); }
 .sync-progress { display: flex; flex-direction: column; justify-content: center; gap: 3px; flex-shrink: 0; width: 170px; padding-left: 8px; }
 .sync-progress-label { font-size: 11px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -3997,7 +4128,7 @@ button.sidebar-account svg {
   margin: 0 var(--space-4) var(--space-2);
   padding: var(--space-3);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--bg-raised);
   box-shadow: var(--shadow-sm);
 }
@@ -4187,7 +4318,7 @@ button.sidebar-account svg {
 .compose-card {
   margin-top: var(--space-4);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--bg-raised);
   animation: view-in var(--duration-base) var(--ease-out);
 }
@@ -4507,7 +4638,7 @@ button.sidebar-account svg {
   height: 44px;
   padding: 0 var(--space-3);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--bg-raised);
   color: var(--text-tertiary);
   cursor: text;
@@ -4539,7 +4670,7 @@ button.sidebar-account svg {
   font-size: var(--text-xs);
   padding: 1px 6px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-tertiary);
 }
 
@@ -4767,7 +4898,7 @@ button.sidebar-account svg {
   min-width: 160px;
   padding: var(--space-1);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--bg-raised);
   box-shadow: var(--shadow-md);
   animation: palette-rise var(--duration-fast) var(--ease-out);
@@ -4775,7 +4906,7 @@ button.sidebar-account svg {
 
 .task-menu button {
   padding: 6px var(--space-2);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--text-sm);
   text-align: left;
   color: var(--text-primary);
@@ -4828,7 +4959,7 @@ button.sidebar-account svg {
   max-height: calc(100% - var(--space-4) * 2);
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   background: var(--bg-raised);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.04),
@@ -5440,6 +5571,28 @@ button.sidebar-account svg {
 
 .sidebar-labels-more .folder-count {
   color: var(--text-quaternary);
+}
+
+/* The fold slides to its real height (interpolate-size) and fades. */
+.sidebar-labels-yours {
+  interpolate-size: allow-keywords;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    height 260ms cubic-bezier(0.25, 1, 0.5, 1),
+    opacity 200ms var(--ease-out);
+}
+
+.sidebar-labels-yours[data-open='true'] {
+  height: auto;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-labels-yours {
+    transition: none;
+  }
 }
 
 .label-dot {

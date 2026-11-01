@@ -95,6 +95,8 @@ export type MessageListRow = Pick<
   ai_important?: number | null
   /** The classifier's category (AI_CATEGORIES), null when unsorted. */
   ai_category?: string | null
+  /** Gmail user labels on any message of the thread, comma-joined; null for none. */
+  server_labels?: string | null
 }
 
 export interface UpsertMessageInput {

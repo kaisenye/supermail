@@ -33,6 +33,7 @@ import {
 } from '../src/core/accounts/manage.js'
 import { authUrl, createPkce, exchangeCode, primeAccessToken } from '../src/core/accounts/oauth.js'
 import { waitForRedirect } from '../src/core/accounts/oauthFlow.js'
+import { avatarFor, profileLoaded, saveProfile } from '../src/core/accounts/profile.js'
 import { createSyncGuard } from './syncGuard.js'
 import { startAccountWorkers, stopAccountWorkers, watchSentFolder } from './workers.js'
 import { runBackfillExclusive } from './backfillLock.js'
@@ -313,7 +314,18 @@ export function holdMove(
 }
 
 export function registerIpc(): void {
-  ipcMain.handle('boot:status', () => getBootStatus())
+  // Each inbox's photo and whether a reconnect would load its name and photo.
+  ipcMain.handle('boot:status', () => {
+    const s = getBootStatus()
+    return {
+      ...s,
+      accounts: s.accounts.map((a) => ({
+        ...a,
+        avatar: avatarFor(a.accountId),
+        needsProfile: getAccount(a.accountId)?.config.auth.kind === 'oauth2' && !profileLoaded(a.accountId)
+      }))
+    }
+  })
 
   ipcMain.handle('account:presets', () => listPresets())
 
@@ -373,7 +385,7 @@ export function registerIpc(): void {
         }
 
         const existing = storedAccounts().find((a) => a.email.toLowerCase() === t.email!.toLowerCase())
-        const { account, config } = saveOAuthAccount({
+        const { account, config: saved } = saveOAuthAccount({
           email: t.email,
           // The From: name lives in settings (displayNameFor) and is edited there.
           name: displayNameFor(existing?.id ?? -1),
@@ -381,6 +393,9 @@ export function registerIpc(): void {
           oauthProvider: provider,
           refreshToken: t.refreshToken
         })
+        // The provider's name (when the user has set none) and photo, for the inbox switcher.
+        await saveProfile(account.id, t)
+        const config = { ...saved, name: displayNameFor(account.id) ?? saved.name }
         if (config.auth.kind === 'oauth2') primeAccessToken(config.auth.ref, t.accessToken, t.expiresAt)
 
         const check = await verifyAccount(config)

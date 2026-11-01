@@ -51,6 +51,8 @@ export type CommandId =
   | `tab.${Digit}`
   | 'history.back'
   | 'history.forward'
+  | 'page.prev'
+  | 'page.next'
   | 'msg.star'
   | 'msg.read'
   | 'msg.trash'
@@ -178,7 +180,7 @@ export const COMMANDS: Command[] = [
   { id: 'go.sent', title: 'Go to Sent', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 's'], modes: ['list'] }] },
   { id: 'go.drafts', title: 'Go to Drafts', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'd'], modes: ['list'] }] },
   { id: 'go.trash', title: 'Go to Trash', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 't'], modes: ['list'] }] },
-  { id: 'go.junk', title: 'Go to Junk', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'j'], modes: ['list'] }] },
+  { id: 'go.junk', title: 'Go to Spam', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'j'], modes: ['list'] }] },
   { id: 'go.done', title: 'Go to Done', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'e'], modes: ['list'] }] },
   { id: 'go.reminders', title: 'Go to Reminders', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'h'], modes: ['list'] }] },
 
@@ -226,6 +228,8 @@ export const COMMANDS: Command[] = [
   { id: 'filter.starred', title: 'Filter: starred', group: 'List', palette: true, keys: [{ kind: 'key', key: 'S', modes: ['list'] }] },
   { id: 'list.groupByDate', title: 'Group by date', group: 'List', palette: true, keys: [{ kind: 'key', key: 'D', modes: ['list'] }] },
   { id: 'select.all', title: 'Select all', group: 'List', keys: [{ kind: 'mod', key: 'a', modes: ['list'] }] },
+  { id: 'page.prev', title: 'Previous page', group: 'List', palette: true, keys: [{ kind: 'mod', key: 'ArrowLeft', modes: ['list'] }] },
+  { id: 'page.next', title: 'Next page', group: 'List', palette: true, keys: [{ kind: 'mod', key: 'ArrowRight', modes: ['list'] }] },
   { id: 'select.extendDown', title: 'Extend selection down', group: 'List', keys: [{ kind: 'key', key: 'J', modes: ['list'] }] },
   { id: 'select.extendUp', title: 'Extend selection up', group: 'List', keys: [{ kind: 'key', key: 'K', modes: ['list'] }] },
 
@@ -288,6 +292,8 @@ const NAMED: Record<string, string> = {
   Escape: 'Esc',
   ArrowUp: '↑',
   ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→',
   Tab: '⇥',
   Space: 'Space'
 }

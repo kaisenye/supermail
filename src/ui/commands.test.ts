@@ -203,6 +203,16 @@ describe('command registry', () => {
     expect(matchChord(chords, key('k'), true)?.key).toBe('k')
   })
 
+  it('pages the list with ⌘← and ⌘→, and leaves them to a text field', () => {
+    const chords = buildChords('list', { 'page.prev': () => {}, 'page.next': () => {} })
+    const key = (k: string) => ({ key: k, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })
+    expect(matchChord(chords, key('ArrowLeft'), false)?.key).toBe('ArrowLeft')
+    expect(matchChord(chords, key('ArrowRight'), false)?.key).toBe('ArrowRight')
+    expect(matchChord(chords, key('ArrowRight'), true)).toBeUndefined()
+    // List only: a thread keeps ⌘← / ⌘→ free.
+    expect(buildChords('thread', { 'page.prev': () => {}, 'page.next': () => {} })).toEqual([])
+  })
+
   it('binds single keys only for commands that have a handler, passing the mode', () => {
     const seen: Mode[] = []
     const bindings = buildBindings('thread', { 'msg.star': ({ mode }) => void seen.push(mode) })

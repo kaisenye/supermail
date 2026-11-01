@@ -7,13 +7,16 @@ const ENDPOINTS: Record<OAuthProvider, { auth: string; token: string; scope: str
   google: {
     auth: 'https://accounts.google.com/o/oauth2/v2/auth',
     token: 'https://oauth2.googleapis.com/token',
-    scope: 'https://mail.google.com/ openid email'
+    // profile: the name and photo shown in the inbox switcher.
+    scope: 'https://mail.google.com/ openid email profile'
   },
   microsoft: {
     auth: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
     token: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
     scope:
-      'https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access openid email'
+      // profile: the name in the inbox switcher. A photo needs Microsoft Graph,
+      // another resource, which one token request cannot mix with Outlook's.
+      'https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access openid email profile'
   }
 }
 
@@ -93,6 +96,19 @@ export function emailFromIdToken(idToken: string | undefined): string | null {
   }
 }
 
+/** The name and photo URL in an ID token (OpenID `profile` scope); null where absent. */
+export function profileFromIdToken(idToken: string | undefined): { name: string | null; picture: string | null } {
+  if (!idToken) return { name: null, picture: null }
+  try {
+    const claims = JSON.parse(Buffer.from(idToken.split('.')[1] ?? '', 'base64url').toString())
+    const name = typeof claims.name === 'string' && claims.name.trim() ? claims.name.trim() : null
+    const picture = typeof claims.picture === 'string' && /^https:\/\//.test(claims.picture) ? claims.picture : null
+    return { name, picture }
+  } catch {
+    return { name: null, picture: null }
+  }
+}
+
 interface TokenResponse {
   access_token?: string
   refresh_token?: string
@@ -125,7 +141,14 @@ export async function exchangeCode(
   verifier: string,
   redirectUri: string,
   fetchFn: typeof fetch = fetch
-): Promise<{ accessToken: string; refreshToken: string; expiresAt: number; email: string | null }> {
+): Promise<{
+  accessToken: string
+  refreshToken: string
+  expiresAt: number
+  email: string | null
+  name: string | null
+  picture: string | null
+}> {
   const { status, body } = await postToken(
     provider,
     { grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: redirectUri },
@@ -141,7 +164,8 @@ export async function exchangeCode(
     accessToken: body.access_token,
     refreshToken: body.refresh_token,
     expiresAt: Date.now() + (body.expires_in ?? 3600) * 1000,
-    email: emailFromIdToken(body.id_token)
+    email: emailFromIdToken(body.id_token),
+    ...profileFromIdToken(body.id_token)
   }
 }
 

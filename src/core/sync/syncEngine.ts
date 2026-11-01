@@ -1,5 +1,6 @@
 import type { ImapFlow } from 'imapflow'
 import type { AccountConfig } from '../accounts/config.js'
+import { refreshGmailLabelColors } from './gmailLabelColors.js'
 import { processors } from '../pipeline/index.js'
 import { runPipeline } from '../pipeline/pipeline.js'
 import { latencySummary, noteArrival } from './latency.js'
@@ -9,6 +10,7 @@ import { queuedSourceUids } from '../store/moveJobs.js'
 import { assignRoles } from '../store/folderRoles.js'
 import {
   deleteFolder,
+  pruneVanishedFolders,
   listFolders,
   newestSyncedUid,
   resetFolder,
@@ -129,6 +131,12 @@ export async function syncAccount(
     for (const f of listFolders(accountId)) {
       if (isIgnoredFolder(f.path)) deleteFolder(f.id)
     }
+    // A Gmail label deleted or renamed in Gmail leaves the LIST; its old name
+    // must leave the sidebar too. An empty LIST is an odd reply, not "no folders".
+    const listed = boxes.filter((b) => b.selectable && !isIgnoredFolder(b.path))
+    if (listed.length) pruneVanishedFolders(accountId, listed.map((b) => b.path))
+    // Gmail label colours come from the Gmail API, not IMAP; throttled, never fails the sync.
+    await refreshGmailLabelColors(accountId, config)
 
     // INBOX first so the primary view is usable before the rest finishes.
     const folders = listFolders(accountId)

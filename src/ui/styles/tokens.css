@@ -33,6 +33,10 @@
 
   --radius-sm: 4px;
   --radius-md: 6px;
+  /* Cards, menus, popovers and toasts. */
+  --radius-lg: 12px;
+  /* Modal dialogs and large floating panels. */
+  --radius-xl: 14px;
 
   /* Motion: fast enough to feel instant, present enough to orient. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -63,6 +67,8 @@
 
   --accent: #3355dd;
   --accent-fg: #ffffff;
+  /* A selected row in a menu: a light wash of the accent. */
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, #ffffff);
   --unread: #2244cc;
   --flag: #d97706;
   --row-current: rgba(17, 17, 16, 0.045);
@@ -109,6 +115,7 @@
 
   --accent: #6b8aff;
   --accent-fg: #0d0d10;
+  --accent-soft: color-mix(in srgb, var(--accent) 34%, var(--bg-raised));
   --unread: #8aa4ff;
   --flag: #f0a844;
   --row-current: rgba(255, 255, 255, 0.05);
@@ -155,6 +162,7 @@
 
     --accent: #6b8aff;
     --accent-fg: #0d0d10;
+    --accent-soft: color-mix(in srgb, var(--accent) 34%, var(--bg-raised));
     --unread: #8aa4ff;
     --flag: #f0a844;
     --row-current: rgba(255, 255, 255, 0.05);

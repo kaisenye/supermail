@@ -132,6 +132,16 @@ function operatorPred(field: string, value: string, ctx: QueryContext): Pred | n
       params: [v, v]
     }
   }
+  // A Gmail label on any message of the thread, as on its row's chips.
+  if (field === 'label' && ctx === 'list')
+    return {
+      sql: `EXISTS (SELECT 1 FROM message_labels ml
+                      JOIN labels l ON l.id = ml.label_id
+                      JOIN messages mx ON mx.id = ml.message_id
+                     WHERE mx.account_id = lr.account_id AND l.account_id = lr.account_id AND lower(l.name) = ?
+                       AND COALESCE(mx.thread_id, '#' || mx.id) = lr.thread_key)`,
+      params: [v]
+    }
   if (field === 'label')
     return {
       sql: `EXISTS (SELECT 1 FROM message_labels ml JOIN labels l ON l.id = ml.label_id

@@ -14,6 +14,8 @@ import {
   sharedLabelChoices,
   userLabels
 } from './labels.js'
+import { listView } from './listRows.js'
+import { listFolders, pruneVanishedFolders } from './repo.js'
 
 let msg: number
 
@@ -90,5 +92,31 @@ describe('labels across accounts (search results)', () => {
     expect(labelWriteError([1, 2], 'Work', gmail)).toBeNull()
     expect(labelWriteError([1, 3], 'Work', gmail)).toBe('Labels are Gmail only')
     expect(getDb().prepare("SELECT count(*) c FROM labels WHERE name = 'Travel' AND account_id = 2").get()).toEqual({ c: 0 })
+  })
+})
+
+describe('labels Gmail no longer lists', () => {
+  it('leave with their folder; a folder holding mail stays', () => {
+    const db = getDb()
+    db.prepare("INSERT INTO folders (id,account_id,path,role) VALUES (2,1,'Old label',NULL), (3,1,'Kept',NULL)").run()
+    expect(pruneVanishedFolders(1, ['Kept'])).toBe(1)
+    expect(gmailLabelChoices(listFolders(1))).toEqual(['Kept'])
+    // INBOX is missing from this LIST but holds a message: never dropped on one reply.
+    expect(listFolders(1).map((f) => f.path)).toContain('INBOX')
+  })
+})
+
+describe('Gmail labels on list rows', () => {
+  it('show on the row and filter the list when any message of the thread has one', () => {
+    const db = getDb()
+    db.prepare("UPDATE messages SET thread_id = 't1', date = 1 WHERE id = ?").run(msg)
+    db.prepare("INSERT INTO messages (account_id,folder_id,uid,message_id,thread_id,date) VALUES (1,1,2,'<b@x>','t1',2)").run()
+    // The label sits on the older message only.
+    setMessageLabels(msg, 1, ['Travel'])
+    const rows = listView(1)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].server_labels).toBe('Travel')
+    expect(listView(1, { query: 'label:travel' })).toHaveLength(1)
+    expect(listView(1, { query: 'label:"Rental Car"' })).toHaveLength(0)
   })
 })
