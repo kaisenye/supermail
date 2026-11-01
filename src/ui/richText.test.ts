@@ -163,3 +163,23 @@ describe('compose markers through the sanitiser', () => {
     expect(covered(aiTargetRange(el)!)).toBe('<p>Hi</p>')
   })
 })
+
+describe('cleanPastedHtml keepColors', () => {
+  it('keeps a span color the editor set, and nothing else on it', () => {
+    const out = cleanPastedHtml('<p><span style="color: rgb(220, 38, 38); font-size: 40px" onclick="x()">Hi</span></p>', {
+      keepColors: true
+    })
+    expect(out).toBe('<p><span style="color: rgb(220, 38, 38)">Hi</span></p>')
+  })
+
+  it('drops a color that is not a plain value', () => {
+    const out = cleanPastedHtml('<span style="color: var(--x)">a</span><span style="background: url(x)">b</span>', {
+      keepColors: true
+    })
+    expect(out).toBe('<span>a</span><span>b</span>')
+  })
+
+  it('pastes still lose their colors', () => {
+    expect(cleanPastedHtml('<span style="color: #dc2626">Hi</span>')).toBe('<span>Hi</span>')
+  })
+})

@@ -5089,3 +5089,95 @@ button.sidebar-account svg {
   top: calc(var(--space-4) + 30px + var(--space-3) + 44px + var(--space-4));
   max-height: calc(100% - (var(--space-4) + 30px + var(--space-3) + 44px + var(--space-4)) - var(--space-4));
 }
+
+/* ---- Text color (compose + signature) ---- */
+
+.text-color {
+  position: relative;
+  display: inline-flex;
+}
+
+.text-color-menu {
+  position: absolute;
+  left: 50%;
+  z-index: 30;
+  display: flex;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-md);
+  transform: translateX(-50%);
+  animation: text-color-in var(--duration-base) var(--ease-out);
+}
+
+.text-color-menu[data-placement='up'] {
+  bottom: calc(100% + 8px);
+}
+
+.text-color-menu[data-placement='down'] {
+  top: calc(100% + 6px);
+}
+
+/* Specific enough to beat `.compose-pill button`, which the menu sits inside. */
+.text-color-menu .text-color-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.text-color-menu .text-color-swatch:hover:not(:disabled) {
+  background: var(--swatch);
+  transform: scale(1.15);
+}
+
+/* "Default": the current text color, with a slash through it. */
+.text-color-menu .text-color-swatch.is-default,
+.text-color-menu .text-color-swatch.is-default:hover:not(:disabled) {
+  background:
+    linear-gradient(135deg, transparent 45%, var(--text-tertiary) 45%, var(--text-tertiary) 55%, transparent 55%),
+    var(--bg-raised);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+@keyframes text-color-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.96);
+  }
+}
+
+/* ---- Signature: one per inbox ---- */
+
+.sig-inboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--space-3);
+}
+
+.sig-inboxes button {
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+
+.sig-inboxes button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.sig-inboxes button[aria-selected='true'] {
+  border-color: transparent;
+  background: var(--text-primary);
+  color: var(--bg);
+}

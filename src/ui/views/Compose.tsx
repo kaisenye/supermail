@@ -10,7 +10,8 @@ import {
 import { ArrowLeft, ArrowUp, Bold, ChevronDown, Clock, Ellipsis, Italic, Link2, List, ListOrdered, Paperclip, SendHorizontal, Sparkles, Trash2, Underline, X } from 'lucide-react'
 import { useCommandChord } from '../hooks/useCommandChord'
 import { useActiveFormats } from '../hooks/useActiveFormats'
-import { aiTargetRange, aiWriteRange, applyLink, captureCaret, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
+import { aiTargetRange, aiWriteRange, applyLink, applyTextColor, captureCaret, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
+import { TextColorButton } from './TextColorButton'
 import { latestOnly, rangeText, textToHtml } from '../aiText'
 import { expandSnippet, shortcutBeforeCaret, snippetHtml, snippetVars } from '../snippetVars'
 import { AiWriteMenu } from './AiWriteMenu'
@@ -120,7 +121,7 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
         cc: compose.cc,
         bcc: compose.bcc,
         subject: compose.subject,
-        body: cleanPastedHtml(html, { keepMarkers: true }),
+        body: cleanPastedHtml(html, { keepMarkers: true, keepColors: true }),
         inReplyTo: compose.inReplyTo,
         references: compose.references,
         attachments: compose.attachments,
@@ -146,6 +147,12 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
     // selectionchange fires: read the state now.
     refreshFormats()
   }, [updateCompose, refreshFormats])
+
+  const onColor = useCallback((color: string | null) => {
+    const el = editorRef.current
+    applyTextColor(el, color)
+    if (el) updateCompose({ body: el.innerHTML })
+  }, [updateCompose])
 
   // Electron has no window.prompt(), and focusing the inline input clears the
   // selection — so capture the range before showing it.
@@ -325,7 +332,7 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
         // outbound markup can still be corrected. The signature/quote markers
         // stay so a reopened draft still scopes Write with AI; main strips
         // them from what actually goes out.
-        const body = cleanPastedHtml(editorRef.current?.innerHTML ?? compose.body, { keepMarkers: true })
+        const body = cleanPastedHtml(editorRef.current?.innerHTML ?? compose.body, { keepMarkers: true, keepColors: true })
         const saved = await window.api.saveDraft({
           draftId: compose.draftId,
           to: compose.to,
@@ -626,6 +633,7 @@ export function Compose({ compose, me, cancelOnReplyDefault, onClose, onSent, in
               </button>
             )
           })}
+          <TextColorButton onPick={onColor} placement="up" />
           <button
             type="button"
             title="Insert link"

@@ -24,12 +24,14 @@ export function TriageSettings() {
   const [splitError, setSplitError] = useState<string | null>(null)
   const [cancelDefault, setCancelDefault] = useState(false)
   const [fullHistory, setFullHistory] = useState(true)
+  const [remoteImages, setRemoteImages] = useState(true)
 
   useEffect(() => {
     void window.api.getSettings().then((s) => {
       if (UNDO_CHOICES.includes(s.undo_seconds)) setUndoSecs(s.undo_seconds)
       setCancelDefault(s.cancel_on_reply_default === '1')
       setFullHistory(s.full_history !== '0')
+      setRemoteImages(s.remote_images !== '0')
     })
     void window.api.archiveStatus().then((r) => {
       if (r.ok)
@@ -169,6 +171,23 @@ export function TriageSettings() {
           />
           Cancel a scheduled reply when someone replies first
         </label>
+      </section>
+      <section className="settings-section">
+        <h3>Images</h3>
+        <label className="picker-check">
+          <input
+            type="checkbox"
+            checked={remoteImages}
+            onChange={(e) => {
+              setRemoteImages(e.target.checked)
+              void window.api.setSettings({ remote_images: e.target.checked ? '1' : '0' })
+            }}
+          />
+          Load remote images automatically
+        </label>
+        <p className="settings-note">
+          Off blocks them until you click Load images. Senders can tell when an image loads.
+        </p>
       </section>
       <section className="settings-section">
         <h3>Offline history</h3>

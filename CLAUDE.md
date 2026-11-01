@@ -84,6 +84,7 @@ Central dispatcher: `src/ui/hooks/useHotkeys.ts`. Modes: `list` | `thread` | `co
 - Settings keys added in Phase 3: `keymap`, `workspace`, `cancel_on_reply_default`, `contact_pane`, `full_history`.
 - v21: AI tables (`ai_classifications`, `reply_options`, `ai_jobs`, `ai_usage`); `list_rows.ai_important` / `ai_category` feed `is:important` / `is:other` and `ai:<category>`. Turning the classifier off deletes verdicts.
 - Settings keys added in Phase 4 (non-secret): `ai_provider`, `ai_model_anthropic`, `ai_model_openai`, `ai_daily_budget_usd`, `ai_write`, `ai_replies`, `ai_summary`, `ai_classify`, `ai_ask`.
+- Signatures are per inbox: `signature:<accountId>`; an inbox without one falls back to the shared `signature` (from before). `remote_images` (`'0'` blocks remote images until Load images; anything else loads them). Editors keep a `<span>` text color only through `cleanPastedHtml(…, { keepColors: true })`; pastes drop it.
 
 ## Commands / env
 

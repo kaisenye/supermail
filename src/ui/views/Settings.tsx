@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'react'
 import { ArrowLeft, Bold, Bot, Image as ImageIcon, Italic, Inbox, Keyboard, Link2, Monitor, Moon, PenLine, Search, Settings as SettingsIcon, Sun, TextQuote, Unlink } from 'lucide-react'
-import { applyLink, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
+import { applyLink, applyTextColor, captureSelection, cleanPastedHtml, handlePaste } from '../richText'
 import { onDialogEscape } from '../keyLayers'
 import { useActiveFormats } from '../hooks/useActiveFormats'
 import { LinkPrompt } from './LinkPrompt'
+import { TextColorButton } from './TextColorButton'
 import { TriageSettings } from './TriageSettings'
 import { ShortcutSettings } from './ShortcutSettings'
 import { SnippetSettings } from './SnippetSettings'
@@ -18,9 +19,12 @@ interface Props {
   onShortcuts: () => void
   /** The shortcut sheet is open on top: its Esc comes first. */
   shortcutsOpen?: boolean
-  signature: string
+  /** The inbox whose signature opens first. */
+  activeAccountId: number | null
+  /** An inbox's signature; null is the single, pre-accounts install. */
+  signatureFor: (accountId: number | null) => string
+  onSignature: (accountId: number | null, html: string) => void
   theme: Theme
-  onSignature: (html: string) => void
   onTheme: (theme: Theme) => void
   onClose: () => void
 }
@@ -51,7 +55,7 @@ const GROUPS: { title: string; sections: SectionInfo[] }[] = [
   {
     title: 'Email',
     sections: [
-      { id: 'triage', label: 'Inbox and triage', blurb: 'Undo, Done folder, splits, scheduled sends and history.', keywords: 'undo archive done splits scheduled history offline', icon: Inbox },
+      { id: 'triage', label: 'Inbox and triage', blurb: 'Undo, Done folder, splits, scheduled sends, images and history.', keywords: 'undo archive done splits scheduled history offline images remote pictures', icon: Inbox },
       { id: 'signature', label: 'Signature', blurb: 'Added to new messages and replies.', keywords: 'logo link', icon: PenLine }
     ]
   }
@@ -71,13 +75,27 @@ export function Settings({
   onAddAccount,
   onShortcuts,
   shortcutsOpen = false,
-  signature,
-  theme,
+  activeAccountId,
+  signatureFor,
   onSignature,
+  theme,
   onTheme,
   onClose
 }: Props) {
   const editorRef = useRef<HTMLDivElement>(null)
+  /**
+   * Each inbox has its own signature. The ref is what saves read, so a save
+   * queued before switching inboxes still lands on the inbox it was typed for.
+   */
+  const [sigAccount, setSigAccount] = useState<number | null>(
+    accounts.some((a) => a.accountId === activeAccountId) ? activeAccountId : (accounts[0]?.accountId ?? null)
+  )
+  const sigAccountRef = useRef(sigAccount)
+  const signature = signatureFor(sigAccount)
+  const saveSignature = useCallback(
+    (html: string) => onSignature(sigAccountRef.current, html),
+    [onSignature]
+  )
   const [section, setSection] = useState<Section>('general')
   const [query, setQuery] = useState('')
   const [saved, setSaved] = useState(false)
@@ -100,21 +118,21 @@ export function Settings({
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
       saveTimer.current = null
-      onSignature(cleanPastedHtml(latest.current))
+      saveSignature(cleanPastedHtml(latest.current, { keepColors: true }))
       setSaved(true)
       setTimeout(() => setSaved(false), 1200)
     }, 600)
-  }, [onSignature])
+  }, [saveSignature])
 
   // A pending save must still land if the modal closes first. Deps must stay
-  // empty: onSignature changes on every save, and re-running this cleanup
+  // empty: saveSignature changes on every save, and re-running this cleanup
   // would cancel the very timer it is meant to protect.
   const flushRef = useRef<() => void>(() => {})
   flushRef.current = () => {
     if (!saveTimer.current) return
     clearTimeout(saveTimer.current)
     saveTimer.current = null
-    onSignature(cleanPastedHtml(latest.current))
+    saveSignature(cleanPastedHtml(latest.current, { keepColors: true }))
   }
   useEffect(() => () => flushRef.current(), [])
 
@@ -131,15 +149,31 @@ export function Settings({
     refreshFormats()
   }, [onRichInput, refreshFormats])
 
+  const onColor = useCallback((color: string | null) => {
+    applyTextColor(editorRef.current, color)
+    onRichInput()
+  }, [onRichInput])
+
+  /** Another inbox's signature: what is pending lands on the old one first. */
+  const pickSigAccount = (id: number | null): void => {
+    if (id === sigAccountRef.current) return
+    flushRef.current()
+    sigAccountRef.current = id
+    setSigAccount(id)
+    const next = signatureFor(id)
+    latest.current = next
+    setHtmlText(next)
+  }
+
   const switchMode = (next: 'rich' | 'html'): void => {
     if (next === sigMode) return
     if (next === 'html') {
       setHtmlText(latest.current)
     } else {
       // Back to rich: what was typed as HTML is cleaned the same way a paste is.
-      const clean = cleanPastedHtml(htmlText)
+      const clean = cleanPastedHtml(htmlText, { keepColors: true })
       latest.current = clean
-      onSignature(clean)
+      saveSignature(clean)
     }
     setSigMode(next)
   }
@@ -164,14 +198,14 @@ export function Settings({
       setLinking(false)
       const res = applyLink(editorRef.current, pendingRange.current, url, (html) => {
         latest.current = html
-        onSignature(cleanPastedHtml(html))
+        saveSignature(cleanPastedHtml(html, { keepColors: true }))
       })
       pendingRange.current = null
       setLinkError(
         res === 'ok' ? null : 'Links must start with http://, https:// or mailto:'
       )
     },
-    [onSignature]
+    [saveSignature]
   )
 
   const onPaste = useCallback((e: ClipboardEvent<HTMLDivElement>) => {
@@ -196,9 +230,9 @@ export function Settings({
     )
     if (el) {
       latest.current = el.innerHTML
-      onSignature(cleanPastedHtml(el.innerHTML))
+      saveSignature(cleanPastedHtml(el.innerHTML, { keepColors: true }))
     }
-  }, [onSignature])
+  }, [saveSignature])
 
   useEffect(() => {
     const el = editorRef.current
@@ -225,7 +259,7 @@ export function Settings({
     }
     // Sanitise on the way out too: this HTML is embedded in every message, and
     // the editor is not the only way content can reach it.
-    onSignature(cleanPastedHtml(latest.current))
+    saveSignature(cleanPastedHtml(latest.current, { keepColors: true }))
     setSaved(true)
     setTimeout(() => setSaved(false), 1200)
   }
@@ -373,9 +407,24 @@ export function Settings({
           {section === 'signature' && (
           <>
           <section className="settings-section">
+            {accounts.length > 1 && (
+              <div className="sig-inboxes" role="tablist" aria-label="Inbox">
+                {accounts.map((a) => (
+                  <button
+                    key={a.accountId}
+                    type="button"
+                    role="tab"
+                    aria-selected={sigAccount === a.accountId}
+                    onClick={() => pickSigAccount(a.accountId)}
+                  >
+                    {a.email}
+                  </button>
+                ))}
+              </div>
+            )}
             <p className="settings-note">
-              Appended to new messages and replies. Select text to add a link, or
-              insert a logo (PNG/JPG/GIF/WebP, under 512 KB).
+              {accounts.length > 1 ? 'Each inbox has its own signature. ' : ''}Appended to new messages and
+              replies. Select text to add a link, or insert a logo (PNG/JPG/GIF/WebP, under 512 KB).
             </p>
             {/* One box: toolbar, a faint divider, then the editor (no second border). */}
             <div className="sig-box">
@@ -406,6 +455,7 @@ export function Settings({
                     >
                       <Italic size={15} strokeWidth={1.75} />
                     </button>
+                    <TextColorButton onPick={onColor} placement="down" className="compose-tool" />
                     <button
                       type="button"
                       className="compose-tool"

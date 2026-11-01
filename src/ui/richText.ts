@@ -55,13 +55,23 @@ function newlinesToBreaks(doc: Document): void {
  */
 export const COMPOSE_MARKERS = new Set(['sovo-signature', 'sovo-quote', 'supermail-signature', 'supermail-quote'])
 
+/** A text color the editors may keep: hex or rgb(), nothing that could carry a url(). */
+const SAFE_COLOR = /^(#[0-9a-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*[\d.]+\s*)?\))$/i
+
 /**
  * `keepMarkers` keeps the two compose marker classes on a <div> — and nothing
  * else — so a saved draft still knows where the signature and quote begin.
  * Pastes never keep them: a copied marker would plant a false stop mid-body.
  * Main strips them before the mail goes out (`stripComposeMarkers`).
+ *
+ * `keepColors` keeps a <span>'s text color (and only that) when it is a plain
+ * hex or rgb() value. The editors pass it for what the user colored; pastes do
+ * not, so text copied from a dark page doesn't arrive in its old color.
  */
-export function cleanPastedHtml(html: string, opts: { keepMarkers?: boolean } = {}): string {
+export function cleanPastedHtml(
+  html: string,
+  opts: { keepMarkers?: boolean; keepColors?: boolean } = {}
+): string {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   doc.querySelectorAll('script,style,meta,link,iframe,object,embed,form').forEach((n) =>
     n.remove()
@@ -74,6 +84,8 @@ export function cleanPastedHtml(html: string, opts: { keepMarkers?: boolean } = 
         child.replaceWith(...child.childNodes)
         continue
       }
+      const color =
+        opts.keepColors === true && child.tagName === 'SPAN' ? (child as HTMLElement).style.color : ''
       for (const attr of [...child.attributes]) {
         const keep =
           (child.tagName === 'A' && attr.name === 'href' && SAFE_HREF.test(attr.value)) ||
@@ -89,6 +101,7 @@ export function cleanPastedHtml(html: string, opts: { keepMarkers?: boolean } = 
             COMPOSE_MARKERS.has(attr.value))
         if (!keep) child.removeAttribute(attr.name)
       }
+      if (color && SAFE_COLOR.test(color)) child.setAttribute('style', `color: ${color}`)
       // An <img> whose src we just stripped would render as a broken icon.
       if (child.tagName === 'IMG' && !child.getAttribute('src')) child.remove()
     }
@@ -262,4 +275,27 @@ export function applyLink(
   document.execCommand('createLink', false, trimmed)
   if (el) onChange(el.innerHTML)
   return 'ok'
+}
+
+/** Stand-in color for "default": applied, then stripped, so no color is left behind. */
+const CLEAR_COLOR = 'rgb(1, 2, 3)'
+
+/**
+ * Colors the selection in `el`, or clears its color when `color` is null.
+ * execCommand has no "remove color", so clearing paints a stand-in color and
+ * then drops it, which leaves the text to inherit the editor's own color (and
+ * the recipient's default) instead of baking in today's theme.
+ */
+export function applyTextColor(el: HTMLElement | null, color: string | null): void {
+  if (!el) return
+  el.focus()
+  document.execCommand('styleWithCSS', false, 'true')
+  document.execCommand('foreColor', false, color ?? CLEAR_COLOR)
+  document.execCommand('styleWithCSS', false, 'false')
+  if (color) return
+  for (const span of [...el.querySelectorAll<HTMLElement>('span[style]')]) {
+    if (span.style.color !== CLEAR_COLOR) continue
+    span.style.removeProperty('color')
+    if (!span.getAttribute('style')?.trim()) span.replaceWith(...span.childNodes)
+  }
 }

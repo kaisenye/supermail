@@ -676,9 +676,12 @@ export function registerIpc(): void {
         const msg = await ensureBody(acct.accountId, acct.config, messageId)
         if (!msg) return { ok: false as const, error: 'message not found' }
 
+        // Remote images load unless Settings turned that off; the thread's
+        // "Load images" button still asks for them per message.
+        const allow = allowRemoteImages || getSettings().remote_images !== '0'
         // Sanitising in main means the renderer never sees raw email HTML.
         const rendered = msg.body_html
-          ? sanitizeEmailHtml(msg.body_html, { allowRemoteImages })
+          ? sanitizeEmailHtml(msg.body_html, { allowRemoteImages: allow })
           : { html: textToHtml(msg.body_text ?? ''), blockedImages: 0 }
 
         return {

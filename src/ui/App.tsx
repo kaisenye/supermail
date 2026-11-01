@@ -288,7 +288,8 @@ export default function App() {
   useEffect(() => {
     void refreshTaskCount()
   }, [refreshTaskCount, tasksOpen])
-  const [signature, setSignature] = useState('')
+  /** `signature` (shared, from before per-inbox signatures) and `signature:<accountId>`. */
+  const [signatures, setSignatures] = useState<Record<string, string>>({})
   const [theme, setTheme] = useState<Theme>('system')
   const [keymap, setKeymap] = useState<Keymap>({})
   const [cancelOnReplyDefault, setCancelOnReplyDefault] = useState(false)
@@ -297,7 +298,9 @@ export default function App() {
 
   useEffect(() => {
     void window.api.getSettings().then((s) => {
-      setSignature(s.signature ?? '')
+      setSignatures(
+        Object.fromEntries(Object.entries(s).filter(([k]) => k === 'signature' || k.startsWith('signature:')))
+      )
       const t = isTheme(s.theme) ? s.theme : 'system'
       setTheme(t)
       applyTheme(t)
@@ -323,9 +326,22 @@ export default function App() {
     void window.api.setSettings({ theme: t })
   }, [])
 
-  const onSignature = useCallback((html: string) => {
-    setSignature(html)
-    void window.api.setSettings({ signature: html })
+  /**
+   * An inbox's signature. One it never set falls back to the shared signature,
+   * so an install from before per-inbox signatures keeps signing every inbox.
+   */
+  const signatureFor = useCallback(
+    (accountId: number | null): string => {
+      const own = accountId == null ? undefined : signatures[`signature:${accountId}`]
+      return own ?? signatures.signature ?? ''
+    },
+    [signatures]
+  )
+
+  const onSignature = useCallback((accountId: number | null, html: string) => {
+    const key = accountId == null ? 'signature' : `signature:${accountId}`
+    setSignatures((prev) => ({ ...prev, [key]: html }))
+    void window.api.setSettings({ [key]: html })
   }, [])
 
   const [splits, setSplits] = useState<Split[]>([])
@@ -1244,14 +1260,12 @@ export default function App() {
   )
 
   /** Signature sits above any quoted text, which is where people expect it. */
-  const withSignature = useCallback(
-    (body: string): string => (signature ? `${body}<p><br></p>${signatureBlock(signature)}` : body),
-    [signature]
-  )
-
   const startCompose = useCallback(() => {
-    openCompose({ ...emptyCompose(), body: withSignature('<p><br></p>') })
-  }, [openCompose, withSignature])
+    // A new message sends from the active inbox, so it carries that signature.
+    const signature = signatureFor(activeAccountId)
+    const body = '<p><br></p>'
+    openCompose({ ...emptyCompose(), body: signature ? `${body}<p><br></p>${signatureBlock(signature)}` : body })
+  }, [openCompose, signatureFor, activeAccountId])
 
   const startReply = useCallback(
     async (all: boolean, prefill?: ReplyPick) => {
@@ -1278,6 +1292,8 @@ export default function App() {
         // An Instant Reply fills the line you would type on.
         body: (() => {
           const top = prefill ? textToHtml(prefill.text) : '<p><br></p>'
+          // The reply goes out from the inbox that received the mail.
+          const signature = signatureFor(msg.account_id)
           if (signature) return `${top}${signatureBlock(signature)}${buildReplyBody(msg)}`
           return prefill ? `${top}${buildReplyBody(msg)}` : buildReplyBody(msg)
         })(),
@@ -1286,7 +1302,7 @@ export default function App() {
         threadId: ot.threadId
       })
     },
-    [openCompose, signature, accounts]
+    [openCompose, signatureFor, accounts]
   )
 
   const startForward = useCallback(async () => {
@@ -1294,6 +1310,7 @@ export default function App() {
     if (!ot) return
     const msg = await window.api.getMessage(ot.messageId)
     if (!msg) return
+    const signature = signatureFor(msg.account_id)
     openCompose({
       ...emptyCompose(),
       mode: 'forward',
@@ -1307,7 +1324,7 @@ export default function App() {
       sourceMessageId: ot.messageId,
       threadId: ot.threadId
     })
-  }, [openCompose, signature])
+  }, [openCompose, signatureFor])
 
   /**
    * Mute is local: the threads leave the Inbox (and the reader), and z unmutes.
@@ -1754,7 +1771,8 @@ export default function App() {
           }}
           onShortcuts={() => setShortcutsOpen(true)}
           shortcutsOpen={shortcutsOpen}
-          signature={signature}
+          activeAccountId={activeAccountId}
+          signatureFor={signatureFor}
           theme={theme}
           onSignature={onSignature}
           onTheme={onTheme}
