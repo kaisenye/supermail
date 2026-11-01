@@ -5181,3 +5181,31 @@ button.sidebar-account svg {
   background: var(--text-primary);
   color: var(--bg);
 }
+
+/* ---- account switch: the old inbox fades out before the reload, the new one fades in (accountSwitch.ts) ---- */
+
+html[data-switching] .sidebar > *,
+html[data-switching] .main > * {
+  opacity: 0;
+  transition: opacity 140ms var(--ease-out);
+}
+
+html[data-arrived] .sidebar > *,
+html[data-arrived] .main > * {
+  animation: switch-in 260ms var(--ease-out) both;
+}
+
+@keyframes switch-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-switching] .sidebar > *,
+  html[data-switching] .main > *,
+  html[data-arrived] .sidebar > *,
+  html[data-arrived] .main > * {
+    transition: none;
+    animation: none;
+  }
+}

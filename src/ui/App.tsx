@@ -62,6 +62,7 @@ import { namedAddress, replyAllCc } from './intro'
 import { applyTheme, isTheme, type Theme } from './theme'
 import { syncBar, trackSync, type SyncCounts } from './syncBar'
 import { composeInline as isInlineCompose } from './composePlace'
+import { SWITCHED_KEY, SWITCH_OUT_MS } from './accountSwitch'
 import {
   back,
   backOutOf,
@@ -258,7 +259,18 @@ export default function App() {
    */
   const switchAccount = useCallback(async (accountId: number) => {
     const res = await window.api.accountSetActive(accountId)
-    if (res.ok) window.location.reload()
+    if (!res.ok) return
+    // Fade the old inbox out before the reload; main.tsx fades the new one in.
+    try {
+      sessionStorage.setItem(SWITCHED_KEY, '1')
+    } catch {
+      // Only the fade-in is lost.
+    }
+    document.documentElement.dataset.switching = ''
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      await new Promise((r) => setTimeout(r, SWITCH_OUT_MS))
+    }
+    window.location.reload()
   }, [])
 
   /** ⌃1–⌃9: the nth account in sidebar order. */

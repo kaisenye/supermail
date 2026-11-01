@@ -7,8 +7,8 @@
       Sandboxed srcdoc frames INHERIT this policy — a child CSP can only
       further restrict it, never re-grant. Attachment previews use data:, and
       remote mail images are https:, so both need granting here or they
-      silently never paint. Remote images stay blocked by default in the
-      sanitiser itself; this only permits them once the user opts in.
+      silently never paint. Whether remote images load is the sanitiser's
+      call (Settings → Images); this only permits them when it allows.
       Scripts and network stay locked to 'self'.
     -->
     <meta
