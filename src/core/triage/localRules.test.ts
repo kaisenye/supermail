@@ -112,15 +112,15 @@ describe('VIP', () => {
     expect(vip(a)).toBe(false)
   })
 
-  // The UI reloads counts after a toggle (loadRows), so the VIP tab must follow vip_senders at once.
-  it('moves the sender into and out of the VIP split count', () => {
+  // The UI reloads counts after a toggle (loadRows), so the Important split must follow vip_senders at once.
+  it('moves the sender into and out of the Important split count', () => {
     const a = put(1, 'a', 'boss@x.test')
     put(1, 'b')
-    expect(splitCounts(1).vip).toBe(0)
+    expect(splitCounts(1).important).toBe(0)
     vip(a)
-    expect(splitCounts(1).vip).toBe(1)
+    expect(splitCounts(1).important).toBe(1)
     vip(a)
-    expect(splitCounts(1).vip).toBe(0)
+    expect(splitCounts(1).important).toBe(0)
   })
 })
 

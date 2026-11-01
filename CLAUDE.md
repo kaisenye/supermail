@@ -77,7 +77,7 @@ Central dispatcher: `src/ui/hooks/useHotkeys.ts`. Modes: `list` | `thread` | `co
 - Handlers that take message ids act on the owning account (`groupByAccount` / `ownerOf`), not the active one.
 - Multi-account: every message/folder query must filter `account_id`. `thread_id` collides across accounts (same mailing list), so thread reads scope by account too.
 - Outbox: `outbox` table for pending/scheduled/undo sends. **Scheduled send only flushes while the app is running.**
-- `reminders` / `mutes` are keyed by account + Message-ID; `vip_senders`, `replied_senders` (trigger-filled) and `splits` back the Important/Other/VIP splits. Splits and chips are list-context `search.ts` queries (`is:needs-reply`, `is:waiting`, `is:important`…).
+- `reminders` / `mutes` are keyed by account + Message-ID; `vip_senders`, `replied_senders` (trigger-filled) and `splits` back the built-in Important / Other splits (a VIP sender is always Important; `is:vip` still filters them). Splits and chips are list-context `search.ts` queries (`is:needs-reply`, `is:waiting`, `is:important`…).
 - `labels` / `message_labels` are account-scoped and hold Gmail X-GM-LABELS only.
 - One undo window: `settings.undo_seconds` (3/5/10/20), read by main through `undoWindowMs`; IPC results carry `holdMs` and the renderer's single `UndoEntry` (`z`) uses it.
 - `snippets` (global, plain text with `{variables}`), `tasks_fts` (trigger-kept), `outbox.cancel_on_reply` (the pipeline's `cancelAndNotify` cancels a pending scheduled reply when its thread gets a reply), `folders.history_complete` (full-history worker; `resetFolder` clears it).

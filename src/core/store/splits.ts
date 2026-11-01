@@ -13,8 +13,7 @@ export interface Split {
 export const BUILTIN_SPLITS: Split[] = [
   { id: 'all', name: 'All', query: '', builtin: true },
   { id: 'important', name: 'Important', query: 'is:important', builtin: true },
-  { id: 'other', name: 'Other', query: 'is:other', builtin: true },
-  { id: 'vip', name: 'VIP', query: 'is:vip', builtin: true }
+  { id: 'other', name: 'Other', query: 'is:other', builtin: true }
 ]
 
 const PREFIX = 'custom:'

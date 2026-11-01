@@ -138,7 +138,7 @@ function applyVip(targets: SenderTarget[], vip: boolean): number[] {
 }
 
 /**
- * Marks the senders VIP (always Important, and the VIP split), or unmarks
+ * Marks the senders VIP (always Important; `is:vip` finds them), or unmarks
  * them: all VIP, unless every one already is, then none. Returns that state
  * and the row ids whose sender changed, or null when no target has a sender.
  */

@@ -76,13 +76,13 @@ describe('split views', () => {
 
   it('stores custom splits after the built-ins and counts each one', () => {
     const s = saveSplit({ name: 'Bosses', query: 'from:boss' })
-    expect(listSplits().map((x) => x.id)).toEqual(['all', 'important', 'other', 'vip', s.id])
-    expect(splitCounts(1)).toEqual({ all: 4, important: 2, other: 2, vip: 0, [s.id]: 1 })
+    expect(listSplits().map((x) => x.id)).toEqual(['all', 'important', 'other', s.id])
+    expect(splitCounts(1)).toEqual({ all: 4, important: 2, other: 2, [s.id]: 1 })
     expect(splitCounts(1, 'is:unread')).toMatchObject({ all: 2, important: 1 })
     saveSplit({ id: s.id, name: 'Boss', query: 'from:boss' })
     expect(listSplits().at(-1)?.name).toBe('Boss')
     deleteSplit(s.id)
-    expect(listSplits()).toHaveLength(4)
+    expect(listSplits()).toHaveLength(3)
     expect(() => saveSplit({ name: ' ', query: 'x' })).toThrow()
   })
 
