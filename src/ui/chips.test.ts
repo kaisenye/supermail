@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CHIPS, viewQuery } from './chips.js'
+import { CHIPS, chipLabel, labelChip, viewQuery } from './chips.js'
 
 describe('viewQuery', () => {
   it('ANDs the split query and the chip query', () => {
@@ -10,5 +10,11 @@ describe('viewQuery', () => {
   })
   it('offers Unread, Needs reply, Waiting and Starred', () => {
     expect(CHIPS.map((c) => c.label)).toEqual(['Needs reply', 'Waiting', 'Unread', 'Starred'])
+  })
+  it('filters on a sidebar label, quoted so a name with spaces holds', () => {
+    expect(viewQuery('', labelChip('billing'))).toBe('ai:"billing"')
+    expect(viewQuery('is:important', labelChip('Home Depot'))).toBe('is:important ai:"Home Depot"')
+    expect(chipLabel(labelChip('USCIS'))).toBe('USCIS')
+    expect(chipLabel('unread')).toBeNull()
   })
 })

@@ -411,6 +411,9 @@ const api = {
   setSettings: (patch: Record<string, string>): Promise<{ ok: true }> =>
     ipcRenderer.invoke('settings:set', patch),
   aiLabels: (accountId: number): Promise<AiLabel[]> => ipcRenderer.invoke('ai:labels', accountId),
+  /** The sidebar's Labels: categories some Inbox conversation has, plus the inbox's own labels. */
+  aiSidebarLabels: (accountId: number): Promise<{ categories: string[]; labels: string[] }> =>
+    ipcRenderer.invoke('ai:sidebarLabels', accountId),
   aiSaveLabel: (input: {
     id?: number
     accountId: number

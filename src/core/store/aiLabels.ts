@@ -1,4 +1,5 @@
 import { getDb } from './db.js'
+import { refreshListRows } from './listRows.js'
 
 /** A label the user defined for one inbox (v22 ai_labels). */
 export interface AiLabel {
@@ -132,4 +133,25 @@ export function queueLabelBackfill(accountId: number, now = Date.now(), windowMs
     }
     return ids.length
   })()
+}
+
+/**
+ * What the sidebar's Labels section lists for an inbox: the classifier's
+ * categories that some Inbox conversation on show has ("other" says nothing,
+ * so it is left out), and every label the inbox defined, mail or not.
+ */
+export function sidebarLabels(accountId: number): { categories: string[]; labels: string[] } {
+  refreshListRows()
+  const db = getDb()
+  const categories = (
+    db
+      .prepare(
+        `SELECT DISTINCT lr.ai_category AS c FROM list_rows lr
+           JOIN folders f ON f.id = lr.folder_id AND f.role = 'inbox'
+          WHERE lr.account_id = ? AND lr.hidden = 0
+            AND lr.ai_category IS NOT NULL AND lr.ai_category <> 'other'`
+      )
+      .all(accountId) as { c: string }[]
+  ).map((r) => r.c)
+  return { categories, labels: listAiLabels(accountId).map((l) => l.name) }
 }

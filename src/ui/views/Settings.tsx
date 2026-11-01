@@ -27,9 +27,11 @@ interface Props {
   theme: Theme
   onTheme: (theme: Theme) => void
   onClose: () => void
+  /** The page Settings opens on (the sidebar's + opens AI, where labels live). */
+  initialSection?: Section
 }
 
-type Section = 'general' | 'triage' | 'shortcuts' | 'snippets' | 'ai' | 'signature'
+export type Section = 'general' | 'triage' | 'shortcuts' | 'snippets' | 'ai' | 'signature'
 
 interface SectionInfo {
   id: Section
@@ -80,7 +82,8 @@ export function Settings({
   onSignature,
   theme,
   onTheme,
-  onClose
+  onClose,
+  initialSection
 }: Props) {
   const editorRef = useRef<HTMLDivElement>(null)
   /**
@@ -96,7 +99,7 @@ export function Settings({
     (html: string) => onSignature(sigAccountRef.current, html),
     [onSignature]
   )
-  const [section, setSection] = useState<Section>('general')
+  const [section, setSection] = useState<Section>(initialSection ?? 'general')
   const [query, setQuery] = useState('')
   const [saved, setSaved] = useState(false)
   const [linkError, setLinkError] = useState<string | null>(null)

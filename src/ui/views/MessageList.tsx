@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { ChevronLeft, ChevronRight, Clock, Star } from 'lucide-react'
 import type { MessageListRow } from '../../core/store/types'
 import { formatDate, isFlagged, isUnread, recipientLabel, senderLabel } from '../format'
+import { rowChips } from '../labelChips'
 import { withDateGroups, type ListItem } from '../listGroups'
 
 const ROW_HEIGHT = 32
@@ -198,6 +199,7 @@ export function MessageList({
             const unread =
               r.thread_unread === undefined ? isUnread(r.flags) : r.thread_unread > 0
             const isChecked = checked.has(r.id)
+            const chips = rowChips(r)
             return (
               <div
                 key={r.id}
@@ -266,11 +268,11 @@ export function MessageList({
                     ? recipientLabel(r.to_addrs, senderLabel(r.from_name, r.from_addr))
                     : senderLabel(r.from_name, r.from_addr)}
                 </span>
-                {r.ai_labels && (
+                {chips.length > 0 && (
                   <span className="row-labels">
-                    {r.ai_labels.split(',').map((name) => (
-                      <span key={name} className="row-label">
-                        {name}
+                    {chips.map((c) => (
+                      <span key={c.name} className="row-label" data-tone={c.tone}>
+                        {c.name}
                       </span>
                     ))}
                   </span>

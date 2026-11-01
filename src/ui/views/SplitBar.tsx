@@ -1,6 +1,7 @@
 import { Inbox, X } from 'lucide-react'
 import type { Split } from '../../../electron/preload'
-import { CHIPS, type ChipId } from '../chips'
+import { CHIPS, chipLabel, type ChipId } from '../chips'
+import { categoryName } from '../labelChips'
 
 interface Props {
   /** Splits apply in the Inbox only; chips everywhere. */
@@ -15,11 +16,13 @@ interface Props {
 /**
  * Scape's filter row. The round button is "All" while nothing is filtered and
  * turns into × to clear once something is; then the pills. A split other than
- * All (Tab cycles them) shows as an extra active pill so it is never hidden.
+ * All (Tab cycles them) shows as an extra active pill so it is never hidden,
+ * and so does a label picked in the sidebar.
  */
 export function SplitBar({ splits, activeSplit, chip, onChip, onClear }: Props) {
   const split = splits?.find((s) => s.id === activeSplit && s.id !== 'all')
   const filtered = !!chip || !!split
+  const label = chipLabel(chip)
 
   return (
     <div className="split-bar">
@@ -39,6 +42,11 @@ export function SplitBar({ splits, activeSplit, chip, onChip, onClear }: Props) 
       {split && (
         <button type="button" className="split-pill" data-on="true" onClick={onClear} title="Split (Tab cycles)">
           {split.name}
+        </button>
+      )}
+      {label && (
+        <button type="button" className="split-pill" data-on="true" onClick={() => onChip(chip!)} title="Label (from the sidebar)">
+          {categoryName(label)}
         </button>
       )}
       {CHIPS.map((c) => (

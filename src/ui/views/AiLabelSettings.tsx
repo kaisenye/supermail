@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { AccountSummary, AiLabel } from '../../../electron/preload'
+import { AI_CATEGORY_NAMES } from '../labelChips'
 
-/** The classifier's fixed categories (src/core/ai/classify.ts AI_CATEGORIES), as the note names them. */
-const FIXED = 'Personal, Work, Billing, Notification, Marketing, Newsletter, Calendar, Support and Other'
+/** The classifier's fixed categories, as the note names them. */
+const FIXED = `${AI_CATEGORY_NAMES.slice(0, -1).join(', ')} and ${AI_CATEGORY_NAMES.at(-1)}`
 
 /** The Inbox split a label can add (Tab cycles splits); deleting the label removes it again. */
 const splitQuery = (name: string): string => `ai:"${name}"`

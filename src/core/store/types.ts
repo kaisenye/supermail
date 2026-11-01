@@ -91,6 +91,10 @@ export type MessageListRow = Pick<
   remind_at?: number
   /** The inbox's own AI labels on any message of the thread, comma-joined (v22); null for none. */
   ai_labels?: string | null
+  /** The classifier's verdict on the thread (list_rows, v21): 1 important, 0 not, null unsorted. */
+  ai_important?: number | null
+  /** The classifier's category (AI_CATEGORIES), null when unsorted. */
+  ai_category?: string | null
 }
 
 export interface UpsertMessageInput {

@@ -1,10 +1,11 @@
-import { CheckSquare, Clock, Keyboard, PenSquare, Search, Settings as SettingsIcon } from 'lucide-react'
+import { CheckSquare, Clock, Keyboard, PenSquare, Plus, Search, Settings as SettingsIcon } from 'lucide-react'
 import type { AccountSummary } from '../../../electron/preload'
 import { AccountSwitcher } from './AccountSwitcher'
 import type { Folder } from '../../core/store/types'
 import type { FolderRole } from '../../core/store/folderRoles'
 import { folderLabel } from '../format'
 import { folderIcon } from '../folderIcons'
+import type { LabelChipView } from '../labelChips'
 import { REMINDERS_VIEW_ID, SEARCH_VIEW_ID } from '../store'
 
 interface Props {
@@ -24,6 +25,13 @@ interface Props {
   tasksActive: boolean
   openTasks: number
   unread?: Record<number, number>
+  /** The Labels section: the Inbox's AI categories with mail, then the inbox's own labels. */
+  labels: LabelChipView[]
+  /** The label the list is filtered on (a sidebar pick), if any. */
+  activeLabel: string | null
+  onLabel: (name: string) => void
+  /** Settings → AI, where labels are added and edited. */
+  onManageLabels: () => void
 }
 
 /** Special-use folders first, in the order a human expects them. */
@@ -50,7 +58,11 @@ export function Sidebar({
   onCompose,
   tasksActive,
   openTasks,
-  unread
+  unread,
+  labels,
+  activeLabel,
+  onLabel,
+  onManageLabels
 }: Props) {
   // Tasks opens over the current view; while it is open nothing else in the
   // sidebar is the current page.
@@ -151,6 +163,46 @@ export function Sidebar({
           <span className="folder-name">Tasks</span>
           {openTasks > 0 && <span className="folder-count">{openTasks}</span>}
         </button>
+      </div>
+
+      {/* Scape: colour-dot labels near the bottom; each one filters the Inbox. */}
+      <div className="sidebar-labels">
+        <div className="sidebar-labels-head">
+          <span>Labels</span>
+          <button
+            type="button"
+            className="sidebar-labels-add"
+            title="Add or edit labels"
+            aria-label="Add or edit labels"
+            onClick={(e) => {
+              e.currentTarget.blur()
+              onManageLabels()
+            }}
+          >
+            <Plus size={13} strokeWidth={1.75} />
+          </button>
+        </div>
+        {labels.length === 0 ? (
+          <p className="sidebar-labels-empty">Turn on Sort new mail in Settings → AI.</p>
+        ) : (
+          <ul className="folder-list">
+            {labels.map((l) => (
+              <li key={`${l.tone}:${l.name}`}>
+                <button
+                  className="folder-item"
+                  aria-current={!tasksActive && activeLabel?.toLowerCase() === l.name.toLowerCase()}
+                  onClick={(e) => {
+                    e.currentTarget.blur()
+                    onLabel(l.name)
+                  }}
+                >
+                  <span className="label-dot" data-tone={l.tone} aria-hidden="true" />
+                  <span className="folder-name">{l.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="sidebar-footer">

@@ -168,6 +168,7 @@ const M_COLS = LIST_COLS.split(', ')
 /** What a list row selects: the newest message's columns plus the thread rollup. */
 export const LIST_ROW_COLS = `${M_COLS}, lr.msg_count AS thread_count, lr.unread_count AS thread_unread,
               lr.reminder_fired AS reminder_fired, lr.sort_date AS sort_date,
+              lr.ai_important AS ai_important, lr.ai_category AS ai_category,
               (SELECT group_concat(DISTINCT al.name) FROM ai_message_labels x
                  JOIN ai_labels al ON al.id = x.label_id
                  JOIN messages mx ON mx.account_id = x.account_id AND mx.message_id = x.message_id
