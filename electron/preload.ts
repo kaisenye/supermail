@@ -11,6 +11,7 @@ import type { AiErrorCode, AiFeature, AiProviderId } from '../src/core/services/
 import type { WriteAction } from '../src/core/ai/write.js'
 import type { ThreadInsights } from '../src/core/ai/insights.js'
 import type { AskSource } from '../src/core/ai/ask.js'
+import type { AiLabel } from '../src/core/store/aiLabels.js'
 
 export interface ScheduledSend {
   id: number
@@ -110,7 +111,7 @@ export interface DraftPayload {
   inReplyTo?: string | null
   references?: string | null
   attachments?: ComposeAttachment[]
-  /** The account it sends from (a unified-inbox reply); null = the active one. */
+  /** The account it sends from (a reply to another account's mail); null = the active one. */
   accountId?: number | null
 }
 
@@ -168,7 +169,7 @@ export interface TaskQuery {
 
 type TaskResult = { ok: true; task: Task } | { ok: false; error: string }
 
-export type { AiConfigInput, AiFeature, AiProviderId, AiStatus, AskSource, WriteAction }
+export type { AiConfigInput, AiFeature, AiLabel, AiProviderId, AiStatus, AskSource, WriteAction }
 
 /** Every AI call fails the same way; `code` tells the UI whether to point at Settings. */
 export type AiFailure = { ok: false; code: AiErrorCode; error: string }
@@ -243,12 +244,6 @@ const api = {
     ipcRenderer.invoke('contacts:search', query, limit),
   countMessages: (folderId: number, query?: string): Promise<number> =>
     ipcRenderer.invoke('messages:count', folderId, query),
-  listUnified: (limit?: number, offset?: number, query?: string): Promise<MessageListRow[]> =>
-    ipcRenderer.invoke('unified:list', limit, offset, query),
-  countUnified: (query?: string): Promise<number> => ipcRenderer.invoke('unified:count', query),
-  unifiedSplitCounts: (extraQuery?: string): Promise<Record<string, number>> =>
-    ipcRenderer.invoke('unified:splitCounts', extraQuery),
-  unifiedUnread: (): Promise<number> => ipcRenderer.invoke('unified:unread'),
   listDrafts: (limit?: number, offset?: number): Promise<MessageListRow[]> =>
     ipcRenderer.invoke('messages:listDrafts', limit, offset),
   listSnippets: (): Promise<Snippet[]> => ipcRenderer.invoke('snippets:list'),
@@ -415,6 +410,14 @@ const api = {
   > => ipcRenderer.invoke('settings:pickLogo'),
   setSettings: (patch: Record<string, string>): Promise<{ ok: true }> =>
     ipcRenderer.invoke('settings:set', patch),
+  aiLabels: (accountId: number): Promise<AiLabel[]> => ipcRenderer.invoke('ai:labels', accountId),
+  aiSaveLabel: (input: {
+    id?: number
+    accountId: number
+    name: string
+    description: string
+  }): Promise<{ ok: true; label: AiLabel } | { ok: false; error: string }> => ipcRenderer.invoke('ai:saveLabel', input),
+  aiDeleteLabel: (id: number): Promise<{ ok: true; label: AiLabel | null }> => ipcRenderer.invoke('ai:deleteLabel', id),
   aiStatus: (): Promise<AiStatus> => ipcRenderer.invoke('ai:status'),
   /** Write-only: the key goes to the vault in main and is never sent back. */
   aiSetKey: (provider: AiProviderId, key: string): Promise<AiStatusResult> =>
@@ -443,8 +446,8 @@ const api = {
   aiAsk: (question: string): Promise<{ ok: true; answer: string; sources: AskSource[] } | AiFailure> =>
     ipcRenderer.invoke('ai:ask', question),
   /** The background worker stored new verdicts or reply suggestions. */
-  onAiUpdated: (cb: (p: { kinds: ('classify' | 'replies')[] }) => void): (() => void) => {
-    const h = (_e: unknown, p: { kinds: ('classify' | 'replies')[] }): void => cb(p)
+  onAiUpdated: (cb: (p: { kinds: ('classify' | 'replies' | 'labels')[] }) => void): (() => void) => {
+    const h = (_e: unknown, p: { kinds: ('classify' | 'replies' | 'labels')[] }): void => cb(p)
     ipcRenderer.on('ai:updated', h)
     return () => ipcRenderer.off('ai:updated', h)
   },
@@ -464,7 +467,6 @@ const api = {
     ipcRenderer.invoke('compose:pickAttachments'),
   listScheduled: (): Promise<ScheduledSend[]> => ipcRenderer.invoke('compose:listScheduled'),
   runSync: (): Promise<SyncRunResult> => ipcRenderer.invoke('sync:run'),
-  runSyncAll: (): Promise<SyncRunResult> => ipcRenderer.invoke('sync:runAll'),
   /** Syncs one account by email, active or not (an IDLE push from it). */
   runSyncAccount: (email: string): Promise<SyncRunResult> => ipcRenderer.invoke('sync:runAccount', email),
   runBodySync: (): Promise<{ ok: boolean; fetched?: number; error?: string }> =>

@@ -486,16 +486,25 @@ button > svg {
   color: var(--text-secondary);
 }
 
-/* All inboxes: the account a row belongs to, quiet next to the subject. */
-.row-account {
+/* The inbox's own AI labels (Settings → AI), quiet chips before the subject. */
+.row-labels {
+  display: inline-flex;
   flex: none;
-  max-width: 140px;
+  gap: 4px;
   margin-right: var(--space-2);
+}
+
+.row-label {
+  max-width: 120px;
+  padding: 1px 7px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  border: 1px solid var(--border);
+  border-radius: 999px;
   font-size: var(--text-xs);
-  color: var(--text-tertiary);
+  line-height: 16px;
+  color: var(--text-secondary);
 }
 
 /* Message count, shown only on threads of two or more. Tabular so the digits
@@ -1192,16 +1201,12 @@ button > svg {
 
 /* Sync bar: a hairline that only appears while working. */
 /* Sync should be felt, not watched — a small ring, no full-width motion. */
+/* The mark's loading loop (.bm-load), small, at the right of the top bar. */
 .sync-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
+  display: inline-flex;
+  align-items: center;
   margin-left: var(--space-2);
-  vertical-align: -1px;
-  border: 1.5px solid var(--border-strong);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: sync-spin 0.7s linear infinite;
+  color: var(--text-secondary);
 }
 
 @keyframes sync-spin {
@@ -1212,8 +1217,6 @@ button > svg {
 
 @media (prefers-reduced-motion: reduce) {
   .sync-dot {
-    animation: none;
-    border-top-color: var(--border-strong);
     opacity: 0.6;
   }
 }
@@ -5182,30 +5185,185 @@ button.sidebar-account svg {
   color: var(--bg);
 }
 
-/* ---- account switch: the old inbox fades out before the reload, the new one fades in (accountSwitch.ts) ---- */
+/* ---- account switch: a full-window overlay with the loading mark covers the remount (Root.tsx) ---- */
 
-html[data-switching] .sidebar > *,
-html[data-switching] .main > * {
-  opacity: 0;
-  transition: opacity 140ms var(--ease-out);
+.switch-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  -webkit-app-region: drag;
 }
 
-html[data-arrived] .sidebar > *,
-html[data-arrived] .main > * {
-  animation: switch-in 260ms var(--ease-out) both;
+.switch-overlay[data-phase='in'] {
+  animation: switch-fade 200ms var(--ease-out) both;
 }
 
-@keyframes switch-in {
+.switch-overlay[data-phase='out'] {
+  animation: switch-fade-out 260ms var(--ease-out) both;
+  pointer-events: none;
+}
+
+.switch-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.switch-card svg {
+  margin-bottom: 18px;
+}
+
+.switch-overlay[data-phase='in'] .switch-card {
+  animation: switch-rise 320ms var(--ease-out) both;
+}
+
+/* The new inbox comes up as the card lifts away. */
+.switch-overlay[data-phase='out'] .switch-card {
+  animation: switch-lift 260ms var(--ease-out) both;
+}
+
+.switch-label {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  letter-spacing: 0.02em;
+}
+
+.switch-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.switch-email {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+@keyframes switch-fade {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
+@keyframes switch-fade-out {
+  to { opacity: 0; }
+}
+
+@keyframes switch-rise {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes switch-lift {
+  to { opacity: 0; transform: translateY(-4px) scale(1.02); }
+}
+
+/* The mark as a loader: the S stays half lit while a light runs along it
+   from the violet cell. --i is the cell's place on the stroke. */
+.bm-load {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bm-load 1400ms ease-in-out infinite both;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+
+@keyframes bm-load {
+  0%,
+  60%,
+  100% { opacity: 0.35; transform: scale(0.86); }
+  14%,
+  28% { opacity: 1; transform: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  html[data-switching] .sidebar > *,
-  html[data-switching] .main > *,
-  html[data-arrived] .sidebar > *,
-  html[data-arrived] .main > * {
-    transition: none;
+  .switch-overlay[data-phase],
+  .switch-overlay[data-phase] .switch-card,
+  .bm-load {
     animation: none;
   }
+}
+
+/* ---- Settings → AI → Labels (AiLabelSettings.tsx) ---- */
+
+.ai-labels {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+
+.ai-labels h3 {
+  margin: 0;
+}
+
+.ai-label-list li {
+  align-items: baseline;
+}
+
+.ai-label-list li[data-editing='true'] .row-label {
+  border-color: var(--border-strong);
+}
+
+.ai-label-desc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.ai-label-list li button + button {
+  margin-left: var(--space-2);
+}
+
+.ai-label-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ai-label-form input,
+.ai-label-form textarea {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: transparent;
+  outline: none;
+  resize: vertical;
+}
+
+.ai-label-form input:focus,
+.ai-label-form textarea:focus {
+  border-color: var(--border-strong);
+}
+
+.ai-label-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ai-label-actions button {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.ai-label-actions button[type='submit'] {
+  margin-left: auto;
+  color: var(--text-primary);
+}
+
+.ai-label-actions button:disabled {
+  opacity: 0.5;
 }

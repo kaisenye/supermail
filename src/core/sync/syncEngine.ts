@@ -47,7 +47,7 @@ export interface SyncOptions {
 
 export interface SyncProgress {
   phase: 'connect' | 'folders' | 'folder' | 'done' | 'error'
-  /** Which account; several sync at once in All inboxes. */
+  /** Which account; several can sync at once (IDLE pushes, history). */
   email?: string
   folder?: string
   /** Messages synced so far this pass, of `expected` (see SyncCounter). */

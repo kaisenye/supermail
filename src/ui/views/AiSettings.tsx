@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import type { AiFailure, AiFeature, AiProviderId, AiStatus } from '../../../electron/preload'
+import type { AccountSummary, AiFailure, AiFeature, AiProviderId, AiStatus } from '../../../electron/preload'
 import { budgetEdit, modelEdit } from '../aiSettingsInput'
+import { AiLabelSettings } from './AiLabelSettings'
 
 const PROVIDERS: { id: AiProviderId; label: string; keyHint: string }[] = [
   { id: 'anthropic', label: 'Anthropic (Claude)', keyHint: 'sk-ant-…' },
@@ -11,7 +12,7 @@ const FEATURES: { id: AiFeature; label: string }[] = [
   { id: 'write', label: 'Write with AI in compose (⌘J)' },
   { id: 'summary', label: 'One-line summary when you open a conversation' },
   { id: 'replies', label: 'Instant Reply: three suggested replies, prepared for new mail that needs one' },
-  { id: 'classify', label: 'Sort new mail into Important / Other, and show why' },
+  { id: 'classify', label: 'Sort new mail: Important / Other, a category, and your own labels below' },
   { id: 'ask', label: 'Ask AI from ⌘K (press ⇥), answered from your local mail' }
 ]
 
@@ -22,7 +23,7 @@ const shownModel = (s: AiStatus): string =>
   s.models[s.provider] === s.defaultModels[s.provider] ? '' : s.models[s.provider]
 
 /** Settings → AI. Reads and writes through window.api; the key is write-only. */
-export function AiSettings() {
+export function AiSettings({ accounts, activeAccountId }: { accounts: AccountSummary[]; activeAccountId: number | null }) {
   const [status, setStatus] = useState<AiStatus | null>(null)
   const [key, setKey] = useState('')
   const [model, setModel] = useState('')
@@ -143,6 +144,8 @@ export function AiSettings() {
           {f.label}
         </label>
       ))}
+
+      <AiLabelSettings accounts={accounts} activeAccountId={activeAccountId} classifyOn={hasKey && status.toggles.classify} />
 
       <p className="settings-note ai-privacy">
         Privacy: when a feature runs, the sender, subject and text of the messages it works on are sent from this Mac

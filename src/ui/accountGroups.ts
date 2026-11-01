@@ -1,7 +1,7 @@
 /**
  * Thread ids per owning account, first-seen order, each once. Read/unread
- * IPC takes one account per call, and in the unified view one selection can
- * span accounts whose thread ids collide.
+ * IPC takes one account per call, and search results can mix accounts
+ * whose thread ids collide.
  */
 export function threadsByAccount(
   rows: { thread_id: string | null; account_id: number }[]

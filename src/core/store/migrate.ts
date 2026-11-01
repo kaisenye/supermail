@@ -473,6 +473,32 @@ CREATE TABLE ai_usage (
 
 ALTER TABLE list_rows ADD COLUMN ai_important INTEGER;
 ALTER TABLE list_rows ADD COLUMN ai_category TEXT;
+`),
+  // v22: custom AI labels, defined per inbox in Settings → AI. The fixed
+  // categories (ai_classifications.category) stay as they are; these are only
+  // the user's own, each with a description the classifier matches mail to.
+  // - ai_labels: one row per label; name is unique per inbox, ignoring case.
+  // - ai_message_labels: the labels a message got, keyed by account + Message-ID
+  //   like ai_classifications. A message can carry several.
+  (db) =>
+    db.exec(`
+CREATE TABLE ai_labels (
+  id INTEGER PRIMARY KEY,
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  name TEXT NOT NULL COLLATE NOCASE,
+  description TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE (account_id, name)
+);
+
+CREATE TABLE ai_message_labels (
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  label_id INTEGER NOT NULL REFERENCES ai_labels(id) ON DELETE CASCADE,
+  PRIMARY KEY (account_id, message_id, label_id)
+) WITHOUT ROWID;
+
+CREATE INDEX idx_ai_message_labels_label ON ai_message_labels (label_id);
 `)
 ]
 

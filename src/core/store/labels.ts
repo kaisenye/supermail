@@ -27,7 +27,7 @@ export function gmailLabelChoices(folders: Pick<Folder, 'path' | 'role'>[]): str
 
 /**
  * The labels a selection can take: those every owning account has. Empty when
- * any of them is not Gmail. In All inboxes one selection can span accounts,
+ * any of them is not Gmail. Search results can mix accounts in one selection,
  * and offering one account's labels to another's rows would create a label
  * the user never made on that other server.
  */

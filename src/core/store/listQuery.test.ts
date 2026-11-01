@@ -61,8 +61,11 @@ describe('the split-query parser, new operators', () => {
     expect(parseQuery('-is:unread', 'list').predicates).toEqual([{ sql: 'NOT (lr.unread_count > 0)', params: [] }])
   })
 
-  it('reads ai:<category> from the list row, and only in a list', () => {
-    expect(parseQuery('ai:Billing', 'list').predicates).toEqual([{ sql: 'lr.ai_category = ?', params: ['billing'] }])
+  it('reads ai:<category> from the list row, or an own label on the thread, and only in a list', () => {
+    const [p] = parseQuery('ai:Billing', 'list').predicates
+    expect(p.sql).toContain('lr.ai_category = ?')
+    expect(p.sql).toContain('FROM ai_message_labels')
+    expect(p.params).toEqual(['billing', 'billing'])
     expect(parseQuery('ai:billing').terms).toEqual(['ai:billing'])
   })
 

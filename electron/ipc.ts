@@ -35,7 +35,6 @@ import { authUrl, createPkce, exchangeCode, primeAccessToken } from '../src/core
 import { waitForRedirect } from '../src/core/accounts/oauthFlow.js'
 import { createSyncGuard } from './syncGuard.js'
 import { startAccountWorkers, stopAccountWorkers, watchSentFolder } from './workers.js'
-import { syncAllAccounts } from './syncAll.js'
 import { runBackfillExclusive } from './backfillLock.js'
 import {
   countOpenTasks,
@@ -146,7 +145,7 @@ export function resumePendingMoves(accountId: number, config: AccountConfig): vo
 /**
  * The live account that owns a message. Handlers acting on a message must use
  * this rather than the active account: the user can switch accounts while an
- * old row is still on screen, and a unified inbox will mix accounts.
+ * old row is still on screen, and search results mix accounts.
  */
 function ownerOf(messageId: number): LiveAccount | null {
   const accountId = accountOfMessage(messageId)
@@ -266,7 +265,7 @@ interface DraftPayload {
   inReplyTo?: string | null
   references?: string | null
   attachments?: ComposeAttachment[]
-  /** The account it sends from (a unified-inbox reply); null = the active one. */
+  /** The account it sends from (a reply to another account's mail); null = the active one. */
   accountId?: number | null
 }
 
@@ -749,7 +748,7 @@ export function registerIpc(): void {
     }
   })
 
-  // A reply from the unified inbox must leave from the account that received the mail.
+  // A reply must leave from the account that received the mail (search spans accounts).
   ipcMain.handle('compose:queueSend', (_e, payload: QueueSendPayload) => {
     const a = accountFor(payload.accountId)
     if (!a) return { ok: false as const, error: 'account not found' }
@@ -808,7 +807,7 @@ export function registerIpc(): void {
   ipcMain.handle('compose:listScheduled', () => {
     const s = getBootState()
     if (!s.ok) return []
-    // Every live account: a reply from All inboxes queues under the account
+    // Every live account: a reply to a search result queues under the account
     // that received the mail, which may not be the active one.
     const emails = new Map(listAccounts().map((a) => [a.accountId, a.email]))
     return listScheduledOutbox([...emails.keys()], Date.now() + undoWindowMs(getSettings())).map(
@@ -978,13 +977,6 @@ export function registerIpc(): void {
     if (!a) return { ok: false as const, error: 'no such account' }
     return runSyncFor({ ok: true, accountId: a.accountId, email: a.email, config: a.config })
   })
-
-  // The unified inbox shows every account, so its refresh syncs every account.
-  ipcMain.handle('sync:runAll', () =>
-    syncAllAccounts(listAccounts(), (a) =>
-      runSyncFor({ ok: true, accountId: a.accountId, email: a.email, config: a.config })
-    )
-  )
 }
 
 /**

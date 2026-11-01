@@ -89,6 +89,8 @@ export type MessageListRow = Pick<
   sort_date?: number | null
   /** Set only in the Reminders view: when the reminder is due. */
   remind_at?: number
+  /** The inbox's own AI labels on any message of the thread, comma-joined (v22); null for none. */
+  ai_labels?: string | null
 }
 
 export interface UpsertMessageInput {

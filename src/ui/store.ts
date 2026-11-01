@@ -149,8 +149,6 @@ export function emptyCompose(): ComposeState {
 
 /** activeFolderId sentinel for the Reminders view, which is not an IMAP folder. */
 export const REMINDERS_VIEW_ID = -1
-/** activeFolderId sentinel for All inboxes: every account's Inbox (needs two or more accounts). */
-export const UNIFIED_VIEW_ID = -2
 /** activeFolderId sentinel for the search page. */
 export const SEARCH_VIEW_ID = -3
 

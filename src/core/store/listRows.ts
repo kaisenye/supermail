@@ -167,7 +167,12 @@ const M_COLS = LIST_COLS.split(', ')
 
 /** What a list row selects: the newest message's columns plus the thread rollup. */
 export const LIST_ROW_COLS = `${M_COLS}, lr.msg_count AS thread_count, lr.unread_count AS thread_unread,
-              lr.reminder_fired AS reminder_fired, lr.sort_date AS sort_date`
+              lr.reminder_fired AS reminder_fired, lr.sort_date AS sort_date,
+              (SELECT group_concat(DISTINCT al.name) FROM ai_message_labels x
+                 JOIN ai_labels al ON al.id = x.label_id
+                 JOIN messages mx ON mx.account_id = x.account_id AND mx.message_id = x.message_id
+                WHERE x.account_id = lr.account_id
+                  AND COALESCE(mx.thread_id, '#' || mx.id) = lr.thread_key) AS ai_labels`
 
 /** One page of a folder, newest conversation first. Hidden rows (reminders, mutes) are left out. */
 export function listView(folderId: number, opts: ListViewOptions = {}): MessageListRow[] {

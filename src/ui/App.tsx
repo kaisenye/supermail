@@ -5,7 +5,6 @@ import {
   emptyCompose,
   REMINDERS_VIEW_ID,
   SEARCH_VIEW_ID,
-  UNIFIED_VIEW_ID,
   useStore,
   type ComposeAttachment
 } from './store'
@@ -62,7 +61,7 @@ import { namedAddress, replyAllCc } from './intro'
 import { applyTheme, isTheme, type Theme } from './theme'
 import { syncBar, trackSync, type SyncCounts } from './syncBar'
 import { composeInline as isInlineCompose } from './composePlace'
-import { SWITCHED_KEY, SWITCH_OUT_MS } from './accountSwitch'
+import type { SwitchTarget } from './accountSwitch'
 import {
   back,
   backOutOf,
@@ -122,7 +121,14 @@ function forwardSubject(subject: string | null): string {
   return /^fwd?:/i.test(s) ? s : `Fwd: ${s}`
 }
 
-export default function App() {
+interface AppProps {
+  /** Root switches the account and remounts App for it (see Root.tsx). */
+  onSwitchAccount: (accountId: number, target: SwitchTarget) => void
+  /** The first list has painted from SQLite, or there was none to paint. */
+  onPainted: () => void
+}
+
+export default function App({ onSwitchAccount, onPainted }: AppProps) {
   const {
     email,
     bootError,
@@ -194,8 +200,7 @@ export default function App() {
   }, [paletteOpen])
 
   const refreshUnread = useCallback(async () => {
-    // All inboxes keeps its total under its sentinel, next to the folder ids.
-    setUnread({ ...(await window.api.unreadCounts()), [UNIFIED_VIEW_ID]: await window.api.unifiedUnread() })
+    setUnread(await window.api.unreadCounts())
   }, [setUnread])
 
   /** Offers `run` as the undo for `holdMs`, the window main is holding the action for. */
@@ -254,24 +259,17 @@ export default function App() {
     }
   }, [reauthEmail, accounts, setSyncError])
   /**
-   * Reload rather than refetch: folders, rows, counts, unread and any open
-   * thread all belong to the old account, and a reload cannot leave one stale.
+   * Root remounts App with a fresh store for the new account: folders, rows,
+   * counts, unread and any open thread all belong to the old one, and a new
+   * mount cannot leave one stale. No window reload, so nothing flashes.
    */
-  const switchAccount = useCallback(async (accountId: number) => {
-    const res = await window.api.accountSetActive(accountId)
-    if (!res.ok) return
-    // Fade the old inbox out before the reload; main.tsx fades the new one in.
-    try {
-      sessionStorage.setItem(SWITCHED_KEY, '1')
-    } catch {
-      // Only the fade-in is lost.
-    }
-    document.documentElement.dataset.switching = ''
-    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      await new Promise((r) => setTimeout(r, SWITCH_OUT_MS))
-    }
-    window.location.reload()
-  }, [])
+  const switchAccount = useCallback(
+    (accountId: number) => {
+      const acct = accounts.find((a) => a.accountId === accountId)
+      onSwitchAccount(accountId, { email: acct?.email ?? '', name: acct?.name ?? null })
+    },
+    [accounts, onSwitchAccount]
+  )
 
   /** ⌃1–⌃9: the nth account in sidebar order. */
   const switchToAccountAt = useCallback(
@@ -359,8 +357,7 @@ export default function App() {
   const [splits, setSplits] = useState<Split[]>([])
   const splitsRef = useRef<Split[]>([])
   const isInbox = useCallback(
-    (fid: number | null) =>
-      fid === UNIFIED_VIEW_ID || useStore.getState().folders.find((f) => f.id === fid)?.role === 'inbox',
+    (fid: number | null) => useStore.getState().folders.find((f) => f.id === fid)?.role === 'inbox',
     []
   )
   /** What the list on screen shows: the split (Inbox only) ANDed with the chip. */
@@ -381,7 +378,6 @@ export default function App() {
       // Reminders is one local list, not an IMAP folder: no pages, no server.
       if (folderId === REMINDERS_VIEW_ID) return page === 0 ? window.api.listReminders() : []
       const offset = page * PAGE_SIZE
-      if (folderId === UNIFIED_VIEW_ID) return window.api.listUnified(PAGE_SIZE, offset, currentQuery(folderId))
       return isDraftsFolder(folderId)
         ? window.api.listDrafts(PAGE_SIZE, offset)
         : window.api.listMessages(folderId, PAGE_SIZE, offset, currentQuery(folderId))
@@ -409,15 +405,16 @@ export default function App() {
       const total =
         folderId === REMINDERS_VIEW_ID || folderId === SEARCH_VIEW_ID
           ? rows.length
-          : folderId === UNIFIED_VIEW_ID
-            ? await window.api.countUnified(currentQuery(folderId))
-            : await window.api.countMessages(folderId, currentQuery(folderId))
+          : await window.api.countMessages(folderId, currentQuery(folderId))
       // Emptying a later page (select all, Done) steps back to the last page
       // that still has mail, rather than showing an empty list over a full one.
       if (!rows.length && page > 0 && total > 0) {
         page = Math.min(page, Math.ceil(total / PAGE_SIZE) - 1)
         rows = await fetchPage(folderId, page)
       }
+      // The user moved on (another folder, or another account's fresh mount)
+      // while this read was in flight: its rows are not the list on screen.
+      if (useStore.getState().activeFolderId !== folderId) return
       // keepPage means a refresh under the user (sync, new mail): keep the
       // selection. Only a real folder or page change resets it.
       if (keepPage) setRows(rows)
@@ -536,7 +533,7 @@ export default function App() {
     // No check of `syncing`: main skips an overlapping pass and runs one more
     // after it, so a push during a sync still lands promptly.
     if (!before.email) return
-    const res = await (before.activeFolderId === UNIFIED_VIEW_ID ? window.api.runSyncAll() : window.api.runSync())
+    const res = await window.api.runSync()
     const after = useStore.getState()
     if (res.ok) {
       // Timer/focus overlapped an in-flight sync — not a failure.
@@ -574,7 +571,7 @@ export default function App() {
     // A push from another account syncs that account; runSync would only
     // sync the one on screen and leave this mail for the 60 s poll.
     const offNewMail = window.api.onNewMail((email) => {
-      if (!email || pushSyncTarget(email, useStore.getState(), UNIFIED_VIEW_ID) === 'view') {
+      if (!email || pushSyncTarget(email, useStore.getState()) === 'view') {
         void backgroundSync()
         return
       }
@@ -607,9 +604,9 @@ export default function App() {
       const id = useStore.getState().activeFolderId
       if (id) void loadRows(id, true)
     })
-    // New verdicts move threads between Important and Other.
+    // New verdicts move threads between Important and Other, and put label chips on rows.
     const offAi = window.api.onAiUpdated((p) => {
-      if (!p.kinds.includes('classify')) return
+      if (!p.kinds.includes('classify') && !p.kinds.includes('labels')) return
       const id = useStore.getState().activeFolderId
       if (id) void loadRows(id, true)
     })
@@ -656,7 +653,7 @@ export default function App() {
   const workspaceRef = useRef<Workspace | null>(null)
   const threadRef = useRef<ThreadHandle>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  /** The account whose tabs these are, fixed at boot: a switch reloads the window. */
+  /** The account whose tabs these are, fixed at boot: a switch remounts App (Root.tsx). */
   const workspaceAccount = useRef<number | null>(null)
   const commitWorkspace = useCallback((ws: Workspace) => {
     workspaceRef.current = ws
@@ -805,7 +802,10 @@ export default function App() {
       // subscribes to the reauth event, so boot status carries it too.
       const stale = status.accounts?.find((a) => a.needsReauth)
       if (stale) setReauthEmail(stale.email)
-      if (!status.ok) return
+      if (!status.ok) {
+        onPainted()
+        return
+      }
 
       const cached = await window.api.listFolders()
       if (cancelled) return
@@ -815,7 +815,8 @@ export default function App() {
         if (inbox) {
           const fallback: View = { folderId: inbox.id, splitId: 'all', chip: null, thread: null }
           const ids = new Set(cached.map((f) => f.id))
-          const special = [REMINDERS_VIEW_ID, SEARCH_VIEW_ID, ...((status.accounts?.length ?? 0) > 1 ? [UNIFIED_VIEW_ID] : [])]
+          // A tab saved on All inboxes (since removed) falls back to the Inbox.
+          const special = [REMINDERS_VIEW_ID, SEARCH_VIEW_ID]
           const saved = savedWorkspace(await window.api.getSettings(), workspaceAccount.current)
           if (cancelled) return
           const ws = restoreWorkspace(saved, (v) => ids.has(v.folderId) || special.includes(v.folderId), fallback)
@@ -823,6 +824,8 @@ export default function App() {
           await applyView(currentView(ws))
         }
       }
+      if (cancelled) return
+      onPainted()
 
       setSync(true)
       setSyncError(null)
@@ -839,7 +842,7 @@ export default function App() {
       setFolders(fresh)
       // Keep whatever folder the user navigated to while the first sync ran —
       // jumping back to INBOX afterwards looks like the app forgot.
-      // Reminders and All inboxes (say, a restored tab) are views, not folders: a sync keeps them.
+      // Reminders and Search (say, a restored tab) are views, not folders: a sync keeps them.
       const current = useStore.getState().activeFolderId
       const stillExists = Boolean(current && (current < 0 || fresh.some((f) => f.id === current)))
       const targetId = stillExists ? current! : (fresh.find((f) => f.role === 'inbox') ?? fresh[0])?.id
@@ -858,7 +861,7 @@ export default function App() {
       off()
       offBody()
     }
-  }, [setBoot, setFolders, setActiveFolder, setSync, loadRows, commitWorkspace, applyView])
+  }, [setBoot, setFolders, setActiveFolder, setSync, loadRows, commitWorkspace, applyView, onPainted])
 
   /** Reopen a draft in compose with its stored content. */
   const openDraft = useCallback(
@@ -994,7 +997,7 @@ export default function App() {
    */
   const setThreadsRead = useCallback(
     async (read: boolean) => {
-      // All inboxes can mix accounts in one selection, and thread ids collide
+      // Search results can mix accounts in one selection, and thread ids collide
       // across accounts, so each call names the account that owns its rows.
       const groups = threadsByAccount(targetRows())
       if (!groups.size) return
@@ -1287,8 +1290,8 @@ export default function App() {
       const sourceId = replySourceId(ot.messageId, prefill)
       const msg = await window.api.getMessage(sourceId)
       if (!msg) return
-      // Reply all leaves out the address that received the mail, which in
-      // All inboxes need not be the active account's.
+      // Reply all leaves out the address that received the mail, which for a
+      // search result need not be the active account's.
       const me = accounts.find((a) => a.accountId === msg.account_id)?.email ?? activeEmail
       const from = msg.from_addr ?? ''
       const to = namedAddress(msg.from_name, from)
@@ -1431,9 +1434,6 @@ export default function App() {
         'nav.up': () => moveSelection(-1),
         'nav.open': openSelected,
         'go.inbox': () => gotoFolder('inbox'),
-        'go.unified': () => {
-          if (accounts.length > 1) void onFolder(UNIFIED_VIEW_ID)
-        },
         'go.sent': () => gotoFolder('sent'),
         'go.drafts': () => gotoFolder('drafts'),
         'go.trash': () => gotoFolder('trash'),
@@ -1503,7 +1503,6 @@ export default function App() {
         },
         'triage.zero': () => {
           const fid = useStore.getState().activeFolderId
-          if (fid === UNIFIED_VIEW_ID) return setActionError('Get me to zero works on one account’s Inbox')
           if (fid && isInbox(fid)) setOverlay({ kind: 'zero', folderId: fid })
           else setActionError('Get me to zero works on the Inbox')
         },
@@ -1744,7 +1743,6 @@ export default function App() {
 
   const viewLabel = (v: View): string => {
     if (v.thread) return rows.find((r) => r.id === v.thread!.messageId)?.subject || 'Conversation'
-    if (v.folderId === UNIFIED_VIEW_ID) return 'All inboxes'
     if (v.folderId === REMINDERS_VIEW_ID) return 'Reminders'
     if (v.folderId === SEARCH_VIEW_ID) return v.query ? `Search: ${v.query}` : 'Search'
     const f = folders.find((x) => x.id === v.folderId)
@@ -1825,7 +1823,6 @@ export default function App() {
         tasksActive={tasksOpen}
         openTasks={openTasks}
         unread={unread}
-        showUnified={accounts.length > 1}
       />
       <main className="main">
         {workspace && (
@@ -1943,9 +1940,9 @@ export default function App() {
                 </button>
               </div>
             )}
-            {((active && active.role !== 'drafts') || activeFolderId === UNIFIED_VIEW_ID) && (
+            {active && active.role !== 'drafts' && (
               <SplitBar
-                splits={active?.role === 'inbox' || activeFolderId === UNIFIED_VIEW_ID ? splits : null}
+                splits={active.role === 'inbox' ? splits : null}
                 activeSplit={splitId}
                 chip={chip}
                 onChip={toggleChip}
@@ -1988,18 +1985,15 @@ export default function App() {
                 emptySub={
                   syncError
                     ? 'Check your connection and try again.'
-                    : chip || ((active?.role === 'inbox' || activeFolderId === UNIFIED_VIEW_ID) && splitId !== 'all')
+                    : chip || (active?.role === 'inbox' && splitId !== 'all')
                       ? 'Nothing matches this view'
-                      : activeFolderId === UNIFIED_VIEW_ID
-                        ? 'Every inbox is empty'
-                        : active
-                          ? `${folderLabel(active)} is empty`
-                          : ''
+                      : active
+                        ? `${folderLabel(active)} is empty`
+                        : ''
                 }
                 emptyNode={
                   isInboxZero({
-                    plainInbox:
-                      (active?.role === 'inbox' || activeFolderId === UNIFIED_VIEW_ID) && splitId === 'all' && !chip,
+                    plainInbox: active?.role === 'inbox' && splitId === 'all' && !chip,
                     total: totalRows,
                     hasSyncedOnce,
                     syncError
@@ -2010,11 +2004,6 @@ export default function App() {
                 // Reminders sorts by due time, not received date, so date
                 // headers there would be out of order.
                 groupByDate={groupByDate && activeFolderId !== REMINDERS_VIEW_ID}
-                accountLabel={
-                  activeFolderId === UNIFIED_VIEW_ID
-                    ? (id) => accounts.find((a) => a.accountId === id)?.email
-                    : undefined
-                }
                 rows={rows}
                 selectedIndex={selectedIndex}
                 checkedIds={checkedIds}

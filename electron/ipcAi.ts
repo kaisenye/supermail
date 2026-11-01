@@ -9,6 +9,7 @@ import { clearAiKey, saveAiKey } from '../src/core/services/ai/keys.js'
 import type { AiConfigInput } from '../src/core/services/ai/settings.js'
 import { AiError, type AiProviderId } from '../src/core/services/ai/types.js'
 import { clearClassifications } from '../src/core/store/ai.js'
+import { clearMessageLabels, deleteAiLabel, listAiLabels, queueLabelBackfill, saveAiLabel } from '../src/core/store/aiLabels.js'
 import { getMessage, getSettings, getThread, setSetting } from '../src/core/store/repo.js'
 import { ensureBody } from '../src/core/sync/fetchBody.js'
 import { aiFail, aiWrite, createAiHandlers, type AiWriteInput } from './aiHandlers.js'
@@ -39,7 +40,10 @@ export function registerAiIpc(): void {
     setSetting,
     saveKey: saveAiKey,
     clearKey: clearAiKey,
-    clearClassifications: () => void clearClassifications()
+    clearClassifications: () => {
+      clearClassifications()
+      clearMessageLabels()
+    }
   })
   ipcMain.handle('ai:status', () => getAi().status())
   // A new key or new settings (a raised budget, another provider) may fix what
@@ -54,6 +58,24 @@ export function registerAiIpc(): void {
   ipcMain.handle('ai:write', (_e, input: AiWriteInput) =>
     aiWrite({ ai: getAi(), message: getMessage, thread: getThread, displayName: displayNameFor }, input)
   )
+
+  // An inbox's own labels (Settings → AI). Saving one re-sorts that inbox's
+  // last 14 days in the background, when the classifier is on.
+  ipcMain.handle('ai:labels', (_e, accountId: number) => listAiLabels(accountId))
+  ipcMain.handle('ai:saveLabel', (_e, input: { id?: number; accountId: number; name: string; description: string }) => {
+    try {
+      if (!getAccount(input.accountId)) throw new Error('No such inbox')
+      const label = saveAiLabel(input)
+      if (getAi().status().features.classify) queueLabelBackfill(input.accountId)
+      return { ok: true as const, label }
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+  ipcMain.handle('ai:deleteLabel', (_e, id: number) => {
+    const label = deleteAiLabel(id)
+    return { ok: true as const, label }
+  })
 
   // Store reads only: never calls a provider. No account (-1) reads as "nothing stored".
   ipcMain.handle('ai:insights', (_e, threadId: string, accountId?: number) => {

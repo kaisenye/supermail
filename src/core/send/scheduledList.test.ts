@@ -15,7 +15,7 @@ const queue = (account_id: number, send_at: number, subject: string): number =>
   enqueueOutbox({ account_id, draft_message_id: null, to_addrs: 'r@x.test', subject, send_at }).id
 
 describe('scheduled sends across accounts', () => {
-  it('lists a send queued under a non-active account (reply from All inboxes)', () => {
+  it('lists a send queued under a non-active account (a reply to a search result)', () => {
     queue(1, 5000, 'from A')
     queue(2, 3000, 'from B')
     const rows = listScheduledOutbox([1, 2], 1000)

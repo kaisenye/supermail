@@ -32,8 +32,6 @@ interface Props {
   showRecipient?: boolean
   /** Date headers (Today, Yesterday, …) between runs of rows. */
   groupByDate?: boolean
-  /** All inboxes: which account a row belongs to. */
-  accountLabel?: (accountId: number) => string | undefined
 }
 
 export function MessageList({
@@ -54,7 +52,6 @@ export function MessageList({
   emptyNode,
   showRecipient = false,
   groupByDate = false,
-  accountLabel
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   /** Set by a shift-click so the change that follows it is ignored. */
@@ -269,7 +266,15 @@ export function MessageList({
                     ? recipientLabel(r.to_addrs, senderLabel(r.from_name, r.from_addr))
                     : senderLabel(r.from_name, r.from_addr)}
                 </span>
-                {accountLabel && <span className="row-account">{accountLabel(r.account_id)}</span>}
+                {r.ai_labels && (
+                  <span className="row-labels">
+                    {r.ai_labels.split(',').map((name) => (
+                      <span key={name} className="row-label">
+                        {name}
+                      </span>
+                    ))}
+                  </span>
+                )}
                 <span className="row-subject">
                   {r.subject || '(no subject)'}
                   {(r.thread_count ?? 1) > 1 && (

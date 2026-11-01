@@ -138,8 +138,18 @@ function operatorPred(field: string, value: string, ctx: QueryContext): Pred | n
                      WHERE ml.message_id = m.id AND l.account_id = m.account_id AND lower(l.name) = ?)`,
       params: [v]
     }
-  // The classifier's category (Phase 4). List context only: it reads list_rows.
-  if (field === 'ai' && ctx === 'list') return { sql: 'lr.ai_category = ?', params: [v] }
+  // The classifier's category (Phase 4), or one of the inbox's own labels
+  // (v22) on any message of the thread. List context only: it reads list_rows.
+  if (field === 'ai' && ctx === 'list')
+    return {
+      sql: `(lr.ai_category = ? OR EXISTS (
+              SELECT 1 FROM ai_message_labels x
+                JOIN ai_labels al ON al.id = x.label_id
+                JOIN messages mx ON mx.account_id = x.account_id AND mx.message_id = x.message_id
+               WHERE x.account_id = lr.account_id AND al.name = ?
+                 AND COALESCE(mx.thread_id, '#' || mx.id) = lr.thread_key))`,
+      params: [v, v]
+    }
   if (field === 'before' || field === 'after') {
     const t = parseDay(value)
     if (t === null) return null

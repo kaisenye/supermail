@@ -93,7 +93,7 @@ export function setSummary(messageRowId: number, summary: string | null): void {
 
 // ---- background jobs ----
 
-export type AiJobKind = 'classify' | 'replies'
+export type AiJobKind = 'classify' | 'replies' | 'labels'
 export type AiJobStatus = 'pending' | 'done' | 'skipped' | 'expired' | 'failed'
 
 export interface AiJob {

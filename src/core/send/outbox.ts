@@ -127,8 +127,8 @@ export function listPendingOutbox(accountId: number): OutboxRow[] {
 
 /**
  * Scheduled sends still waiting, across every listed account, soonest first.
- * A reply from the unified inbox queues under the account that received the
- * mail, so the scheduled list must not stop at the active account.
+ * A reply queues under the account that received the mail (a search result
+ * can be another account's), so the scheduled list must not stop at the active account.
  * Rows due at or before `after` (still inside the undo window) are left out.
  */
 export function listScheduledOutbox(accountIds: number[], after: number): OutboxRow[] {

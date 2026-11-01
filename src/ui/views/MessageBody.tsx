@@ -145,11 +145,13 @@ export function MessageBody({ messageId, onLoaded, activeLink }: Props) {
          * (the frame cannot reach window.api, our storage, or this document).
          * Height is measured by a hidden host-side probe.
          *
-         * top-navigation-by-user-activation lets a clicked link ask to
-         * navigate; main refuses and opens it in the real browser instead.
-         * Without it the click is silently inert.
+         * The sanitiser gives every link target="_blank", which a sandbox
+         * blocks silently unless allow-popups is set; main's window-open
+         * handler then denies the window and opens the link in the real
+         * browser. top-navigation-by-user-activation covers a link that
+         * targets _top the same way (will-navigate).
          */
-        sandbox="allow-top-navigation-by-user-activation"
+        sandbox="allow-popups allow-top-navigation-by-user-activation"
         srcDoc={doc.srcDoc}
         title="Message body"
       />

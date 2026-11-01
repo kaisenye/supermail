@@ -5,13 +5,6 @@ import { listFolders, searchMessages } from '../src/core/store/repo.js'
 import { mergeByDate } from '../src/core/store/searchAll.js'
 import { deleteSnippet, listSnippets, saveSnippet } from '../src/core/store/snippets.js'
 import { searchTasks } from '../src/core/store/tasks.js'
-import {
-  countUnified,
-  inboxScopes,
-  listUnified,
-  unifiedSplitCounts,
-  unifiedUnread
-} from '../src/core/store/unified.js'
 import { shouldSyncFolder } from '../src/core/sync/folderFilter.js'
 import { getPool } from '../src/core/sync/pool.js'
 import { gmailRawQuery } from '../src/core/sync/serverSearch.js'
@@ -19,21 +12,11 @@ import { serverSearchFolder } from '../src/core/sync/syncEngine.js'
 import { heldSourceUids } from './ipc.js'
 import { getBootState, listAccounts } from './state.js'
 
-/** Every connected account's Inbox, in sidebar order. */
-const scopes = () => inboxScopes(listAccounts().map((a) => a.accountId))
-
 /**
- * Phase 3 handlers (unified inbox, snippets, search page, contact pane). Kept
+ * Phase 3 handlers (snippets, search page, contact pane). Kept
  * out of ipc.ts, which owns sync, compose and the move hold.
  */
 export function registerPowerIpc(): void {
-  ipcMain.handle('unified:list', (_e, limit = 50, offset = 0, query = '') =>
-    listUnified(scopes(), { limit, offset, query })
-  )
-  ipcMain.handle('unified:count', (_e, query = '') => countUnified(scopes(), { query }))
-  ipcMain.handle('unified:splitCounts', (_e, extraQuery = '') => unifiedSplitCounts(scopes(), extraQuery))
-  ipcMain.handle('unified:unread', () => unifiedUnread(scopes()))
-
   ipcMain.handle('snippets:list', () => listSnippets())
   ipcMain.handle('snippets:save', (_e, input: { id?: number; name: string; shortcut?: string | null; body: string }) => {
     try {

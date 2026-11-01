@@ -1,5 +1,6 @@
 import type { MouseEvent } from 'react'
 import { ArrowLeft, ArrowRight, Plus, X } from 'lucide-react'
+import { BrandMark } from './BrandMark'
 
 interface Props {
   tabs: { id: number; label: string }[]
@@ -13,7 +14,7 @@ interface Props {
   onForward: () => void
   /** A first sync or a large catch-up; null hides it. */
   progress?: { done: number; expected: number; pct: number } | null
-  /** An ordinary sync: a quiet spinner, detail on hover. */
+  /** An ordinary sync: the mark's loading loop, detail on hover. */
   syncing?: boolean
   syncLabel?: string | null
 }
@@ -56,7 +57,11 @@ export function TabBar({ tabs, active, canBack, canForward, onSelect, onClose, o
       {progress ? (
         <SyncProgress {...progress} />
       ) : (
-        syncing && <span className="sync-dot" role="status" aria-label="Syncing" title={syncLabel ?? 'Syncing…'} />
+        syncing && (
+          <span className="sync-dot" role="status" title={syncLabel ?? 'Syncing…'}>
+            <BrandMark size={18} loading label="Syncing" />
+          </span>
+        )
       )}
     </div>
   )

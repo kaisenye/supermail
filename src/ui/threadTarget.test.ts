@@ -26,7 +26,7 @@ describe('openThreadTarget', () => {
   })
 
   it("matches the thread id only within the open thread's account", () => {
-    // All inboxes: the same mailing-list thread shows once per account. A new
+    // Search: the same mailing-list thread shows once per account. A new
     // reply replaced the open row's newest id, so only the thread id is left.
     const rows = [row(50, 't-open', 1), row(60, 't-open', 2), row(5, 't-a', 2)]
     expect(openThreadTarget(rows, { ...ot, accountId: 2 })).toEqual({ index: 1, ids: [60] })

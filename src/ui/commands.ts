@@ -38,7 +38,6 @@ export type CommandId =
   | 'nav.up'
   | 'nav.open'
   | 'go.inbox'
-  | 'go.unified'
   | 'go.sent'
   | 'go.drafts'
   | 'go.trash'
@@ -176,7 +175,6 @@ export const COMMANDS: Command[] = [
   { id: 'nav.up', title: 'Move up', group: 'Navigation', keys: [{ kind: 'key', key: 'k', modes: ['list'] }] },
   { id: 'nav.open', title: 'Open message', group: 'Navigation', keys: [{ kind: 'key', key: 'Enter', modes: ['list'] }] },
   { id: 'go.inbox', title: 'Go to Inbox', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'i'], modes: ['list'] }] },
-  { id: 'go.unified', title: 'Go to All inboxes', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'a'], modes: ['list'] }] },
   { id: 'go.sent', title: 'Go to Sent', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 's'], modes: ['list'] }] },
   { id: 'go.drafts', title: 'Go to Drafts', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 'd'], modes: ['list'] }] },
   { id: 'go.trash', title: 'Go to Trash', group: 'Navigation', palette: true, keys: [{ kind: 'seq', keys: ['g', 't'], modes: ['list'] }] },

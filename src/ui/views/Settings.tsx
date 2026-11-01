@@ -402,7 +402,7 @@ export function Settings({
 
           {section === 'snippets' && <SnippetSettings />}
 
-          {section === 'ai' && <AiSettings />}
+          {section === 'ai' && <AiSettings accounts={accounts} activeAccountId={activeAccountId} />}
 
           {section === 'signature' && (
           <>

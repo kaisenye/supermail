@@ -223,10 +223,6 @@ describe('command registry', () => {
     expect(buildSequences('thread', h)).toEqual({})
   })
 
-  it('binds g a to the unified inbox', () => {
-    expect(Object.keys(buildSequences('list', { 'go.unified': () => {} }).g ?? {})).toEqual(['a'])
-  })
-
   it('lists palette commands with their shortcut as a hint', () => {
     const actions = buildPaletteActions('modal', { 'go.inbox': () => {}, 'nav.down': () => {} })
     expect(actions.map((a) => [a.id, a.hint])).toEqual([['go.inbox', 'g i']])

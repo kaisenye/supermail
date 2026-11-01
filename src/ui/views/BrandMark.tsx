@@ -13,15 +13,21 @@ const STROKE = ['0,3', '0,2', '0,1', '1,0', '2,1', '2,2', '3,3', '4,2', '4,1', '
 /**
  * `animate` draws it in: the faint grid settles first, then the S lights cell
  * by cell along its stroke (CSS `.bm-cell`, delays in `--d`).
+ * `loading` loops instead: a light runs along the stroke and fades
+ * (CSS `.bm-load`, position in `--i`). It wins over `animate`.
  */
 export function BrandMark({
   className,
   size = 44,
-  animate = false
+  animate = false,
+  loading = false,
+  label = 'Sovo'
 }: {
   className?: string
   size?: number
   animate?: boolean
+  loading?: boolean
+  label?: string
 }) {
   return (
     <svg
@@ -30,7 +36,7 @@ export function BrandMark({
       height={size}
       viewBox="22 18 56 64"
       role="img"
-      aria-label="Sovo"
+      aria-label={label}
     >
       {CELLS.map(([r, c]) => {
         const key = `${r},${c}`
@@ -44,11 +50,17 @@ export function BrandMark({
             rx={2.5}
             fill={key === ACCENT ? '#8B7CF6' : 'currentColor'}
             opacity={ON.has(key) ? 1 : 0.14}
-            className={animate ? (ON.has(key) ? 'bm-cell bm-on' : 'bm-cell') : undefined}
+            className={
+              loading ? (ON.has(key) ? 'bm-load' : undefined) : animate ? (ON.has(key) ? 'bm-cell bm-on' : 'bm-cell') : undefined
+            }
             style={
-              animate
-                ? ({ '--d': `${ON.has(key) ? 260 + STROKE.indexOf(key) * 55 : (r + c) * 25}ms` } as React.CSSProperties)
-                : undefined
+              loading
+                ? ON.has(key)
+                  ? ({ '--i': STROKE.indexOf(key) } as React.CSSProperties)
+                  : undefined
+                : animate
+                  ? ({ '--d': `${ON.has(key) ? 260 + STROKE.indexOf(key) * 55 : (r + c) * 25}ms` } as React.CSSProperties)
+                  : undefined
             }
           />
         )

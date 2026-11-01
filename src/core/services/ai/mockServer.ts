@@ -49,7 +49,17 @@ export function mockAnswer(body: Record<string, unknown>): string {
   )
   if (schema.includes('"important"')) return JSON.stringify(MOCK_CLASSIFICATION)
   if (schema.includes('"options"')) return JSON.stringify(MOCK_REPLIES)
+  if (schema.includes('"labels"')) return JSON.stringify({ labels: mockLabels(body, schema) })
   return MOCK_TEXT
+}
+
+/** Custom labels (labels.ts): every label whose name appears in the subject or message, so QA can predict them. */
+function mockLabels(body: Record<string, unknown>, schema: string): string[] {
+  const names = (pick(JSON.parse(schema), 'properties', 'labels', 'items', 'enum') as string[] | undefined) ?? []
+  const raw = JSON.stringify(body)
+  // Past the label list: the mail itself starts at its From: line.
+  const mail = raw.slice(raw.lastIndexOf('From: ')).toLowerCase()
+  return names.filter((n) => mail.includes(n.toLowerCase()))
 }
 
 function send(res: ServerResponse, status: number, body: unknown): void {

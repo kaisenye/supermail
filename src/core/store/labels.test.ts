@@ -66,7 +66,7 @@ describe('Gmail label mapping', () => {
   })
 })
 
-describe('labels across accounts (All inboxes)', () => {
+describe('labels across accounts (search results)', () => {
   beforeEach(() => {
     const db = getDb()
     db.prepare("INSERT INTO accounts (id,email) VALUES (2,'other@gmail.com'), (3,'me@exmail.test')").run()

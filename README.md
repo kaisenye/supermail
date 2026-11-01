@@ -174,7 +174,7 @@ Contributor and agent notes: [`CLAUDE.md`](./CLAUDE.md).
 | `⌃1`–`⌃9` | Switch account |
 | `⌘↵` · `⌘⇧↵` · `⌘⇧L` | Send · send + done · send later (in compose) |
 | `⌘;` | Insert a snippet (in compose) |
-| `g` then `i` `a` `s` `t` `d` `j` `e` `h` | Inbox · all inboxes · sent · trash · drafts · junk · done · reminders |
+| `g` then `i` `s` `t` `d` `j` `e` `h` | Inbox · sent · trash · drafts · junk · done · reminders |
 | `⌘,` | Settings |
 | `Esc` | Close · clear selection · back |
 

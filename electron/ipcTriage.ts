@@ -162,7 +162,7 @@ export function registerTriageIpc(): void {
   })
 
   // The labels every account owning these rows shares, not the active account's:
-  // All inboxes mixes accounts in one list.
+  // search results mix accounts in one list.
   ipcMain.handle('labels:choices', (_e, ids: number[]) =>
     sharedLabelChoices(groupByAccount(ids).keys(), isGmailAccount)
   )

@@ -1,15 +1,24 @@
 import type { Ai } from '../services/ai/service.js'
 import { readAiSettings } from '../services/ai/settings.js'
 import { AiError, type AiErrorCode } from '../services/ai/types.js'
+import { listAiLabels } from '../store/aiLabels.js'
 import { dueAiJobs, enqueueAiJob, expireAiJobs, finishAiJob, pruneAiJobs, retryAiJob, type AiJob, type AiJobKind } from '../store/ai.js'
 import { refreshListRows } from '../store/listRows.js'
 import { getSettings } from '../store/repo.js'
 import { classifyMessage } from './classify.js'
+import { labelMessage, labelsEligible } from './labels.js'
 import { candidate, classifyEligible, FRESH_MS, inboxCopyOf, repliesEligible } from './eligibility.js'
 import { suggestRepliesOnce } from './replies.js'
 
 /** Background features, in the order a message is worked on. */
-export const BACKGROUND_KINDS: AiJobKind[] = ['classify', 'replies']
+export const BACKGROUND_KINDS: AiJobKind[] = ['classify', 'replies', 'labels']
+
+/** The settings switch each job kind runs under: custom labels go with the classifier. */
+export const KIND_FEATURE: Record<AiJobKind, 'classify' | 'replies'> = {
+  classify: 'classify',
+  replies: 'replies',
+  labels: 'classify'
+}
 
 const WEEK_MS = 7 * 24 * 3600_000
 /** These stop the whole run and leave the job pending: nothing else would succeed either. */
@@ -21,11 +30,15 @@ const STOPPERS = new Set<AiErrorCode>(['budget', 'no-key', 'auth', 'rate'])
  */
 export function enqueueForMessage(messageRowId: number, now = Date.now()): AiJobKind[] {
   const s = readAiSettings(getSettings())
-  const kinds = BACKGROUND_KINDS.filter((k) => s.toggles[k])
+  const kinds = BACKGROUND_KINDS.filter((k) => s.toggles[KIND_FEATURE[k]])
   if (!kinds.length) return []
   const c = candidate(messageRowId)
-  if (!c?.message_id || !classifyEligible(c, now)) return []
-  return kinds.filter((k) => enqueueAiJob(c.account_id, c.message_id as string, k, now))
+  if (!c?.message_id) return []
+  // The fixed categories and replies skip bulk mail; an inbox's own labels
+  // (if it has any) look at bulk mail too.
+  const ok = (k: AiJobKind): boolean =>
+    k === 'labels' ? labelsEligible(c, now) && listAiLabels(c.account_id).length > 0 : classifyEligible(c, now)
+  return kinds.filter((k) => ok(k) && enqueueAiJob(c.account_id, c.message_id as string, k, now))
 }
 
 export interface QueueDeps {
@@ -50,6 +63,11 @@ const HANDLERS: Record<AiJobKind, Handler> = {
     if (!c || !repliesEligible(c, now, { fresh: true })) return false
     await suggestRepliesOnce(deps.ai, rowId, { background: true })
     return true
+  },
+  labels: async (deps, rowId, now) => {
+    const c = candidate(rowId)
+    if (!c || !labelsEligible(c, now)) return false
+    return labelMessage(deps.ai, rowId)
   }
 }
 
@@ -68,7 +86,7 @@ export async function runAiJobs(
   if (!st.hasKey[st.provider]) return { done, stopped: 'no-key' }
   refreshListRows()
   for (const job of due) {
-    const stop = await runOne(deps, job, st.features[job.kind], now)
+    const stop = await runOne(deps, job, st.features[KIND_FEATURE[job.kind]], now)
     if (stop) return { done, stopped: stop }
     if (stop === null) done.push({ accountId: job.account_id, kind: job.kind })
   }
