@@ -195,6 +195,14 @@ describe('command registry', () => {
     )
   })
 
+  it('goes back and forward with ⌘← / ⌘→ as with ⌘[ / ⌘], and leaves them to a text field', () => {
+    const chords = buildChords('list', { 'history.back': () => {}, 'history.forward': () => {} })
+    const key = (k: string) => ({ key: k, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })
+    expect(chords.map((c) => c.key)).toEqual(['[', 'ArrowLeft', ']', 'ArrowRight'])
+    expect(matchChord(chords, key('ArrowLeft'), false)?.key).toBe('ArrowLeft')
+    expect(matchChord(chords, key('ArrowRight'), true)).toBeUndefined()
+  })
+
   it('leaves ⌘A to a text field, so it still selects the text there', () => {
     const chords = buildChords('list', { 'select.all': () => {}, 'palette.open': () => {} })
     const key = (k: string) => ({ key: k, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })
@@ -258,7 +266,9 @@ describe('command registry', () => {
       ['1', false, false],
       ['9', false, false],
       ['[', false, false],
-      [']', false, false]
+      ['ArrowLeft', false, false],
+      [']', false, false],
+      ['ArrowRight', false, false]
     ])
     expect(buildChords('compose', h)).toEqual([])
     const tabs = shortcutGroups().find((g) => g.title === 'Tabs')!
@@ -380,7 +390,7 @@ describe('withTiming', () => {
       ['i', ['thread']]
     ])
     // Tabs and history work on the search page; Esc there goes back.
-    expect(buildChords('search', { 'history.back': () => {} }).map((c) => c.key)).toEqual(['['])
+    expect(buildChords('search', { 'history.back': () => {} }).map((c) => c.key)).toEqual(['[', 'ArrowLeft'])
     expect(buildBindings('search', { escape: () => {} })[0].modes).toContain('search')
   })
 

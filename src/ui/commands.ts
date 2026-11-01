@@ -195,8 +195,26 @@ export const COMMANDS: Command[] = [
       sheet: d === '1' ? { label: 'Go to tab 1–9', keys: ['⌘', '1–9'] } : false
     })
   ),
-  { id: 'history.back', title: 'Back', group: 'Tabs', palette: true, keys: [{ kind: 'mod', key: '[', modes: NAV_MODES }] },
-  { id: 'history.forward', title: 'Forward', group: 'Tabs', palette: true, keys: [{ kind: 'mod', key: ']', modes: NAV_MODES }] },
+  {
+    id: 'history.back',
+    title: 'Back',
+    group: 'Tabs',
+    palette: true,
+    keys: [
+      { kind: 'mod', key: '[', modes: NAV_MODES },
+      { kind: 'mod', key: 'ArrowLeft', modes: NAV_MODES }
+    ]
+  },
+  {
+    id: 'history.forward',
+    title: 'Forward',
+    group: 'Tabs',
+    palette: true,
+    keys: [
+      { kind: 'mod', key: ']', modes: NAV_MODES },
+      { kind: 'mod', key: 'ArrowRight', modes: NAV_MODES }
+    ]
+  },
 
   { id: 'msg.star', title: 'Star', group: 'Message', keys: [{ kind: 'key', key: 's', modes: LIST_THREAD }] },
   { id: 'msg.read', title: 'Toggle read / unread', group: 'Message', keys: [{ kind: 'key', key: 'u', modes: LIST_THREAD }] },
@@ -288,6 +306,8 @@ const NAMED: Record<string, string> = {
   Escape: 'Esc',
   ArrowUp: '↑',
   ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→',
   Tab: '⇥',
   Space: 'Space'
 }
