@@ -10,8 +10,7 @@ import {
   MAX_AI_LABELS,
   messageLabelNames,
   queueLabelBackfill,
-  saveAiLabel,
-  sidebarLabels
+  saveAiLabel
 } from '../store/aiLabels.js'
 import { closeDb, getDb, initDb } from '../store/db.js'
 import { listView } from '../store/listRows.js'
@@ -71,6 +70,7 @@ describe('custom labels', () => {
   it('refuse a name the search operator cannot carry, a missing description, and an eleventh label', () => {
     expect(() => saveAiLabel({ accountId: 1, name: 'a,b', description: 'x' })).toThrow(/letters/)
     expect(() => saveAiLabel({ accountId: 1, name: 'Ok', description: ' ' })).toThrow(/Describe/)
+    expect(() => saveAiLabel({ accountId: 1, name: 'billing', description: 'x' })).toThrow(/built-in/)
     for (let i = 0; i < MAX_AI_LABELS; i++) saveAiLabel({ accountId: 1, name: `L${i}`, description: 'x' })
     expect(() => saveAiLabel({ accountId: 1, name: 'More', description: 'x' })).toThrow(/up to/)
   })
@@ -179,24 +179,6 @@ describe('the labels queue', () => {
     expect(clearMessageLabels()).toBe(1)
     expect(messageLabelNames(1, '<l1@t>')).toEqual([])
     expect(getDb().prepare('SELECT COUNT(*) AS n FROM ai_labels').get()).toEqual({ n: 1 })
-  })
-})
-
-describe('the sidebar', () => {
-  it('lists the Inbox categories on show, never Other, and every label the inbox defined', () => {
-    saveAiLabel({ accountId: 1, name: 'USCIS', description: 'Immigration mail' })
-    add()
-    add()
-    add({ account: 2 })
-    listView(1)
-    const db = getDb()
-    db.prepare("UPDATE list_rows SET ai_category = 'billing' WHERE thread_key = 'l1'").run()
-    db.prepare("UPDATE list_rows SET ai_category = 'other' WHERE thread_key = 'l2'").run()
-    db.prepare("UPDATE list_rows SET ai_category = 'work' WHERE thread_key = 'l3'").run()
-    expect(sidebarLabels(1)).toEqual({ categories: ['billing'], labels: ['USCIS'] })
-    // A hidden row (reminded, muted) does not keep its category in the list.
-    db.prepare("UPDATE list_rows SET hidden = 1 WHERE thread_key = 'l1'").run()
-    expect(sidebarLabels(1).categories).toEqual([])
   })
 })
 

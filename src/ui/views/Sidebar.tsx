@@ -1,11 +1,13 @@
-import { CheckSquare, Clock, Keyboard, PenSquare, Plus, Search, Settings as SettingsIcon } from 'lucide-react'
+import { useState } from 'react'
+import { CheckSquare, ChevronRight, Clock, Keyboard, PenSquare, Plus, Search, Settings as SettingsIcon } from 'lucide-react'
 import type { AccountSummary } from '../../../electron/preload'
 import { AccountSwitcher } from './AccountSwitcher'
 import type { Folder } from '../../core/store/types'
 import type { FolderRole } from '../../core/store/folderRoles'
 import { folderLabel } from '../format'
 import { folderIcon } from '../folderIcons'
-import type { LabelChipView } from '../labelChips'
+import type { ChipId } from '../chips'
+import type { SidebarLabel } from '../labelChips'
 import { REMINDERS_VIEW_ID, SEARCH_VIEW_ID } from '../store'
 
 interface Props {
@@ -25,13 +27,34 @@ interface Props {
   tasksActive: boolean
   openTasks: number
   unread?: Record<number, number>
-  /** The Labels section: the Inbox's AI categories with mail, then the inbox's own labels. */
-  labels: LabelChipView[]
-  /** The label the list is filtered on (a sidebar pick), if any. */
-  activeLabel: string | null
-  onLabel: (name: string) => void
+  /** Labels every inbox has (Important and the AI categories), always shown. */
+  defaultLabels: SidebarLabel[]
+  /** The inbox's own: Gmail labels, then Settings → AI labels. Collapsed until opened. */
+  yourLabels: SidebarLabel[]
+  /** The chip the Inbox is filtered on when it came from here, else null. */
+  activeChip: ChipId | null
+  onLabel: (chip: ChipId) => void
   /** Settings → AI, where labels are added and edited. */
   onManageLabels: () => void
+}
+
+const YOURS_KEY = 'sovo.sidebar.yourLabels'
+
+/** Whether "Your labels" was left open. A per-window convenience: storage may be unavailable. */
+function readYoursOpen(): boolean {
+  try {
+    return localStorage.getItem(YOURS_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeYoursOpen(open: boolean): void {
+  try {
+    localStorage.setItem(YOURS_KEY, open ? '1' : '0')
+  } catch {
+    // Not remembered; it still toggles.
+  }
 }
 
 /** Special-use folders first, in the order a human expects them. */
@@ -59,16 +82,37 @@ export function Sidebar({
   tasksActive,
   openTasks,
   unread,
-  labels,
-  activeLabel,
+  defaultLabels,
+  yourLabels,
+  activeChip,
   onLabel,
   onManageLabels
 }: Props) {
   // Tasks opens over the current view; while it is open nothing else in the
   // sidebar is the current page.
   const current = tasksActive ? null : activeFolderId
-  const sorted = [...folders].sort(
-    (a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path)
+  const sorted = [...folders].sort((a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path))
+  // Your labels stay folded (Scape's "show more") unless opened, or the list is filtered on one of them.
+  const [yoursOpen, setYoursOpen] = useState(readYoursOpen)
+  const showYours = yoursOpen || yourLabels.some((l) => l.chip === activeChip)
+  const toggleYours = (): void => {
+    setYoursOpen(!showYours)
+    writeYoursOpen(!showYours)
+  }
+  const labelItem = (l: SidebarLabel) => (
+    <li key={l.chip}>
+      <button
+        className="folder-item"
+        aria-current={!tasksActive && activeChip === l.chip}
+        onClick={(e) => {
+          e.currentTarget.blur()
+          onLabel(l.chip)
+        }}
+      >
+        <span className="label-dot" data-tone={l.tone} aria-hidden="true" />
+        <span className="folder-name">{l.name}</span>
+      </button>
+    </li>
   )
 
   return (
@@ -115,29 +159,70 @@ export function Sidebar({
           {email}
         </div>
       )}
-      <ul className="folder-list">
-        {sorted.map((f) => {
-          const Icon = folderIcon(f)
-          const count = unread?.[f.id] ?? 0
-          return (
-            <li key={f.id}>
+      {/* Folders and labels scroll together; Reminders and Tasks stay pinned below. */}
+      <div className="sidebar-nav">
+        <ul className="folder-list">
+          {sorted.map((f) => {
+            const Icon = folderIcon(f)
+            const count = unread?.[f.id] ?? 0
+            return (
+              <li key={f.id}>
+                <button
+                  className="folder-item"
+                  aria-current={f.id === current}
+                  onClick={(e) => {
+                    // Keep focus on the document so j/k keeps working after a click.
+                    e.currentTarget.blur()
+                    onSelect(f.id)
+                  }}
+                >
+                  <Icon className="folder-icon" size={15} strokeWidth={1.75} />
+                  <span className="folder-name">{folderLabel(f)}</span>
+                  {count > 0 && <span className="folder-count">{count}</span>}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+
+        {/* Labels under the folders (Scape's colour dots); each one filters the Inbox. */}
+        <div className="sidebar-labels">
+          <div className="sidebar-labels-head">
+            <span>Labels</span>
+            <button
+              type="button"
+              className="sidebar-labels-add"
+              title="Add or edit labels"
+              aria-label="Add or edit labels"
+              onClick={(e) => {
+                e.currentTarget.blur()
+                onManageLabels()
+              }}
+            >
+              <Plus size={13} strokeWidth={1.75} />
+            </button>
+          </div>
+          <ul className="folder-list">{defaultLabels.map(labelItem)}</ul>
+          {yourLabels.length > 0 && (
+            <>
               <button
-                className="folder-item"
-                aria-current={f.id === current}
+                type="button"
+                className="folder-item sidebar-labels-more"
+                aria-expanded={showYours}
                 onClick={(e) => {
-                  // Keep focus on the document so j/k keeps working after a click.
                   e.currentTarget.blur()
-                  onSelect(f.id)
+                  toggleYours()
                 }}
               >
-                <Icon className="folder-icon" size={15} strokeWidth={1.75} />
-                <span className="folder-name">{folderLabel(f)}</span>
-                {count > 0 && <span className="folder-count">{count}</span>}
+                <ChevronRight className="folder-icon sidebar-labels-chevron" size={14} strokeWidth={1.75} />
+                <span className="folder-name">Your labels</span>
+                <span className="folder-count">{yourLabels.length}</span>
               </button>
-            </li>
-          )
-        })}
-      </ul>
+              {showYours && <ul className="folder-list sidebar-labels-yours">{yourLabels.map(labelItem)}</ul>}
+            </>
+          )}
+        </div>
+      </div>
 
       <div className="sidebar-tasks">
         <button
@@ -163,46 +248,6 @@ export function Sidebar({
           <span className="folder-name">Tasks</span>
           {openTasks > 0 && <span className="folder-count">{openTasks}</span>}
         </button>
-      </div>
-
-      {/* Scape: colour-dot labels near the bottom; each one filters the Inbox. */}
-      <div className="sidebar-labels">
-        <div className="sidebar-labels-head">
-          <span>Labels</span>
-          <button
-            type="button"
-            className="sidebar-labels-add"
-            title="Add or edit labels"
-            aria-label="Add or edit labels"
-            onClick={(e) => {
-              e.currentTarget.blur()
-              onManageLabels()
-            }}
-          >
-            <Plus size={13} strokeWidth={1.75} />
-          </button>
-        </div>
-        {labels.length === 0 ? (
-          <p className="sidebar-labels-empty">Turn on Sort new mail in Settings → AI.</p>
-        ) : (
-          <ul className="folder-list">
-            {labels.map((l) => (
-              <li key={`${l.tone}:${l.name}`}>
-                <button
-                  className="folder-item"
-                  aria-current={!tasksActive && activeLabel?.toLowerCase() === l.name.toLowerCase()}
-                  onClick={(e) => {
-                    e.currentTarget.blur()
-                    onLabel(l.name)
-                  }}
-                >
-                  <span className="label-dot" data-tone={l.tone} aria-hidden="true" />
-                  <span className="folder-name">{l.name}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
 
       <div className="sidebar-footer">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { rowChips } from './labelChips'
+import { DEFAULT_SIDEBAR_LABELS, rowChips, yourSidebarLabels } from './labelChips'
 
 const row = (o: { ai_important?: number | null; ai_category?: string | null; ai_labels?: string | null }) => ({
   ai_important: null,
@@ -36,6 +36,29 @@ describe('rowChips', () => {
       'Important',
       'Work',
       'A'
+    ])
+  })
+})
+
+describe('sidebar labels', () => {
+  it('always lists Important and every category but Other', () => {
+    expect(DEFAULT_SIDEBAR_LABELS.map((l) => l.name)).toEqual([
+      'Important',
+      'Personal',
+      'Work',
+      'Billing',
+      'Notification',
+      'Marketing',
+      'Newsletter',
+      'Calendar',
+      'Support'
+    ])
+  })
+
+  it('puts the server labels before the inbox\'s own, skipping a name a default already has', () => {
+    expect(yourSidebarLabels({ provider: ['Travel'], own: ['USCIS', 'work'] })).toEqual([
+      { name: 'Travel', tone: 'label', chip: 'gmail:Travel' },
+      { name: 'USCIS', tone: 'label', chip: 'label:USCIS' }
     ])
   })
 })

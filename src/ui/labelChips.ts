@@ -1,4 +1,5 @@
 import type { MessageListRow } from '../core/store/types'
+import { gmailChip, labelChip, type ChipId } from './chips'
 
 /**
  * The classifier's categories (src/core/ai/classify.ts AI_CATEGORIES), in its
@@ -48,4 +49,31 @@ export function rowChips(r: Pick<MessageListRow, 'ai_important' | 'ai_category' 
     chips.push({ name, tone: 'label' })
   }
   return chips.slice(0, MAX_ROW_CHIPS)
+}
+
+/** One row of the sidebar's Labels: what it shows and the chip it filters on. */
+export interface SidebarLabel extends LabelChipView {
+  chip: ChipId
+}
+
+/**
+ * The labels every inbox has: Important, then each AI category in the
+ * classifier's order. Other is left out: it says nothing about the mail.
+ */
+export const DEFAULT_SIDEBAR_LABELS: SidebarLabel[] = [
+  { name: 'Important', tone: 'important', chip: labelChip('Important') },
+  ...AI_CATEGORY_NAMES.filter((n) => n !== 'Other').map((n) => ({
+    name: n,
+    tone: n.toLowerCase() as ChipTone,
+    chip: labelChip(n)
+  }))
+]
+
+/** The inbox's own labels for the sidebar: the mail server's (Gmail) first, then the ones defined in Settings → AI. */
+export function yourSidebarLabels(r: { provider: string[]; own: string[] }): SidebarLabel[] {
+  const reserved = new Set(DEFAULT_SIDEBAR_LABELS.map((l) => l.name.toLowerCase()))
+  return [
+    ...r.provider.map((n) => ({ name: n, tone: 'label' as const, chip: gmailChip(n) })),
+    ...r.own.filter((n) => !reserved.has(n.toLowerCase())).map((n) => ({ name: n, tone: 'label' as const, chip: labelChip(n) }))
+  ]
 }

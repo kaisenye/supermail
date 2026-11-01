@@ -1,5 +1,4 @@
 import { getDb } from './db.js'
-import { refreshListRows } from './listRows.js'
 
 /** A label the user defined for one inbox (v22 ai_labels). */
 export interface AiLabel {
@@ -14,6 +13,20 @@ export interface AiLabel {
 export const MAX_AI_LABELS = 10
 /** A new or edited label sorts this much recent Inbox mail. */
 export const LABEL_BACKFILL_MS = 14 * 24 * 3600_000
+
+/** Built-in labels (Important and the classifier's categories): a label of the same name would only repeat one. */
+const RESERVED = new Set([
+  'important',
+  'personal',
+  'work',
+  'billing',
+  'notification',
+  'marketing',
+  'newsletter',
+  'calendar',
+  'support',
+  'other'
+])
 
 /** Letters, digits, spaces, `-`, `_`, `&`, `/` and `.`, so `ai:"Name"` always parses. */
 const NAME_RE = /^[\p{L}\p{N}][\p{L}\p{N} _&/.-]*$/u
@@ -42,6 +55,7 @@ export function saveAiLabel(
   if (!name) throw new Error('A label needs a name')
   if (name.length > 40) throw new Error('Keep the name under 40 characters')
   if (!NAME_RE.test(name)) throw new Error('Use letters, numbers and spaces in the name')
+  if (RESERVED.has(name.toLowerCase())) throw new Error(`${name} is already a built-in label`)
   if (!description) throw new Error('Describe what mail belongs under this label')
   if (description.length > 500) throw new Error('Keep the description under 500 characters')
   const db = getDb()
@@ -135,23 +149,3 @@ export function queueLabelBackfill(accountId: number, now = Date.now(), windowMs
   })()
 }
 
-/**
- * What the sidebar's Labels section lists for an inbox: the classifier's
- * categories that some Inbox conversation on show has ("other" says nothing,
- * so it is left out), and every label the inbox defined, mail or not.
- */
-export function sidebarLabels(accountId: number): { categories: string[]; labels: string[] } {
-  refreshListRows()
-  const db = getDb()
-  const categories = (
-    db
-      .prepare(
-        `SELECT DISTINCT lr.ai_category AS c FROM list_rows lr
-           JOIN folders f ON f.id = lr.folder_id AND f.role = 'inbox'
-          WHERE lr.account_id = ? AND lr.hidden = 0
-            AND lr.ai_category IS NOT NULL AND lr.ai_category <> 'other'`
-      )
-      .all(accountId) as { c: string }[]
-  ).map((r) => r.c)
-  return { categories, labels: listAiLabels(accountId).map((l) => l.name) }
-}

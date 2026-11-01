@@ -14,10 +14,10 @@ import {
   deleteAiLabel,
   listAiLabels,
   queueLabelBackfill,
-  saveAiLabel,
-  sidebarLabels
+  saveAiLabel
 } from '../src/core/store/aiLabels.js'
-import { getMessage, getSettings, getThread, setSetting } from '../src/core/store/repo.js'
+import { gmailLabelChoices } from '../src/core/store/labels.js'
+import { getMessage, getSettings, getThread, listFolders, setSetting } from '../src/core/store/repo.js'
 import { ensureBody } from '../src/core/sync/fetchBody.js'
 import { aiFail, aiWrite, createAiHandlers, type AiWriteInput } from './aiHandlers.js'
 import { resumeAiWorker } from './aiWorker.js'
@@ -69,8 +69,11 @@ export function registerAiIpc(): void {
   // An inbox's own labels (Settings → AI). Saving one re-sorts that inbox's
   // last 14 days in the background, when the classifier is on.
   ipcMain.handle('ai:labels', (_e, accountId: number) => listAiLabels(accountId))
-  // Store read for the sidebar: categories with Inbox mail, plus the inbox's own labels.
-  ipcMain.handle('ai:sidebarLabels', (_e, accountId: number) => sidebarLabels(accountId))
+  // The sidebar's "your labels": the mail server's (Gmail user labels) first, then the inbox's own.
+  ipcMain.handle('ai:sidebarLabels', (_e, accountId: number) => ({
+    provider: getAccount(accountId)?.config.provider === 'gmail' ? gmailLabelChoices(listFolders(accountId)) : [],
+    own: listAiLabels(accountId).map((l) => l.name)
+  }))
   ipcMain.handle('ai:saveLabel', (_e, input: { id?: number; accountId: number; name: string; description: string }) => {
     try {
       if (!getAccount(input.accountId)) throw new Error('No such inbox')

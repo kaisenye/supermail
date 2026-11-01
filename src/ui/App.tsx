@@ -38,7 +38,7 @@ import { AttachmentPreview } from './views/AttachmentPreview'
 import { ZeroModal } from './views/ZeroModal'
 import { ZeroState } from './views/ZeroState'
 import { Settings, type Section as SettingsSection } from './views/Settings'
-import { AI_CATEGORY_NAMES, categoryName, type ChipTone, type LabelChipView } from './labelChips'
+import { DEFAULT_SIDEBAR_LABELS, yourSidebarLabels, type SidebarLabel } from './labelChips'
 import { Tasks } from './views/Tasks'
 import { ShortcutHelp } from './views/ShortcutHelp'
 import { Onboarding } from './views/Onboarding'
@@ -52,7 +52,7 @@ import { appMode, baseMode } from './appMode'
 import { openThreadTarget } from './threadTarget'
 import { positionLabel } from './threadNav'
 import { replySourceId, type ReplyPick } from './aiInsights'
-import { chipLabel, labelChip, viewQuery, type ChipId } from './chips'
+import { viewQuery, type ChipId } from './chips'
 import { nextSplitId, resolveSplitId } from './splitNav'
 import { dayKey, isInboxZero, nextStreak } from './streak'
 import type { FolderRole, MoveTarget } from '../core/store/folderRoles'
@@ -284,8 +284,8 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   /** The page Settings opens on; set by the sidebar's Labels +. */
   const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>()
-  /** The sidebar's Labels: the Inbox's AI categories with mail, then the inbox's own labels. */
-  const [sidebarLabels, setSidebarLabels] = useState<LabelChipView[]>([])
+  /** The sidebar's "Your labels": Gmail labels, then the inbox's own (Settings → AI). */
+  const [yourLabels, setYourLabels] = useState<SidebarLabel[]>([])
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [overlay, setOverlay] = useState<Overlay | null>(null)
   /** threadKeyOf the thread whose messages have loaded; the contact pane waits for it. */
@@ -297,21 +297,14 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
 
   const loadSidebarLabels = useCallback(async () => {
     if (activeAccountId == null) return
-    const r = await window.api.aiSidebarLabels(activeAccountId)
-    const order = AI_CATEGORY_NAMES.map((n) => n.toLowerCase())
-    const cats = [...r.categories].sort((a, b) => order.indexOf(a) - order.indexOf(b))
-    const seen = new Set(cats)
-    setSidebarLabels([
-      ...cats.map((c) => ({ name: categoryName(c), tone: c as ChipTone })),
-      ...r.labels.filter((n) => !seen.has(n.toLowerCase())).map((n) => ({ name: n, tone: 'label' as const }))
-    ])
+    setYourLabels(yourSidebarLabels(await window.api.aiSidebarLabels(activeAccountId)))
   }, [activeAccountId])
   const loadSidebarLabelsRef = useRef(loadSidebarLabels)
   loadSidebarLabelsRef.current = loadSidebarLabels
-  // Labels change in Settings → AI, and categories as mail is sorted.
+  // Labels change in Settings → AI; Gmail's arrive with a sync.
   useEffect(() => {
     if (!settingsOpen) void loadSidebarLabels()
-  }, [settingsOpen, loadSidebarLabels])
+  }, [settingsOpen, folders, loadSidebarLabels])
 
   const refreshTaskCount = useCallback(async () => {
     if (typeof window.api.countOpenTasks !== 'function') return
@@ -1288,13 +1281,13 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
    * the label already on show clears it again.
    */
   const openLabel = useCallback(
-    (name: string) => {
+    (labelChipId: ChipId) => {
       const inbox = useStore.getState().folders.find((f) => f.role === 'inbox')
       if (!inbox) return
       setSettingsOpen(false)
-      const on = chipLabel(useStore.getState().chip)?.toLowerCase() === name.toLowerCase()
+      const on = useStore.getState().chip === labelChipId
       setSplit('all')
-      setChip(on && useStore.getState().activeFolderId === inbox.id ? null : labelChip(name))
+      setChip(on && useStore.getState().activeFolderId === inbox.id ? null : labelChipId)
       void onFolder(inbox.id)
     },
     [setSplit, setChip, onFolder]
@@ -1868,8 +1861,9 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
         tasksActive={tasksOpen}
         openTasks={openTasks}
         unread={unread}
-        labels={sidebarLabels}
-        activeLabel={folders.find((f) => f.id === activeFolderId)?.role === 'inbox' ? chipLabel(chip) : null}
+        defaultLabels={DEFAULT_SIDEBAR_LABELS}
+        yourLabels={yourLabels}
+        activeChip={folders.find((f) => f.id === activeFolderId)?.role === 'inbox' ? chip : null}
         onLabel={openLabel}
         onManageLabels={() => {
           setSettingsSection('ai')

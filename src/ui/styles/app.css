@@ -5380,18 +5380,24 @@ button.sidebar-account svg {
   opacity: 0.5;
 }
 
-/* Sidebar Labels (Scape): colour dots above Settings; each filters the Inbox. */
+/* Folders, then Labels, in one scrolling column above Reminders and Tasks. */
+.sidebar-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sidebar-nav .folder-list {
+  flex: none;
+  overflow: visible;
+}
+
+/* Sidebar Labels (Scape's colour dots) under Trash; each filters the Inbox. */
 .sidebar-labels {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  max-height: 40%;
-  padding: var(--space-2);
-  border-top: 1px solid var(--border-faint);
+  padding: var(--space-3) var(--space-2) var(--space-2);
 }
 
 .sidebar-labels .folder-list {
-  flex: 0 1 auto;
   padding: 0;
 }
 
@@ -5422,11 +5428,18 @@ button.sidebar-account svg {
   color: var(--text-primary);
 }
 
-.sidebar-labels-empty {
-  margin: 0;
-  padding: 0 var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
+/* "Your labels": a fold like Scape's "show more"; the chevron turns when open. */
+.sidebar-labels-chevron {
+  margin: 0 -1px;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.sidebar-labels-more[aria-expanded='true'] .sidebar-labels-chevron {
+  transform: rotate(90deg);
+}
+
+.sidebar-labels-more .folder-count {
+  color: var(--text-quaternary);
 }
 
 .label-dot {
