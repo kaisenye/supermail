@@ -64,7 +64,7 @@ describe('the split-query parser, new operators', () => {
   it('reads ai:<category> from the list row, or an own label on the thread, and only in a list', () => {
     const [p] = parseQuery('ai:Billing', 'list').predicates
     expect(p.sql).toContain('lr.ai_category = ?')
-    expect(p.sql).toContain('FROM ai_message_labels')
+    expect(p.sql).toContain('JOIN ai_message_labels')
     expect(p.params).toEqual(['billing', 'billing'])
     expect(parseQuery('ai:billing').terms).toEqual(['ai:billing'])
   })

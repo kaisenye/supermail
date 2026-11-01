@@ -23,9 +23,10 @@ export function cycleIndex(i: number | null, delta: number, n: number): number |
 }
 
 /** "15 / 201" *(Scape)*: the open conversation's place in the whole view, not just this page. */
-export function positionLabel(index: number, page: number, pageSize: number, total: number): string | null {
+/** "15 / 201": the open conversation's place in the list (one growing list, no pages). */
+export function positionLabel(index: number, total: number): string | null {
   if (index < 0 || total <= 0) return null
-  return `${page * pageSize + index + 1} / ${total}`
+  return `${index + 1} / ${total}`
 }
 
 export type ActiveTarget<A> =

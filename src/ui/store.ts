@@ -3,6 +3,7 @@ import type { Folder, MessageListRow } from '../core/store/types'
 import type { Task } from '../../electron/preload'
 import type { ChipId } from './chips'
 import type { SearchCache } from './searchKeys'
+import { toast } from './toasts'
 
 export interface ComposeAttachment {
   path: string
@@ -106,7 +107,6 @@ interface AppState {
    * apart from syncError: it is not a sync failure, and must not turn the
    * empty list into "Could not load mail" or block the inbox-zero state.
    */
-  actionError: string | null
   setActionError: (error: string | null) => void
   setSyncedOnce: () => void
   openPalette: (ask?: boolean) => void
@@ -164,7 +164,6 @@ export const useStore = create<AppState>((set, get) => ({
   syncing: false,
   syncLabel: null,
   syncError: null,
-  actionError: null,
   hasSyncedOnce: false,
   openThread: null,
   paletteOpen: false,
@@ -229,7 +228,7 @@ export const useStore = create<AppState>((set, get) => ({
         selectedIndex: Math.min(s.selectedIndex, Math.max(0, rows.length - 1)),
         checkedIds: s.checkedIds.filter((id) => !drop.has(id)),
         lastCheckedIndex: null,
-        // The pager and the inbox-zero check read this, not rows.length.
+        // The "15 / 201" position and the inbox-zero check read this, not rows.length.
         totalRows: Math.max(0, s.totalRows - removed.length)
       }
     })
@@ -298,7 +297,10 @@ export const useStore = create<AppState>((set, get) => ({
   clearChecked: () => set({ checkedIds: [], lastCheckedIndex: null }),
   setSync: (syncing, syncLabel = null) => set({ syncing, syncLabel }),
   setSyncError: (syncError) => set({ syncError }),
-  setActionError: (actionError) => set({ actionError }),
+  // Errors from an action are toasts now; the newest replaces the last.
+  setActionError: (actionError) => {
+    if (actionError) toast.error(actionError, { key: 'action' })
+  },
   setSyncedOnce: () => set({ hasSyncedOnce: true }),
   openPalette: (ask = false) => set({ paletteOpen: true, paletteAsk: ask }),
   closePalette: () => set({ paletteOpen: false }),

@@ -265,10 +265,11 @@ export async function syncAccount(
 }
 
 /**
- * Exmail's "other folders" tree (其他文件夹/...) is unused here, and syncing it
- * costs a STATUS round-trip per folder on every pass.
+ * Exmail lists the user's own folders (客户, 询价, …) inside 其他文件夹/, an
+ * empty container. The container is skipped; the folders in it sync like any
+ * other (one STATUS each per pass).
  */
-const IGNORED_PREFIXES = ['其他文件夹']
+const IGNORED_PATHS = ['其他文件夹']
 
 /**
  * One-shot marker for the threading repair. Keyed per account so adding a new
@@ -341,7 +342,7 @@ export async function repairListHeaders(
 }
 
 export function isIgnoredFolder(path: string): boolean {
-  return IGNORED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))
+  return IGNORED_PATHS.includes(path)
 }
 
 /** Stars and \Answered do not show up in STATUS, so sweep occasionally anyway. */

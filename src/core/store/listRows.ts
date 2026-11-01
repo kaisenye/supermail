@@ -165,20 +165,30 @@ const M_COLS = LIST_COLS.split(', ')
   .map((c) => `m.${c}`)
   .join(', ')
 
+/**
+ * `mx.id` is a message of list row `lr`'s thread. A thread key is the
+ * thread_id, or `#<id>` for a message with none. Spelled this way (not
+ * `COALESCE(thread_id, '#' || id) = thread_key`) so SQLite reaches the
+ * thread's messages through idx_messages_account_thread instead of scanning
+ * the account for every row: 0.3 ms against 450 ms for a 2,500-thread Inbox.
+ */
+export const IN_ROW_THREAD = `mx.id IN (
+                SELECT id FROM messages WHERE account_id = lr.account_id AND thread_id = lr.thread_key
+                UNION ALL
+                SELECT CAST(substr(lr.thread_key, 2) AS INTEGER) WHERE substr(lr.thread_key, 1, 1) = '#')`
+
 /** What a list row selects: the newest message's columns plus the thread rollup. */
 export const LIST_ROW_COLS = `${M_COLS}, lr.msg_count AS thread_count, lr.unread_count AS thread_unread,
               lr.reminder_fired AS reminder_fired, lr.sort_date AS sort_date,
               lr.ai_important AS ai_important, lr.ai_category AS ai_category,
-              (SELECT group_concat(DISTINCT al.name) FROM ai_message_labels x
+              (SELECT group_concat(DISTINCT al.name) FROM messages mx
+                 JOIN ai_message_labels x ON x.account_id = mx.account_id AND x.message_id = mx.message_id
                  JOIN ai_labels al ON al.id = x.label_id
-                 JOIN messages mx ON mx.account_id = x.account_id AND mx.message_id = x.message_id
-                WHERE x.account_id = lr.account_id
-                  AND COALESCE(mx.thread_id, '#' || mx.id) = lr.thread_key) AS ai_labels,
-              (SELECT group_concat(DISTINCT l.name) FROM message_labels ml
+                WHERE ${IN_ROW_THREAD}) AS ai_labels,
+              (SELECT group_concat(DISTINCT l.name) FROM messages mx
+                 JOIN message_labels ml ON ml.message_id = mx.id
                  JOIN labels l ON l.id = ml.label_id
-                 JOIN messages mx ON mx.id = ml.message_id
-                WHERE mx.account_id = lr.account_id AND l.account_id = lr.account_id
-                  AND COALESCE(mx.thread_id, '#' || mx.id) = lr.thread_key) AS server_labels`
+                WHERE ${IN_ROW_THREAD}) AS server_labels`
 
 /** One page of a folder, newest conversation first. Hidden rows (reminders, mutes) are left out. */
 export function listView(folderId: number, opts: ListViewOptions = {}): MessageListRow[] {

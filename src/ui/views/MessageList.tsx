@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ChevronLeft, ChevronRight, Clock, Star } from 'lucide-react'
+import { Clock, Star } from 'lucide-react'
 import type { MessageListRow } from '../../core/store/types'
 import { formatDate, isFlagged, isUnread, recipientLabel, senderLabel } from '../format'
 import { rowChips, type LabelChipView, type LabelColors } from '../labelChips'
+import { BrandMark } from './BrandMark'
 import { withDateGroups, type ListItem } from '../listGroups'
 
 const ROW_HEIGHT = 32
+/** Rows from the end at which the next ones are fetched. */
+const LOAD_AHEAD = 15
 /** A bucket header: a small gap above the label, then a hairline. The first one has no gap. */
 const GROUP_HEIGHT = 44
 const FIRST_GROUP_HEIGHT = 32
@@ -20,11 +23,12 @@ interface Props {
   onHover?: (i: number) => void
   onToggleCheck: (id: number, index: number, shiftKey: boolean) => void
   onOpen?: (i: number) => void
-  page?: number
-  pageSize?: number
-  totalRows?: number
+  /** More rows are being fetched (the loader at the bottom shows). */
   loadingMore?: boolean
-  onPage?: (page: number) => void
+  /** False once neither SQLite nor the server has older mail for this view. */
+  hasMore?: boolean
+  /** Scrolled near the end: fetch the next rows and append them. */
+  onLoadMore?: () => void
   emptyTitle?: string
   emptySub?: string
   /** Replaces the empty message entirely (the inbox-zero art). */
@@ -46,11 +50,9 @@ export function MessageList({
   onHover,
   onToggleCheck,
   onOpen,
-  page = 0,
-  pageSize = 50,
-  totalRows = 0,
   loadingMore,
-  onPage,
+  hasMore = false,
+  onLoadMore,
   emptyTitle = 'No messages',
   emptySub,
   emptyNode,
@@ -101,9 +103,8 @@ export function MessageList({
     getScrollElement: () => scrollRef.current,
     estimateSize: (i) =>
       items[i]?.kind === 'header' ? (i === 0 ? FIRST_GROUP_HEIGHT : GROUP_HEIGHT) : ROW_HEIGHT,
-    // Room after the last row: the pager pill floats over the bottom edge and
-    // would otherwise sit on top of it.
-    paddingEnd: 88,
+    // Room after the last row for the loader.
+    paddingEnd: 56,
     overscan: 12
   })
 
@@ -118,41 +119,12 @@ export function MessageList({
 
   const virtualItems = virtualizer.getVirtualItems()
 
-  // A new page replaces the rows, so start it at the top rather than wherever
-  // the previous page happened to be scrolled.
+  // Infinite list: once the rendered rows reach within LOAD_AHEAD of the end,
+  // ask for more. Keyboard moves scroll the list too, so j past the end loads.
+  const lastRendered = virtualItems.length ? virtualItems[virtualItems.length - 1].index : -1
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 0 })
-  }, [page])
-
-  const pager = onPage ? (
-    <div className="pager">
-      <button
-        type="button"
-        disabled={page === 0 || loadingMore}
-        aria-label="Previous page"
-        title="Previous page"
-        onClick={() => onPage(page - 1)}
-      >
-        <ChevronLeft size={14} strokeWidth={2} />
-      </button>
-      {/* Keep the same text while loading: swapping in "Loading…" resizes the
-          pill, and a centred pill then visibly jumps on every page change. */}
-      <span className="pager-status" data-loading={!!loadingMore}>
-        {totalRows
-          ? `${page * pageSize + 1}–${Math.min((page + 1) * pageSize, totalRows)} of ${totalRows}`
-          : `Page ${page + 1}`}
-      </span>
-      <button
-        type="button"
-        disabled={loadingMore || (page + 1) * pageSize >= totalRows}
-        aria-label="Next page"
-        title="Next page"
-        onClick={() => onPage(page + 1)}
-      >
-        <ChevronRight size={14} strokeWidth={2} />
-      </button>
-    </div>
-  ) : null
+    if (onLoadMore && hasMore && !loadingMore && rows.length && lastRendered >= items.length - LOAD_AHEAD) onLoadMore()
+  }, [lastRendered, items.length, rows.length, hasMore, loadingMore, onLoadMore])
 
   if (!rows.length) {
     return (
@@ -165,7 +137,6 @@ export function MessageList({
             </div>
           )}
         </div>
-        {pager}
       </>
     )
   }
@@ -295,9 +266,13 @@ export function MessageList({
             )
           })}
         </div>
+        {loadingMore && (
+          <div className="list-loading" role="status" style={{ top: virtualizer.getTotalSize() - 52 }}>
+            <BrandMark size={16} loading label="Loading older mail" />
+          </div>
+        )}
       </div>
     </div>
-    {pager}
     </>
   )
 }

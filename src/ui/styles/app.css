@@ -246,7 +246,7 @@ button > svg {
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
-  /* Anchors the floating pager. */
+  /* Anchors toasts to the content pane, not the window. */
   position: relative;
 }
 
@@ -1254,35 +1254,8 @@ button > svg {
   color: var(--text-tertiary);
 }
 
-.sync-error-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-4);
-  margin: 0 var(--space-4) var(--space-2);
-  background: color-mix(in srgb, var(--flag) 12%, var(--bg));
-  border: 1px solid color-mix(in srgb, var(--flag) 30%, transparent);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
 
-.sync-error-banner button {
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  line-height: 1;
-  padding: 2px 4px;
-  border-radius: var(--radius-sm);
-  transition:
-    background var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
-}
 
-.sync-error-banner button:hover {
-  color: var(--text-primary);
-  background: var(--surface-hover);
-}
 
 .error-view {
   padding: var(--space-6);
@@ -1674,39 +1647,8 @@ button > svg {
   color: var(--text-quaternary);
 }
 
-/* ---- undo toast ---- */
 
-.undo-toast {
-  position: fixed;
-  bottom: var(--space-5);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 110;
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  background: var(--bg-raised);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  animation: undo-rise var(--duration-base) var(--ease-out);
-}
 
-.undo-toast button {
-  color: var(--accent);
-  font-weight: 600;
-  font-size: var(--text-sm);
-  transition:
-    background var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
-}
-
-.undo-toast button:hover {
-  text-decoration: underline;
-}
 
 @keyframes palette-fade {
   from {
@@ -1728,16 +1670,6 @@ button > svg {
   }
 }
 
-@keyframes undo-rise {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 8px);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, 0);
-  }
-}
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -2563,60 +2495,21 @@ div.compose-body[data-empty='true']::before {
   font-size: var(--text-sm);
 }
 
-/* Floating pill over the list rather than a full-width footer, so it costs no
-   vertical space and stays reachable while the page scrolls. */
-.pager {
+/* The infinite list's loader: centred under the last row while older mail loads. */
+.list-loading {
   position: absolute;
-  bottom: var(--space-4);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 20;
+  left: 0;
+  right: 0;
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-raised);
-  box-shadow: var(--shadow-md);
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-}
-
-.pager button {
-  display: inline-flex;
-  align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  color: var(--text-secondary);
-  transition: background var(--duration-fast) var(--ease-out);
+  padding: var(--space-4) 0;
+  animation: list-loading-in 200ms var(--ease-out) both;
 }
 
-.pager button:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-}
-
-.pager button:disabled {
-  color: var(--text-quaternary);
-  cursor: default;
-}
-
-.pager-status {
-  font-variant-numeric: tabular-nums;
-  padding: 0 var(--space-1);
-  white-space: nowrap;
-  /* Sized for the widest label the counter can reach, because the pill is
-     centre-anchored: any width change shifts it sideways on every page. */
-  min-width: 16ch;
-  text-align: center;
-  transition: opacity var(--duration-fast) var(--ease-out);
-}
-
-.pager-status[data-loading='true'] {
-  opacity: 0.45;
+@keyframes list-loading-in {
+  from {
+    opacity: 0;
+  }
 }
 
 
@@ -3920,22 +3813,6 @@ button.sidebar-account svg {
 }
 
 
-.reauth-banner {
-  display: flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  background: color-mix(in srgb, var(--flag) 12%, var(--bg));
-  border-bottom: 1px solid color-mix(in srgb, var(--flag) 30%, transparent);
-  font-size: var(--text-sm); color: var(--text-primary);
-}
-.reauth-banner span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reauth-banner button {
-  height: 24px; padding: 0 var(--space-3); border-radius: var(--radius-md);
-  border: 1px solid var(--border-strong); background: var(--bg-raised); color: var(--text-primary);
-  font: inherit; font-size: var(--text-sm); cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-out);
-}
-.reauth-banner button:hover { background: var(--surface-hover); }
-.reauth-banner .reauth-dismiss { border-color: transparent; background: transparent; color: var(--text-tertiary); padding: 0 var(--space-2); }
 
 /* ---- remind picker ---- */
 
@@ -5603,4 +5480,199 @@ button.sidebar-account svg {
   border-radius: 50%;
   /* --tone comes from [data-tone]; a default here would override it (same specificity, later rule). */
   background: var(--tone, var(--tone-label));
+}
+
+/* ---- toasts ----------------------------------------------------------------
+   One stack, bottom centre of the content pane (right of the sidebar), never
+   the whole window. Newest in front; older cards peek out behind it, smaller,
+   and fan out on hover. Cards spring in and fade down and out. */
+.toaster {
+  position: fixed;
+  bottom: var(--space-5);
+  left: calc(var(--sidebar-width) + (100vw - var(--sidebar-width)) / 2);
+  z-index: 300;
+  width: min(420px, calc(100vw - var(--sidebar-width) - 32px));
+  transform: translateX(-50%);
+  transition: height 380ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.toaster[data-empty='true'] {
+  pointer-events: none;
+}
+
+.toast {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 8px 8px 14px;
+  overflow: hidden;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  transform: translateY(var(--y, 0px)) scale(var(--s, 1));
+  transform-origin: bottom center;
+  transition:
+    transform 380ms cubic-bezier(0.34, 1.2, 0.64, 1),
+    opacity 220ms var(--ease-out);
+  /* backwards only: once in, transitions own the transform again. */
+  animation: toast-in 380ms cubic-bezier(0.34, 1.2, 0.64, 1) backwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--y, 0px) + 16px)) scale(calc(var(--s, 1) * 0.96));
+  }
+}
+
+.toast[data-leaving='true'] {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(calc(var(--y, 0px) + 8px)) scale(calc(var(--s, 1) * 0.97));
+  transition:
+    transform 220ms var(--ease-out),
+    opacity 220ms var(--ease-out);
+}
+
+.toast[data-hidden='true'] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Cards behind the front one show only their edge. */
+.toast > * {
+  transition: opacity 200ms var(--ease-out);
+}
+
+.toast[data-behind='true'] > * {
+  opacity: 0;
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.toast[data-kind='success'] .toast-icon {
+  color: var(--tone-billing);
+}
+
+.toast[data-kind='warning'] .toast-icon {
+  color: var(--tone-support);
+}
+
+.toast[data-kind='error'] .toast-icon {
+  color: var(--tone-important);
+}
+
+.toast[data-kind='undo'] .toast-icon {
+  color: var(--accent);
+}
+
+.toast-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: var(--leading-tight);
+}
+
+.toast-title,
+.toast-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast-title {
+  font-weight: 500;
+}
+
+.toast-detail {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.toast-action {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.toast-action:hover {
+  background: var(--accent-soft);
+}
+
+.toast-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-quaternary);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.toast-close:hover {
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+
+/* Undo's window draining away along the bottom edge. */
+.toast-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.55;
+  transform-origin: left center;
+  animation: toast-drain linear forwards;
+}
+
+@keyframes toast-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toaster,
+  .toast,
+  .toast > * {
+    transition: none;
+    animation: none;
+  }
+  .toast-progress {
+    animation: none;
+  }
 }

@@ -30,7 +30,8 @@ import { Sidebar } from './views/Sidebar'
 import { Thread, type ThreadHandle } from './views/Thread'
 import { CommandPalette, type PaletteAction } from './views/CommandPalette'
 import { Compose } from './views/Compose'
-import { UndoToast } from './views/UndoToast'
+import { Toaster } from './views/Toaster'
+import { dismissToast, showToast, toast } from './toasts'
 import { RemindPicker } from './views/RemindPicker'
 import { Picker, type PickerItem } from './views/Picker'
 import { ConfirmDialog } from './views/ConfirmDialog'
@@ -52,7 +53,7 @@ import { appMode, baseMode } from './appMode'
 import { openThreadTarget } from './threadTarget'
 import { positionLabel } from './threadNav'
 import { replySourceId, type ReplyPick } from './aiInsights'
-import { viewQuery, type ChipId } from './chips'
+import { chipLabel, viewQuery, type ChipId } from './chips'
 import { nextSplitId, resolveSplitId } from './splitNav'
 import { dayKey, isInboxZero, nextStreak } from './streak'
 import type { FolderRole, MoveTarget } from '../core/store/folderRoles'
@@ -151,6 +152,7 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
     setActiveFolder,
     setRows,
     setPageRows,
+    appendRows,
     restoreRows,
     setSelectedIndex,
     hoverCursor,
@@ -162,7 +164,6 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
     setSync,
     syncError,
     setSyncError,
-    actionError,
     setActionError,
     setSyncedOnce,
     hasSyncedOnce,
@@ -179,8 +180,8 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
     setUnread,
     loadingMore,
     setLoadingMore,
-    page,
-    setPage,
+    exhausted,
+    setExhausted,
     totalRows,
     setTotalRows,
     splitId,
@@ -218,6 +219,22 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
     setUndo(null)
     await u.run()
   }, [setUndo])
+
+  // The undo window is a toast: its bar drains with the hold main keeps on the
+  // action, and running out simply ends the window.
+  useEffect(() => {
+    if (!undo) return dismissToast('undo')
+    showToast({
+      key: 'undo',
+      kind: 'undo',
+      title: undo.label,
+      duration: Math.max(0, undo.expiresAt - Date.now()),
+      action: { label: 'Undo', run: () => void runUndo() },
+      onExpire: () => {
+        if (useStore.getState().undo === undo) setUndo(null)
+      }
+    })
+  }, [undo, runUndo, setUndo])
 
   /** Drafts live outside any folder, so that view has its own query. */
   const isDraftsFolder = useCallback((folderId: number): boolean => {
@@ -265,6 +282,15 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
   const reauth = useCallback(async () => {
     if (reauthEmail && (await signInAgain(reauthEmail))) setReauthEmail(null)
   }, [reauthEmail, signInAgain])
+  // A token that died: a toast that stays until the inbox signs in again.
+  useEffect(() => {
+    if (!reauthEmail) return dismissToast('reauth')
+    toast.warning(`${reauthEmail} needs you to sign in again`, {
+      key: 'reauth',
+      duration: null,
+      action: { label: reauthBusy ? 'Waiting for browser…' : 'Sign in', run: () => void reauth() }
+    })
+  }, [reauthEmail, reauthBusy, reauth])
   /**
    * Root remounts App with a fresh store for the new account: folders, rows,
    * counts, unread and any open thread all belong to the old one, and a new
@@ -410,17 +436,17 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
     [isInbox]
   )
 
-  const fetchPage = useCallback(
-    async (folderId: number, page: number): Promise<MessageListRow[]> => {
+  /** Rows `offset`… of a view, at most `limit`. The list grows by appending what comes after the rows it has. */
+  const fetchRows = useCallback(
+    async (folderId: number, offset: number, limit = PAGE_SIZE): Promise<MessageListRow[]> => {
       // The search page's own results, so j/k and "15 / 201" work in a thread
       // opened from it, and a background refresh keeps them.
-      if (folderId === SEARCH_VIEW_ID) return page === 0 ? (useStore.getState().searchCache?.emails ?? []) : []
-      // Reminders is one local list, not an IMAP folder: no pages, no server.
-      if (folderId === REMINDERS_VIEW_ID) return page === 0 ? window.api.listReminders() : []
-      const offset = page * PAGE_SIZE
+      if (folderId === SEARCH_VIEW_ID) return offset === 0 ? (useStore.getState().searchCache?.emails ?? []) : []
+      // Reminders is one local list, not an IMAP folder: all at once, no server.
+      if (folderId === REMINDERS_VIEW_ID) return offset === 0 ? window.api.listReminders() : []
       return isDraftsFolder(folderId)
-        ? window.api.listDrafts(PAGE_SIZE, offset)
-        : window.api.listMessages(folderId, PAGE_SIZE, offset, currentQuery(folderId))
+        ? window.api.listDrafts(limit, offset)
+        : window.api.listMessages(folderId, limit, offset, currentQuery(folderId))
     },
     [isDraftsFolder, currentQuery]
   )
@@ -438,28 +464,26 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
 
   const loadRows = useCallback(
     async (folderId: number, keepPage = false) => {
-      // A background sync refreshes in place; only an explicit folder switch
-      // should send the user back to page 1.
-      let page = keepPage ? useStore.getState().page : 0
-      let rows = await fetchPage(folderId, page)
+      // A background sync re-reads everything already scrolled in, so the
+      // list keeps its length and scroll; a folder switch starts from the top.
+      const limit = keepPage ? Math.max(PAGE_SIZE, useStore.getState().rows.length) : PAGE_SIZE
+      const view = currentQuery(folderId)
+      const rows = await fetchRows(folderId, 0, limit)
       const total =
         folderId === REMINDERS_VIEW_ID || folderId === SEARCH_VIEW_ID
           ? rows.length
           : await window.api.countMessages(folderId, currentQuery(folderId))
-      // Emptying a later page (select all, Done) steps back to the last page
-      // that still has mail, rather than showing an empty list over a full one.
-      if (!rows.length && page > 0 && total > 0) {
-        page = Math.min(page, Math.ceil(total / PAGE_SIZE) - 1)
-        rows = await fetchPage(folderId, page)
-      }
-      // The user moved on (another folder, or another account's fresh mount)
-      // while this read was in flight: its rows are not the list on screen.
-      if (useStore.getState().activeFolderId !== folderId) return
+      // The user moved on (another folder, split, chip or label, or another
+      // account's fresh mount) while this read was in flight: its rows are not
+      // the list on screen. Rapid label clicks would otherwise land out of order.
+      if (useStore.getState().activeFolderId !== folderId || currentQuery(folderId) !== view) return
       // keepPage means a refresh under the user (sync, new mail): keep the
-      // selection. Only a real folder or page change resets it.
+      // selection. Only a real folder change resets it.
       if (keepPage) setRows(rows)
-      else setPageRows(rows)
-      setPage(page)
+      else {
+        setPageRows(rows)
+        setExhausted(false)
+      }
       setTotalRows(total)
       void refreshUnread()
       const st = useStore.getState()
@@ -467,7 +491,7 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
       if (isInboxZero({ plainInbox, total, hasSyncedOnce: st.hasSyncedOnce, syncError: st.syncError }))
         void recordZero()
     },
-    [fetchPage, setRows, setPageRows, setPage, setTotalRows, refreshUnread, currentQuery, isInbox, recordZero]
+    [fetchRows, setRows, setPageRows, setExhausted, setTotalRows, refreshUnread, currentQuery, isInbox, recordZero]
   )
 
   const loadRowsRef = useRef(loadRows)
@@ -489,8 +513,8 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
   )
 
   /**
-   * Optimistic removal. When it empties the page, re-read: the next page's
-   * mail moves up, and an empty plain Inbox records the zero streak (loadRows
+   * Optimistic removal. When it empties the list, re-read: older mail moves
+   * up, and an empty plain Inbox records the zero streak (loadRows
    * owns that). SQLite already reflects the move, so the re-read is accurate.
    */
   const dropRows = useCallback(
@@ -523,50 +547,50 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
   }, [settingsOpen, setSplit])
 
   /**
-   * Repaint the current page in place. A thread rollup cannot be patched from
-   * one message's flags, so a thread-wide change has to re-read the page.
+   * Repaint the rows on screen in place. A thread rollup cannot be patched
+   * from one message's flags, so a thread-wide change has to re-read them.
    */
   const refreshRows = useCallback(async () => {
-    const { activeFolderId: f, page } = useStore.getState()
+    const { activeFolderId: f, rows } = useStore.getState()
     if (!f) return
-    // setRows, not setPageRows: the page has not changed, so the cursor and
-    // any checked rows that still exist have to survive.
-    setRows(await fetchPage(f, page))
-  }, [fetchPage, setRows])
+    // setRows, not setPageRows: the cursor and any checked rows that still
+    // exist have to survive.
+    setRows(await fetchRows(f, 0, Math.max(PAGE_SIZE, rows.length)))
+  }, [fetchRows, setRows])
 
   /**
-   * Jump to a page. When a page lands past what SQLite holds, reach further
-   * back on the server first — the initial sync window is not the whole
-   * mailbox, so running out locally does not mean running out of mail.
+   * The list scrolled near its end: append the next rows. When SQLite has no
+   * more, reach further back on the server first (the initial sync window is
+   * not the whole mailbox); only when the server has none either is the list
+   * exhausted.
    */
-  const goToPage = useCallback(
-    async (next: number) => {
-      const s = useStore.getState()
-      const folderId = s.activeFolderId
-      if (!folderId || s.loadingMore || next < 0) return
-      setLoadingMore(true)
-      try {
-        let rows = await fetchPage(folderId, next)
-        // Only a real folder can reach further back on the server.
-        if (!rows.length && next > 0 && !isDraftsFolder(folderId) && folderId > 0) {
-          const older = await window.api.loadOlder(folderId, PAGE_SIZE)
-          if (!older.ok) {
-            setSyncError(older.error)
-            return
-          }
-          if (!older.messages) return
-          rows = await fetchPage(folderId, next)
+  const loadMore = useCallback(async () => {
+    const s = useStore.getState()
+    const folderId = s.activeFolderId
+    if (!folderId || s.loadingMore || s.exhausted) return
+    setLoadingMore(true)
+    try {
+      const offset = s.rows.length
+      let rows = await fetchRows(folderId, offset)
+      // Only a real folder can reach further back on the server.
+      if (!rows.length && !isDraftsFolder(folderId) && folderId > 0) {
+        const older = await window.api.loadOlder(folderId, PAGE_SIZE)
+        if (!older.ok) {
+          setSyncError(older.error)
+          return
+        }
+        if (older.messages) {
+          rows = await fetchRows(folderId, offset)
           setTotalRows(await window.api.countMessages(folderId, currentQuery(folderId)))
         }
-        if (!rows.length) return
-        setPageRows(rows)
-        setPage(next)
-      } finally {
-        setLoadingMore(false)
       }
-    },
-    [fetchPage, isDraftsFolder, setLoadingMore, setPageRows, setPage, setTotalRows, setSyncError, currentQuery]
-  )
+      if (useStore.getState().activeFolderId !== folderId) return
+      if (rows.length) appendRows(rows)
+      else setExhausted(true)
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [fetchRows, isDraftsFolder, setLoadingMore, appendRows, setExhausted, setTotalRows, setSyncError, currentQuery])
 
   const backgroundSync = useCallback(async () => {
     const before = useStore.getState()
@@ -589,6 +613,17 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
       setSyncError(res.error)
     }
   }, [loadRows, setSyncError, refreshUnread])
+
+  // A failed sync stays up until a later sync works, with Retry beside it.
+  useEffect(() => {
+    if (!syncError) return dismissToast('sync')
+    toast.error('Sync failed', {
+      key: 'sync',
+      detail: syncError,
+      duration: null,
+      action: { label: 'Retry', run: () => void backgroundSync() }
+    })
+  }, [syncError, backgroundSync])
 
   useEffect(() => {
     const SYNC_INTERVAL = 60_000
@@ -1616,15 +1651,6 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
           void window.api.setSettings({ list_group_by_date: on ? '1' : '0' })
         },
         'select.all': () => setCheckedAll(useStore.getState().rows.map((r) => r.id)),
-        // The pager's ‹ and ›, with the same limits.
-        'page.prev': () => {
-          const s = useStore.getState()
-          if (s.page > 0) void goToPage(s.page - 1)
-        },
-        'page.next': () => {
-          const s = useStore.getState()
-          if ((s.page + 1) * PAGE_SIZE < s.totalRows) void goToPage(s.page + 1)
-        },
         'select.extendDown': () => extendSelection(1),
         'select.extendUp': () => extendSelection(-1),
         ...(Object.fromEntries(
@@ -1674,8 +1700,7 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
       viewNow,
       showWorkspace,
       stepWorkspace,
-      stepConversation,
-      goToPage
+      stepConversation
     ]
   )
 
@@ -1874,6 +1899,11 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
         onSelect={(id) => {
           setTasksOpen(false)
           setSettingsOpen(false)
+          // Leaving a label view: the folder opens unfiltered (all its mail).
+          if (chipLabel(useStore.getState().chip) !== null) {
+            setChip(null)
+            setSplit('all')
+          }
           onFolder(id)
         }}
         onSettings={() => setSettingsOpen(true)}
@@ -1936,21 +1966,6 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
             <SyncProgress {...bar} />
           </div>
         )}
-        {reauthEmail && (
-          <div className="reauth-banner" role="alert">
-            <span>{reauthEmail} needs you to sign in again.</span>
-            <button onClick={() => void reauth()} disabled={reauthBusy}>
-              {reauthBusy ? 'Waiting for browser…' : 'Sign in'}
-            </button>
-            <button
-              className="reauth-dismiss"
-              onClick={() => setReauthEmail(null)}
-              aria-label="Dismiss"
-            >
-              ×
-            </button>
-          </div>
-        )}
         {compose && !composeInline ? (
           composer
         ) : tasksOpen ? (
@@ -1962,7 +1977,7 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
               threadId={openThread.threadId}
               focusMessageId={openThread.messageId}
               accountId={openThread.accountId}
-              position={positionLabel(openThreadTarget(rows, openThread).index, page, PAGE_SIZE, totalRows)}
+              position={positionLabel(openThreadTarget(rows, openThread).index, totalRows)}
               onPrevConversation={() => stepConversation(-1)}
               onNextConversation={() => stepConversation(1)}
               onBack={closeThread}
@@ -1996,7 +2011,6 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
               if (!r.thread_id) return
               // The results become the list under the thread, like a folder's rows.
               setPageRows(emails)
-              setPage(0)
               setTotalRows(emails.length)
               setSelectedIndex(Math.max(0, emails.indexOf(r)))
               openThreadAndRead(r.thread_id, r.id, r.account_id)
@@ -2005,22 +2019,6 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
           />
         ) : (
           <>
-            {syncError && (
-              <div className="sync-error-banner" role="alert">
-                <span>Sync failed: {syncError}</span>
-                <button onClick={() => setSyncError(null)} aria-label="Dismiss">
-                  ✕
-                </button>
-              </div>
-            )}
-            {actionError && (
-              <div className="sync-error-banner" role="alert">
-                <span>{actionError}</span>
-                <button onClick={() => setActionError(null)} aria-label="Dismiss">
-                  ✕
-                </button>
-              </div>
-            )}
             {active && active.role !== 'drafts' && (
               <SplitBar
                 splits={active.role === 'inbox' ? splits : null}
@@ -2055,8 +2053,6 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
                 </div>
               </div>
             ) : (
-              /* Rendered even when empty: swapping it out for an empty-state
-                 div would unmount the pager and make it flash on every page. */
               <MessageList
                 labelColors={labelColors}
                 // A new folder, split or chip remounts the list, so it fades in
@@ -2093,11 +2089,9 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
                 onHover={hoverCursor}
                 onToggleCheck={onToggleCheck}
                 onOpen={openRow}
-                page={page}
-                pageSize={PAGE_SIZE}
-                totalRows={totalRows}
                 loadingMore={loadingMore}
-                onPage={(n) => void goToPage(n)}
+                hasMore={!exhausted}
+                onLoadMore={() => void loadMore()}
               />
             )}
           </>
@@ -2227,14 +2221,7 @@ export default function App({ onSwitchAccount, onPainted }: AppProps) {
           />
         </div>
       )}
-      {undo && (
-        <UndoToast
-          expiresAt={undo.expiresAt}
-          label={undo.label}
-          onUndo={() => void runUndo()}
-          onDismiss={() => setUndo(null)}
-        />
-      )}
+      <Toaster />
     </div>
   )
 }

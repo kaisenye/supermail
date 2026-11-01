@@ -6,7 +6,7 @@ import type { Folder } from '../../core/store/types'
 import type { FolderRole } from '../../core/store/folderRoles'
 import { folderLabel } from '../format'
 import { folderIcon } from '../folderIcons'
-import type { ChipId } from '../chips'
+import { chipLabel, type ChipId } from '../chips'
 import type { SidebarLabel } from '../labelChips'
 import { REMINDERS_VIEW_ID, SEARCH_VIEW_ID } from '../store'
 
@@ -94,6 +94,8 @@ export function Sidebar({
   // sidebar is the current page.
   const current = tasksActive ? null : activeFolderId
   const sorted = [...folders].sort((a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path))
+  // A label view is its own place: the label is highlighted, not the Inbox under it.
+  const labelOn = chipLabel(activeChip) !== null
   // Your labels stay folded (Scape's "show more") unless opened, or the list is filtered on one of them.
   const [yoursOpen, setYoursOpen] = useState(readYoursOpen)
   const showYours = yoursOpen || yourLabels.some((l) => l.chip === activeChip)
@@ -177,7 +179,7 @@ export function Sidebar({
               <li key={f.id}>
                 <button
                   className="folder-item"
-                  aria-current={f.id === current}
+                  aria-current={f.id === current && !labelOn}
                   onClick={(e) => {
                     // Keep focus on the document so j/k keeps working after a click.
                     e.currentTarget.blur()

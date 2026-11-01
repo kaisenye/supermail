@@ -132,14 +132,15 @@ function operatorPred(field: string, value: string, ctx: QueryContext): Pred | n
       params: [v, v]
     }
   }
-  // A Gmail label on any message of the thread, as on its row's chips.
+  // A Gmail label on any message of the thread, as on its row's chips. Not
+  // correlated, like ai: above: 1 ms where a per-row EXISTS took over a second.
   if (field === 'label' && ctx === 'list')
     return {
-      sql: `EXISTS (SELECT 1 FROM message_labels ml
-                      JOIN labels l ON l.id = ml.label_id
-                      JOIN messages mx ON mx.id = ml.message_id
-                     WHERE mx.account_id = lr.account_id AND l.account_id = lr.account_id AND lower(l.name) = ?
-                       AND COALESCE(mx.thread_id, '#' || mx.id) = lr.thread_key)`,
+      sql: `(lr.account_id, lr.thread_key) IN (
+              SELECT mx.account_id, COALESCE(mx.thread_id, '#' || mx.id) FROM labels l
+                JOIN message_labels ml ON ml.label_id = l.id
+                JOIN messages mx ON mx.id = ml.message_id AND mx.account_id = l.account_id
+               WHERE lower(l.name) = ?)`,
       params: [v]
     }
   if (field === 'label')
@@ -152,12 +153,13 @@ function operatorPred(field: string, value: string, ctx: QueryContext): Pred | n
   // (v22) on any message of the thread. List context only: it reads list_rows.
   if (field === 'ai' && ctx === 'list')
     return {
-      sql: `(lr.ai_category = ? OR EXISTS (
-              SELECT 1 FROM ai_message_labels x
-                JOIN ai_labels al ON al.id = x.label_id
+      // Not correlated: the labelled threads are found once, then matched by
+      // (account, thread key) through idx_list_rows_thread.
+      sql: `(lr.ai_category = ? OR (lr.account_id, lr.thread_key) IN (
+              SELECT x.account_id, COALESCE(mx.thread_id, '#' || mx.id) FROM ai_labels al
+                JOIN ai_message_labels x ON x.label_id = al.id
                 JOIN messages mx ON mx.account_id = x.account_id AND mx.message_id = x.message_id
-               WHERE x.account_id = lr.account_id AND al.name = ?
-                 AND COALESCE(mx.thread_id, '#' || mx.id) = lr.thread_key))`,
+               WHERE al.name = ?))`,
       params: [v, v]
     }
   if (field === 'before' || field === 'after') {

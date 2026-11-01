@@ -100,7 +100,7 @@ describe('store wiring', () => {
   it('refreshes in place without clearing the selection', () => {
     const app = readFileSync(join(__dirname, 'App.tsx'), 'utf8')
     expect(app).toContain('if (keepPage) setRows(rows)')
-    expect(app).toMatch(/refreshRows[\s\S]{0,400}setRows\(await fetchPage/)
+    expect(app).toMatch(/refreshRows[\s\S]{0,400}setRows\(await fetchRows/)
   })
 })
 

@@ -23,11 +23,11 @@ describe('thread navigation', () => {
     expect(cycleIndex(null, 1, 0)).toBeNull()
   })
 
-  it('counts the position across pages', () => {
-    expect(positionLabel(4, 0, 50, 201)).toBe('5 / 201')
-    expect(positionLabel(14, 2, 50, 201)).toBe('115 / 201')
-    expect(positionLabel(-1, 0, 50, 201)).toBeNull()
-    expect(positionLabel(0, 0, 50, 0)).toBeNull()
+  it('counts the position in the one growing list', () => {
+    expect(positionLabel(4, 201)).toBe('5 / 201')
+    expect(positionLabel(114, 201)).toBe('115 / 201')
+    expect(positionLabel(-1, 201)).toBeNull()
+    expect(positionLabel(0, 0)).toBeNull()
   })
 })
 

@@ -1,3 +1,4 @@
+import { useToasts } from './toasts'
 import { describe, expect, it } from 'vitest'
 import { useStore } from './store.js'
 import { isInboxZero } from './streak.js'
@@ -40,7 +41,8 @@ describe('action errors are not sync errors', () => {
     useStore.setState({ syncError: null })
     useStore.getState().setActionError('Labels are Gmail only')
     const st = useStore.getState()
-    expect(st.actionError).toBe('Labels are Gmail only')
+    // It shows as an error toast instead.
+    expect(useToasts.getState().toasts.map((t) => [t.kind, t.title])).toEqual([['error', 'Labels are Gmail only']])
     expect(st.syncError).toBeNull()
     expect(
       isInboxZero({ plainInbox: true, total: 0, hasSyncedOnce: true, syncError: st.syncError })
